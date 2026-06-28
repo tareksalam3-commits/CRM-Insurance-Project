@@ -28,7 +28,8 @@ const customerSchema = z.object({
   address: z.string().optional(),
   birth_date: z.string().optional(),
   occupation: z.string().optional(),
-  marital_status: z.enum(['single', 'married', 'divorced', 'widowed']).optional()
+  marital_status: z.enum(['single', 'married', 'divorced', 'widowed']).optional(),
+  owner_id: z.string().optional()
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -37,6 +38,7 @@ export function Customers() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -61,8 +63,24 @@ export function Customers() {
   useEffect(() => {
     if (user) {
       loadCustomers();
+      loadAgents();
     }
   }, [user, page, searchQuery]);
+
+  const loadAgents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, role')
+        .in('role', ['agent', 'premium_agent', 'group_leader', 'supervisor'])
+        .eq('is_active', true);
+
+      if (error) throw error;
+      setAgents(data || []);
+    } catch (error) {
+      console.error('Error loading agents:', error);
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -116,10 +134,12 @@ export function Customers() {
         address: customer.address || '',
         birth_date: customer.birth_date || '',
         occupation: customer.occupation || '',
-        marital_status: customer.marital_status || undefined
+        marital_status: customer.marital_status || undefined,
+        owner_id: customer.owner_id || ''
       });
     } else {
       setEditingCustomer(null);
+      const defaultOwnerId = user?.role === 'agent' || user?.role === 'premium_agent' ? user?.id : '';
       reset({
         name: '',
         national_id: '',
@@ -127,7 +147,8 @@ export function Customers() {
         address: '',
         birth_date: '',
         occupation: '',
-        marital_status: undefined
+        marital_status: undefined,
+        owner_id: defaultOwnerId
       });
     }
     setShowModal(true);
@@ -149,6 +170,7 @@ export function Customers() {
           .from('customers')
           .update({
             ...data,
+            owner_id: data.owner_id || editingCustomer.owner_id,
             updated_at: new Date().toISOString()
           })
           .eq('id', editingCustomer.id);
@@ -167,7 +189,7 @@ export function Customers() {
           .from('customers')
           .insert({
             ...data,
-            owner_id: user.id
+            owner_id: data.owner_id || user.id
           });
 
         if (error) throw error;
@@ -447,6 +469,18 @@ export function Customers() {
                   ))}
                 </select>
               </div>
+
+              {(user?.role === 'development_manager' || user?.role === 'general_supervisor' || user?.role === 'super_admin') && (
+                <div className="form-group">
+                  <label className="input-label">الوكيل</label>
+                  <select {...register('owner_id')} className="input-field">
+                    <option value="">اختر الوكيل</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
                 <button

@@ -150,7 +150,7 @@ export function Policies() {
         policy_type: 'quadruple',
         start_date: format(new Date(), 'yyyy-MM-dd'),
         payment_method: 'monthly',
-        premium_amount: 0,
+        premium_amount: '' as any,
         notes: ''
       });
     }
@@ -554,7 +554,7 @@ export function Policies() {
                     <input
                       {...register('premium_amount', { valueAsNumber: true })}
                       type="number"
-                      min="1"
+                      min="0"
                       className={clsx('input-field pl-16', errors.premium_amount && 'border-error-500')}
                       placeholder="أدخل قيمة القسط"
                     />

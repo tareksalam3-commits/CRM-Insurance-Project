@@ -40,6 +40,10 @@ export function Collection() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null);
+  const [policyInstallments, setPolicyInstallments] = useState<InstallmentWithRelations[]>([]);
+  const [loadingPolicyInstallments, setLoadingPolicyInstallments] = useState(false);
   const pageSize = 10;
 
   useEffect(() => {
@@ -115,6 +119,38 @@ export function Collection() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadPolicyInstallments = async (policyId: string) => {
+    setLoadingPolicyInstallments(true);
+    try {
+      const { data, error } = await supabase
+        .from('installments')
+        .select(`
+          *,
+          policy:policy_id(
+            *,
+            customer:customer_id(name),
+            owner:owner_id(name)
+          )
+        `)
+        .eq('policy_id', policyId)
+        .order('installment_number', { ascending: true });
+
+      if (error) throw error;
+      setPolicyInstallments(data as InstallmentWithRelations[]);
+    } catch (error) {
+      console.error('Error loading policy installments:', error);
+      alert('حدث خطأ أثناء تحميل الأقساط');
+    } finally {
+      setLoadingPolicyInstallments(false);
+    }
+  };
+
+  const handleOpenPolicyDetails = (policy: Policy) => {
+    setSelectedPolicy(policy);
+    setShowPolicyModal(true);
+    loadPolicyInstallments(policy.id);
   };
 
   const handleOpenPayment = (installment: InstallmentWithRelations) => {
@@ -351,6 +387,13 @@ export function Collection() {
                       <td>{(installment.policy as any)?.owner?.name || '-'}</td>
                       <td>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenPolicyDetails((installment.policy as any))}
+                            className="btn btn-ghost btn-sm"
+                            title="عرض جميع أقساط الوثيقة"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
                           {installment.status !== 'paid' && (
                             <button
                               onClick={() => handleOpenPayment(installment)}
@@ -516,6 +559,119 @@ export function Collection() {
                   {processingPayment ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPolicyModal && selectedPolicy && (
+        <div className="modal-overlay" onClick={() => setShowPolicyModal(false)}>
+          <div
+            className="modal-content max-w-2xl animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
+              <h3 className="text-lg font-semibold text-secondary-900">
+                جميع أقساط الوثيقة: {selectedPolicy.policy_number}
+              </h3>
+              <button
+                onClick={() => setShowPolicyModal(false)}
+                className="p-2 rounded-lg hover:bg-secondary-100"
+              >
+                <X className="w-5 h-5 text-secondary-600" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {loadingPolicyInstallments ? (
+                <div className="flex items-center justify-center h-48">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                </div>
+              ) : policyInstallments.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-secondary-500">لا توجد أقساط لهذه الوثيقة</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-secondary-200">
+                        <th className="text-right py-2 px-3">رقم القسط</th>
+                        <th className="text-right py-2 px-3">القيمة</th>
+                        <th className="text-right py-2 px-3">تاريخ الاستحقاق</th>
+                        <th className="text-right py-2 px-3">الحالة</th>
+                        <th className="text-right py-2 px-3">تاريخ السداد</th>
+                        <th className="text-center py-2 px-3">إجراء</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {policyInstallments.map((installment) => (
+                        <tr key={installment.id} className="border-b border-secondary-100 hover:bg-secondary-50">
+                          <td className="py-3 px-3">
+                            <span className="flex items-center gap-1">
+                              {installment.installment_number}
+                              {installment.is_first && (
+                                <span className="badge badge-info text-[10px]">الأول</span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 font-semibold">{formatCurrency(installment.amount)}</td>
+                          <td className="py-3 px-3">{format(new Date(installment.due_date), 'dd/MM/yyyy')}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={clsx(
+                                'badge',
+                                installment.status === 'paid' ? 'badge-success' :
+                                installment.status === 'overdue' ? 'badge-error' : 'badge-warning'
+                              )}
+                            >
+                              {INSTALLMENT_STATUS_LABELS[installment.status]}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            {installment.paid_at
+                              ? format(new Date(installment.paid_at), 'dd/MM/yyyy')
+                              : '-'}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {installment.status !== 'paid' && (
+                              <button
+                                onClick={() => {
+                                  handleOpenPayment(installment);
+                                  setShowPolicyModal(false);
+                                }}
+                                className="btn btn-primary btn-sm"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
+                            {installment.status === 'paid' && (
+                              <button
+                                onClick={() => {
+                                  handleOpenCancel(installment);
+                                  setShowPolicyModal(false);
+                                }}
+                                className="btn btn-secondary btn-sm"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 p-6 border-t border-secondary-200">
+              <button
+                onClick={() => setShowPolicyModal(false)}
+                className="btn btn-secondary"
+              >
+                إغلاق
+              </button>
             </div>
           </div>
         </div>

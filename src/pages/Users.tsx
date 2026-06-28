@@ -132,7 +132,7 @@ export function Users() {
         phone: '',
         role: 'agent',
         manager_id: null,
-        target: 0
+        target: '' as any
       });
     }
     setShowModal(true);
