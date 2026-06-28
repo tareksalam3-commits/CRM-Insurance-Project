@@ -219,7 +219,7 @@ export function Users() {
       if (error.code === '23505' || error.message?.includes('already registered')) {
         alert('البريد الإلكتروني مسجل مسبقاً');
       } else {
-        alert('حدث خطأ أثناء الحفظ');
+        alert(`حدث خطأ أثناء الحفظ: ${error.message || 'خطأ غير معروف'}`);
       }
     } finally {
       setSaving(false);
