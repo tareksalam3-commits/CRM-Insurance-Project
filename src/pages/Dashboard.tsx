@@ -432,13 +432,13 @@ export function Dashboard() {
                   cx="50%"
                   cy="50%"
                   outerRadius={80}
-                  label={({ name, value }: { name: string; value: number }) => `${name}: ${formatCurrency(value)}`}
+                  label={({ name, value }: any) => `${name}: ${formatCurrency(value)}`}
                 >
                   <Cell fill="#22c55e" />
                   <Cell fill="#3b82f6" />
                 </Pie>
                 <Tooltip
-                  formatter={(value: number) => formatCurrency(value)}
+                  formatter={(value: any) => formatCurrency(value)}
                   contentStyle={{
                     direction: 'rtl',
                     borderRadius: '8px',

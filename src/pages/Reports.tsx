@@ -387,7 +387,7 @@ export function Reports() {
                   <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                   <YAxis stroke="#64748b" fontSize={12} />
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: any) => formatCurrency(value)}
                     contentStyle={{
                       direction: 'rtl',
                       borderRadius: '8px',
