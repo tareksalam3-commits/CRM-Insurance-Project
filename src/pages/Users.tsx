@@ -183,7 +183,10 @@ export function Users() {
 
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
-        const response = await fetch(`${supabaseUrl}/functions/v1/create-user`, {
+        // كلمة المرور الافتراضية للمستخدمين الجدد
+        const tempPassword = '123456';
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -192,6 +195,7 @@ export function Users() {
           body: JSON.stringify({
             name: data.name,
             email: data.email,
+            password: tempPassword,
             phone: data.phone || null,
             role: data.role,
             manager_id: data.manager_id || null,
@@ -209,7 +213,7 @@ export function Users() {
           throw new Error(msg);
         }
 
-        alert(`✅ تم إنشاء المستخدم بنجاح!\nالبريد: ${data.email}\nكلمة المرور المؤقتة: ${result.tempPassword}\nيرجى إبلاغ المستخدم بتغييرها فوراً`);
+        alert(`✅ تم إنشاء المستخدم بنجاح!\nالبريد: ${data.email}\nكلمة المرور الافتراضية: ${tempPassword}`);
       }
 
       handleCloseModal();
