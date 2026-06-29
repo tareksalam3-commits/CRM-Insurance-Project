@@ -10,16 +10,18 @@ import clsx from 'clsx';
 
 const queryClient = new QueryClient();
 
-const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
-const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
-const Policies = lazy(() => import('./pages/Policies').then(m => ({ default: m.Policies })));
-const Collection = lazy(() => import('./pages/Collection').then(m => ({ default: m.Collection })));
-const Users = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
-const Reports = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
+const Dashboard    = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Customers    = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
+const Policies     = lazy(() => import('./pages/Policies').then(m => ({ default: m.Policies })));
+// ✅ صفحة تفاصيل الوثيقة الجديدة
+const PolicyDetail = lazy(() => import('./pages/PolicyDetail').then(m => ({ default: m.PolicyDetail })));
+const Collection   = lazy(() => import('./pages/Collection').then(m => ({ default: m.Collection })));
+const Users        = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
+const Reports      = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
 const MonthlyClosing = lazy(() => import('./pages/MonthlyClosing').then(m => ({ default: m.MonthlyClosing })));
-const ActivityLog = lazy(() => import('./pages/ActivityLog').then(m => ({ default: m.ActivityLog })));
-const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
-const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const ActivityLog  = lazy(() => import('./pages/ActivityLog').then(m => ({ default: m.ActivityLog })));
+const Profile      = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
+const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 
 function LoadingSpinner() {
   return (
@@ -58,16 +60,18 @@ function AppLayout() {
         <div className="max-w-7xl mx-auto mt-4">
           <Suspense fallback={<LoadingSpinner />}>
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/policies" element={<Policies />} />
-              <Route path="/collection" element={<Collection />} />
-              <Route path="/users" element={<Users />} />
-              <Route path="/reports" element={<Reports />} />
+              <Route path="/"                element={<Dashboard />} />
+              <Route path="/customers"       element={<Customers />} />
+              <Route path="/policies"        element={<Policies />} />
+              {/* ✅ Route جديد لتفاصيل الوثيقة */}
+              <Route path="/policies/:id"    element={<PolicyDetail />} />
+              <Route path="/collection"      element={<Collection />} />
+              <Route path="/users"           element={<Users />} />
+              <Route path="/reports"         element={<Reports />} />
               <Route path="/monthly-closing" element={<MonthlyClosing />} />
-              <Route path="/activity-log" element={<ActivityLog />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/activity-log"    element={<ActivityLog />} />
+              <Route path="/profile"         element={<Profile />} />
+              <Route path="/settings"        element={<Settings />} />
             </Routes>
           </Suspense>
         </div>
@@ -83,7 +87,7 @@ function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/*" element={<AppLayout />} />
+            <Route path="/*"     element={<AppLayout />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>
