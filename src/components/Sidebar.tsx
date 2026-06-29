@@ -16,7 +16,7 @@ import {
   Shield
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { ROLE_LABELS, getRoleLevel, canViewSettings } from '../lib/supabase';
+import { ROLE_LABELS, getRoleLevel, canViewSettings, canManageUsers } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 import clsx from 'clsx';
 
@@ -51,7 +51,7 @@ export function Sidebar() {
 
   const filteredItems = menuItems.filter((item) => {
     if (item.superAdminOnly) return canViewSettings(user.role);
-    if (item.management)     return getRoleLevel(user.role) <= 2;
+    if (item.management)     return canManageUsers(user.role);
     return true;
   });
 
