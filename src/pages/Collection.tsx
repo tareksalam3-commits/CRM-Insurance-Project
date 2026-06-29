@@ -16,7 +16,8 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  X
+  X,
+  FileText        // ✅ إصلاح #1: كان ناقص من الـ imports → سبب الصفحة البيضاء
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
@@ -29,66 +30,71 @@ type InstallmentWithRelations = Installment & {
 
 export function Collection() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('new_production');
-  const [installments, setInstallments] = useState<InstallmentWithRelations[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab]               = useState<TabType>('new_production');
+  const [installments, setInstallments]         = useState<InstallmentWithRelations[]>([]);
+  const [loading, setLoading]                   = useState(true);
+  const [page, setPage]                         = useState(1);
+  const [totalPages, setTotalPages]             = useState(1);
+  const [totalCount, setTotalCount]             = useState(0);
+  const [searchQuery, setSearchQuery]           = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState<InstallmentWithRelations | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const [showPolicyModal, setShowPolicyModal] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null);
+  const [showCancelModal, setShowCancelModal]   = useState(false);
+  const [cancelReason, setCancelReason]         = useState('');
+  const [showPolicyModal, setShowPolicyModal]   = useState(false);
+  const [selectedPolicy, setSelectedPolicy]     = useState<Policy | null>(null);
   const [policyInstallments, setPolicyInstallments] = useState<InstallmentWithRelations[]>([]);
   const [loadingPolicyInstallments, setLoadingPolicyInstallments] = useState(false);
   const pageSize = 10;
 
   useEffect(() => {
-    if (user) {
-      loadInstallments();
-    }
+    if (user) loadInstallments();
   }, [user, activeTab, page, searchQuery]);
 
+  // ===================================
+  // تحميل الأقساط — مُصحَّح
+  // ===================================
   const loadInstallments = async () => {
     setLoading(true);
     try {
-      const now = new Date();
+      const now        = new Date();
       const monthStart = startOfMonth(now);
-      const monthEnd = endOfMonth(now);
+      const monthEnd   = endOfMonth(now);
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+      const monthEndStr   = format(monthEnd,   'yyyy-MM-dd');
 
+      // ✅ إصلاح #2: إضافة { count: 'exact' } لجلب العدد الكلي للـ pagination
       let query = supabase
         .from('installments')
-        .select(`
-          *,
-          policy:policy_id(
-            *,
-            customer:customer_id(name),
-            owner:owner_id(name)
-          )
-        `);
+        .select(
+          `*,
+           policy:policy_id(
+             *,
+             customer:customer_id(name),
+             owner:owner_id(name)
+           )`,
+          { count: 'exact' }
+        );
 
+      // فلتر كل تاب
       switch (activeTab) {
         case 'new_production':
           query = query
             .eq('is_first', true)
             .eq('status', 'pending')
             .gte('due_date', monthStartStr)
-            .lte('due_date', format(monthEnd, 'yyyy-MM-dd'));
+            .lte('due_date', monthEndStr);
           break;
         case 'periodic':
           query = query
             .eq('is_first', false)
             .eq('status', 'pending')
             .gte('due_date', monthStartStr)
-            .lte('due_date', format(monthEnd, 'yyyy-MM-dd'));
+            .lte('due_date', monthEndStr);
           break;
         case 'overdue':
-          query = query
-            .eq('status', 'overdue');
+          query = query.eq('status', 'overdue');
           break;
         case 'paid_new':
           query = query
@@ -102,17 +108,38 @@ export function Collection() {
           break;
       }
 
-      if (searchQuery) {
-        query = query.or(`policy.policy_number.ilike.%${searchQuery}%`);
+      // ✅ إصلاح #3: البحث بـ policy_id -> policy_number بدل or على nested relation
+      // Supabase لا يدعم البحث المباشر على العلاقات بـ or()
+      // الحل: نجيب policy_ids المطابقة أولاً ثم نفلتر
+      if (searchQuery.trim()) {
+        const { data: matchedPolicies } = await supabase
+          .from('policies')
+          .select('id')
+          .ilike('policy_number', `%${searchQuery.trim()}%`);
+
+        const ids = (matchedPolicies || []).map((p) => p.id);
+        if (ids.length === 0) {
+          // لا يوجد وثائق مطابقة
+          setInstallments([]);
+          setTotalPages(1);
+          setTotalCount(0);
+          setLoading(false);
+          return;
+        }
+        query = query.in('policy_id', ids);
       }
+
+      const from = (page - 1) * pageSize;
+      const to   = from + pageSize - 1;
 
       const { data, error, count } = await query
         .order('due_date', { ascending: true })
-        .range((page - 1) * pageSize, page * pageSize - 1);
+        .range(from, to);
 
       if (error) throw error;
 
-      setInstallments(data as InstallmentWithRelations[]);
+      setInstallments((data as InstallmentWithRelations[]) || []);
+      setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
     } catch (error) {
       console.error('Error loading installments:', error);
@@ -121,6 +148,9 @@ export function Collection() {
     }
   };
 
+  // ===================================
+  // تحميل أقساط وثيقة معينة (مودال)
+  // ===================================
   const loadPolicyInstallments = async (policyId: string) => {
     setLoadingPolicyInstallments(true);
     try {
@@ -138,7 +168,7 @@ export function Collection() {
         .order('installment_number', { ascending: true });
 
       if (error) throw error;
-      setPolicyInstallments(data as InstallmentWithRelations[]);
+      setPolicyInstallments((data as InstallmentWithRelations[]) || []);
     } catch (error) {
       console.error('Error loading policy installments:', error);
       alert('حدث خطأ أثناء تحميل الأقساط');
@@ -158,34 +188,40 @@ export function Collection() {
     setShowPaymentModal(true);
   };
 
+  // ===================================
+  // تسجيل السداد
+  // ===================================
   const handleProcessPayment = async () => {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
-
     try {
-      const now = new Date();
-      const paymentMonth = format(startOfMonth(now), 'yyyy-MM-dd');
+      const paymentMonth = format(startOfMonth(new Date()), 'yyyy-MM-dd');
 
-      const { error: paymentError } = await supabase
+      const { error } = await supabase
         .from('payments')
         .insert({
-          installment_id: selectedInstallment.id,
-          amount: selectedInstallment.amount,
-          paid_by_user_id: user.id,
-          payment_month: paymentMonth
+          installment_id:   selectedInstallment.id,
+          amount:           selectedInstallment.amount,
+          paid_by_user_id:  user.id,
+          payment_month:    paymentMonth,
         });
 
-      if (paymentError) throw paymentError;
+      if (error) throw error;
 
       await supabase.rpc('log_activity', {
-        p_action: 'payment_create',
+        p_action:      'payment_create',
         p_entity_type: 'installment',
-        p_entity_id: selectedInstallment.id
+        p_entity_id:   selectedInstallment.id,
       });
 
       setShowPaymentModal(false);
       setSelectedInstallment(null);
+      // إعادة تحميل القائمة الرئيسية
       loadInstallments();
+      // لو مودال الوثيقة مفتوح، حدّثه هو كمان
+      if (showPolicyModal && selectedPolicy) {
+        loadPolicyInstallments(selectedPolicy.id);
+      }
     } catch (error) {
       console.error('Error processing payment:', error);
       alert('حدث خطأ أثناء تسجيل السداد');
@@ -199,17 +235,20 @@ export function Collection() {
     setShowCancelModal(true);
   };
 
+  // ===================================
+  // إلغاء السداد
+  // ===================================
   const handleCancelPayment = async () => {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
-
     try {
-      const monthStart = format(startOfMonth(new Date(selectedInstallment.paid_at || '')), 'yyyy-MM-dd');
+      const paidAt     = selectedInstallment.paid_at;
+      const monthStart = format(startOfMonth(new Date(paidAt || new Date())), 'yyyy-MM-dd');
 
+      // التحقق من الشهر المقفل
       const { data: isClosed } = await supabase.rpc('is_month_closed', {
-        check_month: monthStart
+        check_month: monthStart,
       });
-
       if (isClosed) {
         alert('لا يمكن إلغاء السداد لشهر مقفل');
         return;
@@ -230,25 +269,28 @@ export function Collection() {
       const { error } = await supabase
         .from('payments')
         .update({
-          is_cancelled: true,
-          cancelled_at: new Date().toISOString(),
-          cancelled_by_user_id: user.id,
-          cancel_reason: cancelReason || 'إلغاء السداد'
+          is_cancelled:           true,
+          cancelled_at:           new Date().toISOString(),
+          cancelled_by_user_id:   user.id,
+          cancel_reason:          cancelReason || 'إلغاء السداد',
         })
         .eq('id', payment.id);
 
       if (error) throw error;
 
       await supabase.rpc('log_activity', {
-        p_action: 'payment_cancel',
+        p_action:      'payment_cancel',
         p_entity_type: 'installment',
-        p_entity_id: selectedInstallment.id
+        p_entity_id:   selectedInstallment.id,
       });
 
       setShowCancelModal(false);
       setSelectedInstallment(null);
       setCancelReason('');
       loadInstallments();
+      if (showPolicyModal && selectedPolicy) {
+        loadPolicyInstallments(selectedPolicy.id);
+      }
     } catch (error) {
       console.error('Error cancelling payment:', error);
       alert('حدث خطأ أثناء إلغاء السداد');
@@ -257,49 +299,46 @@ export function Collection() {
     }
   };
 
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('ar-EG', {
+      style:                 'currency',
+      currency:              'EGP',
+      minimumFractionDigits: 0,
+    }).format(amount);
+
   const tabs = [
-    { id: 'new_production', label: 'الإنتاج الجديد', icon: DollarSign },
-    { id: 'periodic', label: 'التحصيل الدوري', icon: Calendar },
-    { id: 'overdue', label: 'المتأخر', icon: AlertTriangle },
-    { id: 'paid_new', label: 'المسدد (جديد)', icon: CheckCircle },
-    { id: 'paid_periodic', label: 'المسدد (تحصيل)', icon: CheckCircle }
+    { id: 'new_production', label: 'الإنتاج الجديد',    icon: DollarSign    },
+    { id: 'periodic',       label: 'التحصيل الدوري',    icon: Calendar      },
+    { id: 'overdue',        label: 'المتأخر',            icon: AlertTriangle },
+    { id: 'paid_new',       label: 'المسدد (جديد)',      icon: CheckCircle   },
+    { id: 'paid_periodic',  label: 'المسدد (تحصيل)',     icon: CheckCircle   },
   ];
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ar-EG', {
-      style: 'currency',
-      currency: 'EGP',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
+  // ===================================
+  // الواجهة
+  // ===================================
   return (
     <div className="space-y-6 animate-fadeIn">
+
+      {/* رأس الصفحة */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-secondary-900">التحصيل والسداد</h2>
           <p className="text-sm text-secondary-500 mt-1">
-            إدارة السداد للأقساط - {format(new Date(), 'MMMM yyyy', { locale: ar })}
+            إدارة السداد للأقساط — {format(new Date(), 'MMMM yyyy', { locale: ar })}
           </p>
         </div>
       </div>
 
+      {/* تابات */}
       <div className="flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id as TabType);
-                setPage(1);
-              }}
-              className={clsx(
-                'btn',
-                activeTab === tab.id
-                  ? 'btn-primary'
-                  : 'btn-secondary'
-              )}
+              onClick={() => { setActiveTab(tab.id as TabType); setPage(1); }}
+              className={clsx('btn', activeTab === tab.id ? 'btn-primary' : 'btn-secondary')}
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
@@ -308,6 +347,7 @@ export function Collection() {
         })}
       </div>
 
+      {/* الجدول */}
       <div className="card">
         <div className="mb-6">
           <div className="relative max-w-md">
@@ -315,10 +355,7 @@ export function Collection() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
               placeholder="بحث برقم الوثيقة..."
               className="input-field pr-10"
             />
@@ -327,7 +364,7 @@ export function Collection() {
 
         {loading ? (
           <div className="flex items-center justify-center h-48">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
           </div>
         ) : installments.length === 0 ? (
           <div className="text-center py-12">
@@ -336,6 +373,11 @@ export function Collection() {
           </div>
         ) : (
           <>
+            {/* عدد النتائج */}
+            <p className="text-xs text-secondary-400 mb-3">
+              إجمالي النتائج: {totalCount}
+            </p>
+
             <div className="table-container">
               <table>
                 <thead>
@@ -369,13 +411,11 @@ export function Collection() {
                       <td className="font-semibold">{formatCurrency(installment.amount)}</td>
                       <td>{format(new Date(installment.due_date), 'dd/MM/yyyy')}</td>
                       <td>
-                        <span
-                          className={clsx(
-                            'badge',
-                            installment.status === 'paid' ? 'badge-success' :
-                            installment.status === 'overdue' ? 'badge-error' : 'badge-warning'
-                          )}
-                        >
+                        <span className={clsx(
+                          'badge',
+                          installment.status === 'paid'    ? 'badge-success' :
+                          installment.status === 'overdue' ? 'badge-error'   : 'badge-warning'
+                        )}>
                           {INSTALLMENT_STATUS_LABELS[installment.status]}
                         </span>
                       </td>
@@ -387,6 +427,7 @@ export function Collection() {
                       <td>{(installment.policy as any)?.owner?.name || '-'}</td>
                       <td>
                         <div className="flex items-center gap-2">
+                          {/* زر عرض جميع أقساط الوثيقة */}
                           <button
                             onClick={() => handleOpenPolicyDetails((installment.policy as any))}
                             className="btn btn-ghost btn-sm"
@@ -394,6 +435,8 @@ export function Collection() {
                           >
                             <FileText className="w-4 h-4" />
                           </button>
+
+                          {/* زر سداد */}
                           {installment.status !== 'paid' && (
                             <button
                               onClick={() => handleOpenPayment(installment)}
@@ -403,6 +446,8 @@ export function Collection() {
                               <span>سداد</span>
                             </button>
                           )}
+
+                          {/* زر إلغاء */}
                           {installment.status === 'paid' && (
                             <button
                               onClick={() => handleOpenCancel(installment)}
@@ -420,6 +465,7 @@ export function Collection() {
               </table>
             </div>
 
+            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-secondary-200">
                 <button
@@ -447,63 +493,45 @@ export function Collection() {
         )}
       </div>
 
+      {/* ===== مودال تأكيد السداد ===== */}
       {showPaymentModal && selectedInstallment && (
         <div className="modal-overlay" onClick={() => setShowPaymentModal(false)}>
-          <div
-            className="modal-content max-w-md animate-fadeIn"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modal-content max-w-md animate-fadeIn" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-secondary-200">
               <h3 className="text-lg font-semibold text-secondary-900">تأكيد السداد</h3>
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="p-2 rounded-lg hover:bg-secondary-100"
-              >
+              <button onClick={() => setShowPaymentModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
                 <X className="w-5 h-5 text-secondary-600" />
               </button>
             </div>
-
             <div className="p-6">
-              <div className="bg-primary-50 rounded-lg p-4 mb-6">
-                <div className="flex items-center justify-between mb-2">
+              <div className="bg-primary-50 rounded-lg p-4 mb-6 space-y-2">
+                <div className="flex items-center justify-between">
                   <span className="text-sm text-secondary-600">رقم الوثيقة</span>
-                  <span className="font-semibold text-secondary-900">
-                    {(selectedInstallment.policy as any)?.policy_number}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-secondary-600">العميل</span>
-                  <span className="font-semibold text-secondary-900">
-                    {(selectedInstallment.policy as any)?.customer?.name}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-secondary-600">رقم القسط</span>
-                  <span className="font-semibold text-secondary-900">
-                    {selectedInstallment.installment_number}
-                  </span>
+                  <span className="font-semibold">{(selectedInstallment.policy as any)?.policy_number}</span>
                 </div>
                 <div className="flex items-center justify-between">
+                  <span className="text-sm text-secondary-600">العميل</span>
+                  <span className="font-semibold">{(selectedInstallment.policy as any)?.customer?.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-secondary-600">رقم القسط</span>
+                  <span className="font-semibold">{selectedInstallment.installment_number}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-primary-100 pt-2">
                   <span className="text-sm text-secondary-600">قيمة القسط</span>
                   <span className="text-xl font-bold text-primary-700">
                     {formatCurrency(selectedInstallment.amount)}
                   </span>
                 </div>
               </div>
-
               <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowPaymentModal(false)}
-                  className="btn btn-secondary"
-                >
+                <button onClick={() => setShowPaymentModal(false)} className="btn btn-secondary">
                   إلغاء
                 </button>
-                <button
-                  onClick={handleProcessPayment}
-                  disabled={processingPayment}
-                  className="btn btn-success"
-                >
-                  {processingPayment ? 'جاري التسجيل...' : 'تأكيد السداد'}
+                <button onClick={handleProcessPayment} disabled={processingPayment} className="btn btn-success">
+                  {processingPayment
+                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /><span>جاري التسجيل...</span></>
+                    : <><CheckCircle className="w-4 h-4" /><span>تأكيد السداد</span></>}
                 </button>
               </div>
             </div>
@@ -511,30 +539,33 @@ export function Collection() {
         </div>
       )}
 
+      {/* ===== مودال إلغاء السداد ===== */}
       {showCancelModal && selectedInstallment && (
         <div className="modal-overlay" onClick={() => setShowCancelModal(false)}>
-          <div
-            className="modal-content max-w-md animate-fadeIn"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modal-content max-w-md animate-fadeIn" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-secondary-200">
               <h3 className="text-lg font-semibold text-secondary-900">إلغاء السداد</h3>
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="p-2 rounded-lg hover:bg-secondary-100"
-              >
+              <button onClick={() => setShowCancelModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
                 <X className="w-5 h-5 text-secondary-600" />
               </button>
             </div>
-
             <div className="p-6">
-              <div className="bg-error-50 rounded-lg p-4 mb-6">
-                <p className="text-sm text-error-700">
-                  هل أنت متأكد من إلغاء هذا السداد؟
-                </p>
+              <div className="bg-error-50 rounded-lg p-4 mb-4 space-y-2">
+                <p className="text-sm text-error-700 font-medium">هل أنت متأكد من إلغاء هذا السداد؟</p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-secondary-600">رقم الوثيقة</span>
+                  <span className="font-medium">{(selectedInstallment.policy as any)?.policy_number}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-secondary-600">القسط رقم</span>
+                  <span className="font-medium">{selectedInstallment.installment_number}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-secondary-600">المبلغ</span>
+                  <span className="font-medium">{formatCurrency(selectedInstallment.amount)}</span>
+                </div>
               </div>
-
-              <div className="form-group">
+              <div className="form-group mb-4">
                 <label className="input-label">سبب الإلغاء</label>
                 <input
                   value={cancelReason}
@@ -543,20 +574,14 @@ export function Collection() {
                   placeholder="أدخل سبب الإلغاء (اختياري)"
                 />
               </div>
-
               <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowCancelModal(false)}
-                  className="btn btn-secondary"
-                >
+                <button onClick={() => setShowCancelModal(false)} className="btn btn-secondary">
                   تراجع
                 </button>
-                <button
-                  onClick={handleCancelPayment}
-                  disabled={processingPayment}
-                  className="btn btn-error"
-                >
-                  {processingPayment ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+                <button onClick={handleCancelPayment} disabled={processingPayment} className="btn btn-error">
+                  {processingPayment
+                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /><span>جاري الإلغاء...</span></>
+                    : <><XCircle className="w-4 h-4" /><span>تأكيد الإلغاء</span></>}
                 </button>
               </div>
             </div>
@@ -564,33 +589,25 @@ export function Collection() {
         </div>
       )}
 
+      {/* ===== مودال جميع أقساط الوثيقة ===== */}
       {showPolicyModal && selectedPolicy && (
         <div className="modal-overlay" onClick={() => setShowPolicyModal(false)}>
-          <div
-            className="modal-content max-w-2xl animate-fadeIn"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modal-content max-w-2xl animate-fadeIn" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-secondary-200">
               <h3 className="text-lg font-semibold text-secondary-900">
                 جميع أقساط الوثيقة: {selectedPolicy.policy_number}
               </h3>
-              <button
-                onClick={() => setShowPolicyModal(false)}
-                className="p-2 rounded-lg hover:bg-secondary-100"
-              >
+              <button onClick={() => setShowPolicyModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
                 <X className="w-5 h-5 text-secondary-600" />
               </button>
             </div>
-
             <div className="p-6">
               {loadingPolicyInstallments ? (
                 <div className="flex items-center justify-center h-48">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
                 </div>
               ) : policyInstallments.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-secondary-500">لا توجد أقساط لهذه الوثيقة</p>
-                </div>
+                <p className="text-center text-secondary-500 py-12">لا توجد أقساط لهذه الوثيقة</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -605,55 +622,48 @@ export function Collection() {
                       </tr>
                     </thead>
                     <tbody>
-                      {policyInstallments.map((installment) => (
-                        <tr key={installment.id} className="border-b border-secondary-100 hover:bg-secondary-50">
+                      {policyInstallments.map((inst) => (
+                        <tr key={inst.id} className="border-b border-secondary-100 hover:bg-secondary-50">
                           <td className="py-3 px-3">
                             <span className="flex items-center gap-1">
-                              {installment.installment_number}
-                              {installment.is_first && (
+                              {inst.installment_number}
+                              {inst.is_first && (
                                 <span className="badge badge-info text-[10px]">الأول</span>
                               )}
                             </span>
                           </td>
-                          <td className="py-3 px-3 font-semibold">{formatCurrency(installment.amount)}</td>
-                          <td className="py-3 px-3">{format(new Date(installment.due_date), 'dd/MM/yyyy')}</td>
+                          <td className="py-3 px-3 font-semibold">{formatCurrency(inst.amount)}</td>
+                          <td className="py-3 px-3">{format(new Date(inst.due_date), 'dd/MM/yyyy')}</td>
                           <td className="py-3 px-3">
-                            <span
-                              className={clsx(
-                                'badge',
-                                installment.status === 'paid' ? 'badge-success' :
-                                installment.status === 'overdue' ? 'badge-error' : 'badge-warning'
-                              )}
-                            >
-                              {INSTALLMENT_STATUS_LABELS[installment.status]}
+                            <span className={clsx(
+                              'badge',
+                              inst.status === 'paid'    ? 'badge-success' :
+                              inst.status === 'overdue' ? 'badge-error'   : 'badge-warning'
+                            )}>
+                              {INSTALLMENT_STATUS_LABELS[inst.status]}
                             </span>
                           </td>
                           <td className="py-3 px-3">
-                            {installment.paid_at
-                              ? format(new Date(installment.paid_at), 'dd/MM/yyyy')
-                              : '-'}
+                            {inst.paid_at ? format(new Date(inst.paid_at), 'dd/MM/yyyy') : '-'}
                           </td>
                           <td className="py-3 px-3 text-center">
-                            {installment.status !== 'paid' && (
+                            {inst.status !== 'paid' ? (
                               <button
-                                onClick={() => {
-                                  handleOpenPayment(installment);
-                                  setShowPolicyModal(false);
-                                }}
+                                onClick={() => { handleOpenPayment(inst); setShowPolicyModal(false); }}
                                 className="btn btn-primary btn-sm"
+                                title="سداد"
                               >
                                 <CheckCircle className="w-4 h-4" />
+                                <span>سداد</span>
                               </button>
-                            )}
-                            {installment.status === 'paid' && (
+                            ) : (
                               <button
-                                onClick={() => {
-                                  handleOpenCancel(installment);
-                                  setShowPolicyModal(false);
-                                }}
+                                onClick={() => { handleOpenCancel(inst); setShowPolicyModal(false); }}
                                 className="btn btn-secondary btn-sm"
+                                title="إلغاء السداد"
                               >
                                 <XCircle className="w-4 h-4" />
+                                <span>إلغاء</span>
                               </button>
                             )}
                           </td>
@@ -664,18 +674,15 @@ export function Collection() {
                 </div>
               )}
             </div>
-
             <div className="flex justify-end gap-3 p-6 border-t border-secondary-200">
-              <button
-                onClick={() => setShowPolicyModal(false)}
-                className="btn btn-secondary"
-              >
+              <button onClick={() => setShowPolicyModal(false)} className="btn btn-secondary">
                 إغلاق
               </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
