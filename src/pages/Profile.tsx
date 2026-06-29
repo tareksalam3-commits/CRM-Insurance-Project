@@ -11,7 +11,7 @@ import {
   Save,
   Loader2,
   Camera,
-  IdCard,
+  CreditCard,
   Calendar,
   Activity,
   Trophy,
@@ -381,7 +381,7 @@ export function Profile() {
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pr-11 pl-4 text-slate-800 focus:bg-white focus:ring-2 focus:ring-[#10B981]/20 focus:border-[#10B981] transition-all outline-none"
                         placeholder="أدخل رقم القيد"
                       />
-                      <IdCard className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-[#10B981] transition-colors" />
+                      <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-[#10B981] transition-colors" />
                     </div>
                   </div>
                 </div>
