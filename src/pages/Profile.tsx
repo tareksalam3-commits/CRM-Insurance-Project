@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { ROLE_LABELS } from '../lib/supabase';
@@ -19,7 +19,8 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Upload
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -51,11 +52,13 @@ export function Profile() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register: registerProfile,
@@ -159,15 +162,30 @@ export function Profile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setAvatarMessage({ type: 'error', text: 'يرجى اختيار ملف صورة صالح' });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarMessage({ type: 'error', text: 'حجم الصورة يجب أن يكون أقل من 5 ميجابايت' });
+      return;
+    }
+
     setUploadingAvatar(true);
+    setAvatarMessage(null);
+
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      // Use fixed filename per user to overwrite old avatar
+      const filePath = `avatars/${user.id}.${fileExt}`;
 
+      // Upload with upsert to overwrite existing file
       const { error: uploadError } = await supabase.storage
         .from('profiles')
-        .upload(filePath, file);
+        .upload(filePath, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
@@ -175,16 +193,27 @@ export function Profile() {
         .from('profiles')
         .getPublicUrl(filePath);
 
+      // Add cache-busting to force image refresh
+      const urlWithTimestamp = `${publicUrl}?t=${Date.now()}`;
+
       const { error: updateError } = await supabase
         .from('users')
-        .update({ avatar_url: publicUrl } as any)
+        .update({ avatar_url: urlWithTimestamp } as any)
         .eq('id', user.id);
 
       if (updateError) throw updateError;
 
       await refreshUser();
-    } catch (error) {
+      setAvatarMessage({ type: 'success', text: 'تم تحديث الصورة بنجاح' });
+
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (error: any) {
       console.error('Error uploading avatar:', error);
+      const msg = error?.message?.includes('Bucket not found')
+        ? 'خطأ في الإعداد: تأكد من إنشاء bucket باسم profiles في Supabase Storage'
+        : 'حدث خطأ أثناء رفع الصورة، حاول مرة أخرى';
+      setAvatarMessage({ type: 'error', text: msg });
     } finally {
       setUploadingAvatar(false);
     }
@@ -192,52 +221,81 @@ export function Profile() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-12 animate-fadeIn" dir="rtl">
-      {/* Header Section */}
-      <div className="relative mb-32">
-        {/* Cover Photo */}
-        <div className="h-48 w-full bg-gradient-to-r from-[#10B981] to-[#059669] rounded-b-[32px] relative shadow-lg overflow-hidden">
-          <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-          <button className="absolute bottom-4 left-6 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all border border-white/30 text-sm font-medium">
-            <Camera className="w-4 h-4" />
-            تغيير الغلاف
-          </button>
-        </div>
 
-        {/* Profile Identity Card */}
-        <div className="absolute -bottom-24 right-8 left-8 flex flex-col md:flex-row items-end md:items-center gap-6">
-          <div className="relative group">
-            <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-white shadow-2xl overflow-hidden bg-white">
+      {/* Profile Header — no cover photo */}
+      <div className="bg-white border-b border-slate-100 px-8 py-8 mb-8 shadow-sm">
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+
+          {/* Avatar + Upload Button */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-28 h-28 rounded-full border-4 border-white shadow-xl overflow-hidden bg-white ring-2 ring-[#10B981]/30">
               {uploadingAvatar ? (
-                <div className="w-full h-full flex items-center justify-center bg-secondary-50">
+                <div className="w-full h-full flex items-center justify-center bg-[#E6F7F1]">
                   <Loader2 className="w-8 h-8 animate-spin text-[#10B981]" />
                 </div>
               ) : user?.avatar_url ? (
                 <img
                   src={user.avatar_url}
                   alt={user.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-[#E6F7F1] text-[#10B981] text-5xl font-bold">
+                <div className="w-full h-full flex items-center justify-center bg-[#E6F7F1] text-[#10B981] text-4xl font-bold">
                   {user?.name?.charAt(0)}
                 </div>
               )}
             </div>
-            <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-full">
-              <Camera className="w-8 h-8 text-white" />
-              <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} />
+
+            {/* Explicit Upload Button */}
+            <label className={clsx(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer transition-all border",
+              uploadingAvatar
+                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                : "bg-white text-[#10B981] border-[#10B981]/40 hover:bg-[#E6F7F1] hover:border-[#10B981]"
+            )}>
+              {uploadingAvatar ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Camera className="w-4 h-4" />
+              )}
+              {uploadingAvatar ? 'جارٍ الرفع...' : 'تغيير الصورة'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                disabled={uploadingAvatar}
+                onChange={handleAvatarUpload}
+              />
             </label>
+
+            {/* Avatar feedback message */}
+            {avatarMessage && (
+              <div className={clsx(
+                'flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg',
+                avatarMessage.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-red-50 text-red-600'
+              )}>
+                {avatarMessage.type === 'success'
+                  ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  : <XCircle className="w-3.5 h-3.5 shrink-0" />
+                }
+                {avatarMessage.text}
+              </div>
+            )}
           </div>
 
-          <div className="flex-1 pb-4">
-            <div className="flex flex-wrap items-center gap-3">
+          {/* User Info */}
+          <div className="flex-1 text-center md:text-right">
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-1">
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{user?.name}</h1>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E6F7F1] text-[#059669] text-xs font-bold border border-[#10B981]/20">
                 <Shield className="w-3.5 h-3.5" />
                 {ROLE_LABELS[user?.role || 'agent']}
               </span>
             </div>
-            <p className="text-slate-500 mt-1 flex items-center gap-2">
+            <p className="text-slate-500 flex items-center justify-center md:justify-start gap-2 text-sm">
               <Mail className="w-4 h-4" />
               {user?.email}
             </p>
@@ -391,7 +449,10 @@ export function Profile() {
                     'p-4 rounded-xl text-sm flex items-center gap-3',
                     profileMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
                   )}>
-                    <div className={clsx('w-2 h-2 rounded-full', profileMessage.type === 'success' ? 'bg-emerald-500' : 'bg-red-500')}></div>
+                    {profileMessage.type === 'success'
+                      ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      : <XCircle className="w-4 h-4 shrink-0" />
+                    }
                     {profileMessage.text}
                   </div>
                 )}
@@ -465,6 +526,7 @@ export function Profile() {
                         {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
+                    {passwordErrors.newPassword && <p className="text-xs text-red-500 mr-1">{passwordErrors.newPassword.message}</p>}
                   </div>
 
                   <div className="space-y-2">
@@ -480,6 +542,7 @@ export function Profile() {
                       />
                       <Key className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     </div>
+                    {passwordErrors.confirmPassword && <p className="text-xs text-red-500 mr-1">{passwordErrors.confirmPassword.message}</p>}
                   </div>
                 </div>
 
@@ -510,7 +573,10 @@ export function Profile() {
                     'p-4 rounded-xl text-sm flex items-center gap-3',
                     passwordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
                   )}>
-                    <div className={clsx('w-2 h-2 rounded-full', passwordMessage.type === 'success' ? 'bg-emerald-500' : 'bg-red-500')}></div>
+                    {passwordMessage.type === 'success'
+                      ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      : <XCircle className="w-4 h-4 shrink-0" />
+                    }
                     {passwordMessage.text}
                   </div>
                 )}
