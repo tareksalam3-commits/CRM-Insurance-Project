@@ -33,13 +33,14 @@ const menuItems = [
   { path: '/settings',       icon: Settings,         label: 'الإعدادات', superAdminOnly: true }
 ];
 
-// الأيتمز اللي هتظهر في bottom nav على الموبايل (أهم 5)
-const bottomNavItems = [
-  { path: '/',           icon: LayoutDashboard, label: 'الرئيسية' },
-  { path: '/customers',  icon: Users,            label: 'العملاء' },
-  { path: '/policies',   icon: FileText,         label: 'الوثائق' },
-  { path: '/collection', icon: CreditCard,       label: 'التحصيل' },
-  { path: '/profile',    icon: User,             label: 'حسابي' },
+// الأيتمز الثابتة في bottom nav على الموبايل
+const bottomNavItemsBase = [
+  { path: '/',           icon: LayoutDashboard, label: 'الرئيسية',    management: false },
+  { path: '/customers',  icon: Users,            label: 'العملاء',     management: false },
+  { path: '/policies',   icon: FileText,         label: 'الوثائق',     management: false },
+  { path: '/collection', icon: CreditCard,       label: 'التحصيل',     management: false },
+  { path: '/users',      icon: UsersIcon,        label: 'المستخدمون',  management: true  },
+  { path: '/profile',    icon: User,             label: 'حسابي',       management: false },
 ];
 
 export function Sidebar() {
@@ -52,6 +53,12 @@ export function Sidebar() {
   const filteredItems = menuItems.filter((item) => {
     if (item.superAdminOnly) return canViewSettings(user.role);
     if (item.management)     return canManageUsers(user.role);
+    return true;
+  });
+
+  // فلترة bottom nav: إظهار "المستخدمون" فقط لـ super_admin و development_manager
+  const bottomNavItems = bottomNavItemsBase.filter((item) => {
+    if (item.management) return canManageUsers(user.role);
     return true;
   });
 
