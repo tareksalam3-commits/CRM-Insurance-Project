@@ -59,6 +59,9 @@ export function Profile() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [totalSameRole, setTotalSameRole] = useState<number | null>(null);
+  const [paidThisMonth, setPaidThisMonth] = useState<number | null>(null);
 
   const {
     register: registerProfile,
@@ -84,6 +87,70 @@ export function Profile() {
   });
 
   const newPasswordValue = watchPassword('newPassword');
+
+  // Fetch user rank among same role and paid installments this month
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchStats = async () => {
+      try {
+        // 1. Get all users with the same role and their policy counts
+        const { data: sameRoleUsers, error: usersError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('role', user.role)
+          .eq('is_active', true);
+
+        if (!usersError && sameRoleUsers) {
+          const userIds = sameRoleUsers.map((u: { id: string }) => u.id);
+
+          // Get policy counts for each user with same role
+          const { data: policyCounts, error: policiesError } = await supabase
+            .from('policies')
+            .select('owner_id')
+            .in('owner_id', userIds);
+
+          if (!policiesError && policyCounts) {
+            // Count policies per user
+            const countMap: Record<string, number> = {};
+            for (const p of policyCounts) {
+              countMap[p.owner_id] = (countMap[p.owner_id] || 0) + 1;
+            }
+
+            const myCount = countMap[user.id] || 0;
+            // Rank = number of users with more policies than me + 1
+            const rank = Object.values(countMap).filter((c) => c > myCount).length + 1;
+            setUserRank(rank);
+            setTotalSameRole(userIds.length);
+          }
+        }
+
+        // 2. Get paid (non-cancelled) payments this month
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payments')
+          .select('id, installment_id, is_cancelled, installments!inner(policy_id, policies!inner(owner_id))')
+          .eq('is_cancelled', false)
+          .gte('payment_month', monthStart)
+          .lte('payment_month', monthEnd);
+
+        if (!paymentsError && payments) {
+          // Filter only payments for this user's policies
+          const myPayments = payments.filter((pay: any) => {
+            return pay.installments?.policies?.owner_id === user.id;
+          });
+          setPaidThisMonth(myPayments.length);
+        }
+      } catch (err) {
+        console.error('Error fetching profile stats:', err);
+      }
+    };
+
+    fetchStats();
+  }, [user]);
 
   useEffect(() => {
     if (!newPasswordValue) {
@@ -219,6 +286,16 @@ export function Profile() {
     }
   };
 
+
+  const formatLastLogin = (dateStr: string): string => {
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return `منذ ${Math.floor(diff / 60)} د`;
+    if (diff < 86400) return `منذ ${Math.floor(diff / 3600)} س`;
+    if (diff < 2592000) return `منذ ${Math.floor(diff / 86400)} يوم`;
+    return format(new Date(dateStr), 'MM/yyyy');
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-12 animate-fadeIn" dir="rtl">
 
@@ -309,11 +386,15 @@ export function Profile() {
           <div className="text-center md:border-l border-slate-100 last:border-0">
             <div className="flex justify-center mb-2">
               <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                <Briefcase className="w-5 h-5" />
+                <Trophy className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 font-medium">إجمالي العقود</p>
-            <p className="text-lg font-bold text-slate-800">124</p>
+            <p className="text-xs text-slate-400 font-medium">ترتيبك بين الزملاء</p>
+            <p className="text-lg font-bold text-slate-800">
+              {userRank !== null && totalSameRole !== null
+                ? `${userRank} / ${totalSameRole}`
+                : '-'}
+            </p>
           </div>
           <div className="text-center md:border-l border-slate-100 last:border-0">
             <div className="flex justify-center mb-2">
@@ -333,16 +414,20 @@ export function Profile() {
               </div>
             </div>
             <p className="text-xs text-slate-400 font-medium">آخر نشاط</p>
-            <p className="text-lg font-bold text-slate-800">منذ ساعتين</p>
+            <p className="text-lg font-bold text-slate-800">
+              {user?.last_login ? formatLastLogin(user.last_login) : '-'}
+            </p>
           </div>
           <div className="text-center">
             <div className="flex justify-center mb-2">
               <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
-                <Trophy className="w-5 h-5" />
+                <Briefcase className="w-5 h-5" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 font-medium">مستوى الأداء</p>
-            <p className="text-lg font-bold text-slate-800">94%</p>
+            <p className="text-xs text-slate-400 font-medium">مسددات الشهر</p>
+            <p className="text-lg font-bold text-slate-800">
+              {paidThisMonth !== null ? paidThisMonth : '-'}
+            </p>
           </div>
         </div>
       </div>
