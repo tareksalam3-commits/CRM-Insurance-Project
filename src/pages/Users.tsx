@@ -77,7 +77,7 @@ export function Users() {
     if (user && canManage) {
       loadUsers();
     }
-  }, [user, page, searchQuery, statusFilter]);
+  }, [user, canManage, page, searchQuery, statusFilter]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -174,42 +174,42 @@ export function Users() {
           p_new_values: data
         });
       } else {
-        const tempPassword = Math.random().toString(36).slice(-8) + 'A1';
+        // استدعاء Edge Function لإنشاء المستخدم من السيرفر
+        // بدون أي تأثير على جلسة المستخدم الحالي (الأدمن)
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
 
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: data.email,
-          password: tempPassword,
-          options: {
-            data: {
-              name: data.name
-            }
-          }
+        if (!accessToken) throw new Error('لا توجد جلسة نشطة');
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/create-user`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            name: data.name,
+            email: data.email,
+            phone: data.phone || null,
+            role: data.role,
+            manager_id: data.manager_id || null,
+            target: data.target || 0,
+          }),
         });
 
-        if (authError) throw authError;
+        const result = await response.json();
 
-        if (authData.user) {
-          const { error: profileError } = await supabase
-            .from('users')
-            .insert({
-              id: authData.user.id,
-              name: data.name,
-              email: data.email,
-              phone: data.phone,
-              role: data.role,
-              manager_id: data.manager_id,
-              target: data.target || 0
-            });
-
-          if (profileError) throw profileError;
-
-          await supabase.rpc('log_activity', {
-            p_action: 'user_create',
-            p_entity_type: 'user'
-          });
-
-          alert(`تم إنشاء المستخدم بنجاح!\nكلمة المرور المؤقتة: ${tempPassword}\nيرجى تغييرها فوراً`);
+        if (!response.ok) {
+          const msg = result?.error || 'خطأ غير معروف';
+          if (msg.includes('already registered') || msg.includes('already been registered')) {
+            throw new Error('البريد الإلكتروني مسجل مسبقاً');
+          }
+          throw new Error(msg);
         }
+
+        alert(`✅ تم إنشاء المستخدم بنجاح!\nالبريد: ${data.email}\nكلمة المرور المؤقتة: ${result.tempPassword}\nيرجى إبلاغ المستخدم بتغييرها فوراً`);
       }
 
       handleCloseModal();
