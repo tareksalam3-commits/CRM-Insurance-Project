@@ -13,7 +13,6 @@ const queryClient = new QueryClient();
 const Dashboard    = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const Customers    = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));
 const Policies     = lazy(() => import('./pages/Policies').then(m => ({ default: m.Policies })));
-// ✅ صفحة تفاصيل الوثيقة الجديدة
 const PolicyDetail = lazy(() => import('./pages/PolicyDetail').then(m => ({ default: m.PolicyDetail })));
 const Collection   = lazy(() => import('./pages/Collection').then(m => ({ default: m.Collection })));
 const Users        = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
@@ -26,44 +25,45 @@ const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default:
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center min-h-[400px]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
     </div>
   );
 }
 
 function AppLayout() {
-  const { user, loading } = useAuth();
-  const { sidebarCollapsed } = useAppStore();
+  const { user, loading }      = useAuth();
+  const { sidebarCollapsed }   = useAppStore();
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
       </div>
     );
   }
 
-  if (!user) {
-    return <Login />;
-  }
+  if (!user) return <Login />;
 
   return (
-    <div className="min-h-screen bg-secondary-50">
+    <div className="min-h-screen min-h-[100dvh] bg-secondary-50">
       <Sidebar />
       <Header />
-      <main
-        className={clsx(
-          'pt-16 pb-8 px-4 md:px-6 lg:px-8 transition-all duration-300',
-          sidebarCollapsed ? 'mr-20' : 'mr-64'
-        )}
-      >
-        <div className="max-w-7xl mx-auto mt-4">
+
+      <main className={clsx(
+        'transition-all duration-300',
+        // ===== Desktop: يتحرك مع الـ sidebar =====
+        sidebarCollapsed ? 'md:mr-20' : 'md:mr-64',
+        // ===== Mobile: padding top للـ header + bottom للـ bottom nav =====
+        'pt-14 md:pt-16',
+        'pb-20 md:pb-8',        // pb-20 = مكان الـ bottom nav (64px + 16px)
+        'px-3 md:px-4 lg:px-8'
+      )}>
+        <div className="max-w-7xl mx-auto mt-3 md:mt-4">
           <Suspense fallback={<LoadingSpinner />}>
             <Routes>
               <Route path="/"                element={<Dashboard />} />
               <Route path="/customers"       element={<Customers />} />
               <Route path="/policies"        element={<Policies />} />
-              {/* ✅ Route جديد لتفاصيل الوثيقة */}
               <Route path="/policies/:id"    element={<PolicyDetail />} />
               <Route path="/collection"      element={<Collection />} />
               <Route path="/users"           element={<Users />} />
