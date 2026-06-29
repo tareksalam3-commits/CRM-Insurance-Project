@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await fetchUserProfile(session.user.id);
         setUser(profile);
 
-        if (profile && !profile.last_login) {
+        if (profile) {
           await supabase
             .from('users')
             .update({ last_login: new Date().toISOString() })
