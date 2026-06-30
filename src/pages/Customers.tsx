@@ -85,27 +85,31 @@ export function Customers() {
         return;
       }
 
-      // نجيب كل من هو تحت المستخدم الحالي في الهيكل الإداري (فريقه فقط)
+      // نجيب المستخدم الحالي + كل من هو تحته في الهيكل الإداري (فريقه)
       const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
         user_id: user.id
       });
       if (subtreeError) throw subtreeError;
 
-      const teamIds = (subtreeIds || []).filter((id: string) => id !== user.id);
-      if (teamIds.length === 0) {
-        setAgents([]);
-        return;
-      }
+      const allIds: string[] = subtreeIds && subtreeIds.length > 0 ? subtreeIds : [user.id];
 
       const { data, error } = await supabase
         .from('users')
         .select('id, name, role')
-        .in('id', teamIds)
+        .in('id', allIds)
         .eq('is_active', true)
         .order('name');
 
       if (error) throw error;
-      setAgents(data || []);
+
+      // نحط المدير نفسه أول واحد في القائمة، وبعده باقي الفريق
+      const sorted = [...(data || [])].sort((a, b) => {
+        if (a.id === user.id) return -1;
+        if (b.id === user.id) return 1;
+        return a.name.localeCompare(b.name, 'ar');
+      });
+
+      setAgents(sorted);
     } catch (error) {
       console.error('Error loading agents:', error);
     }
@@ -516,7 +520,9 @@ export function Customers() {
                   >
                     <option value="">اختر الوكيل</option>
                     {agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}{agent.id === user.id ? ' (أنا)' : ''}
+                      </option>
                     ))}
                   </select>
                   {agents.length === 0 && (
