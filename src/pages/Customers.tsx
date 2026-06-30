@@ -52,6 +52,8 @@ export function Customers() {
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deletableIds, setDeletableIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -150,6 +152,8 @@ export function Customers() {
 
       setCustomers(data as Customer[]);
       setTotalPages(Math.ceil((count || 0) / pageSize));
+
+      await checkDeletableCustomers((data as Customer[]) || []);
     } catch (error) {
       console.error('Error loading customers:', error);
     } finally {
@@ -255,14 +259,43 @@ export function Customers() {
     }
   };
 
+  const checkDeletableCustomers = async (customerList: Customer[]) => {
+    if (customerList.length === 0) {
+      setDeletableIds(new Set());
+      return;
+    }
+    try {
+      const customerIds = customerList.map((c) => c.id);
+      const { data: policiesData } = await supabase
+        .from('policies')
+        .select('customer_id')
+        .in('customer_id', customerIds);
+
+      const idsWithPolicies = new Set((policiesData || []).map((p: any) => p.customer_id));
+      const deletable = new Set(customerIds.filter((id) => !idsWithPolicies.has(id)));
+      setDeletableIds(deletable);
+    } catch (error) {
+      console.error('Error checking deletable customers:', error);
+      setDeletableIds(new Set());
+    }
+  };
+
   const handleDelete = async (id: string) => {
+    setDeleting(true);
     try {
       const { error } = await supabase
         .from('customers')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42501' || error.code === '23503') {
+          alert('لا يمكن حذف هذا العميل لوجود وثائق مرتبطة به');
+        } else {
+          throw error;
+        }
+        return;
+      }
 
       await supabase.rpc('log_activity', {
         p_action: 'customer_delete',
@@ -275,6 +308,8 @@ export function Customers() {
     } catch (error) {
       console.error('Error deleting customer:', error);
       alert('حدث خطأ أثناء الحذف');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -369,12 +404,23 @@ export function Customers() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => setDeleteConfirm(customer.id)}
-                            className="p-1.5 rounded-lg hover:bg-error-50 text-secondary-400 hover:text-error-600"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {deletableIds.has(customer.id) ? (
+                            <button
+                              onClick={() => setDeleteConfirm(customer.id)}
+                              className="p-1.5 rounded-lg hover:bg-error-50 text-secondary-400 hover:text-error-600"
+                              title="حذف العميل"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              disabled
+                              className="p-1.5 rounded-lg text-secondary-200 cursor-not-allowed"
+                              title="لا يمكن الحذف: يوجد وثائق مرتبطة بهذا العميل"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -575,14 +621,16 @@ export function Customers() {
                 <button
                   onClick={() => setDeleteConfirm(null)}
                   className="btn btn-secondary"
+                  disabled={deleting}
                 >
                   إلغاء
                 </button>
                 <button
                   onClick={() => handleDelete(deleteConfirm)}
                   className="btn btn-error"
+                  disabled={deleting}
                 >
-                  حذف
+                  {deleting ? 'جاري الحذف...' : 'حذف'}
                 </button>
               </div>
             </div>
