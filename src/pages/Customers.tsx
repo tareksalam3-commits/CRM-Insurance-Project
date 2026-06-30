@@ -29,7 +29,16 @@ const customerSchema = z.object({
   birth_date: z.string().optional(),
   occupation: z.string().optional(),
   marital_status: z.enum(['single', 'married', 'divorced', 'widowed']).optional(),
-  owner_id: z.string().optional()
+  owner_id: z.string().optional(),
+  isManagerRole: z.boolean().optional()
+}).superRefine((data, ctx) => {
+  if (data.isManagerRole && !data.owner_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'يجب اختيار الوكيل المسؤول',
+      path: ['owner_id']
+    });
+  }
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -68,12 +77,32 @@ export function Customers() {
   }, [user, page, searchQuery]);
 
   const loadAgents = async () => {
+    if (!user) return;
     try {
+      // لو المستخدم وكيل، مش محتاج يشوف قائمة وكلاء أصلاً (هيتسجل عليه تلقائياً)
+      if (user.role === 'agent' || user.role === 'premium_agent') {
+        setAgents([]);
+        return;
+      }
+
+      // نجيب كل من هو تحت المستخدم الحالي في الهيكل الإداري (فريقه فقط)
+      const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
+        user_id: user.id
+      });
+      if (subtreeError) throw subtreeError;
+
+      const teamIds = (subtreeIds || []).filter((id: string) => id !== user.id);
+      if (teamIds.length === 0) {
+        setAgents([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('users')
         .select('id, name, role')
-        .in('role', ['agent', 'premium_agent', 'group_leader', 'supervisor'])
-        .eq('is_active', true);
+        .in('id', teamIds)
+        .eq('is_active', true)
+        .order('name');
 
       if (error) throw error;
       setAgents(data || []);
@@ -135,11 +164,12 @@ export function Customers() {
         birth_date: customer.birth_date || '',
         occupation: customer.occupation || '',
         marital_status: customer.marital_status || undefined,
-        owner_id: customer.owner_id || ''
+        owner_id: customer.owner_id || '',
+        isManagerRole: !!user && user.role !== 'agent' && user.role !== 'premium_agent'
       });
     } else {
       setEditingCustomer(null);
-      const defaultOwnerId = user?.role === 'agent' || user?.role === 'premium_agent' ? user?.id : '';
+      const isAgent = user?.role === 'agent' || user?.role === 'premium_agent';
       reset({
         name: '',
         national_id: '',
@@ -148,7 +178,8 @@ export function Customers() {
         birth_date: '',
         occupation: '',
         marital_status: undefined,
-        owner_id: defaultOwnerId
+        owner_id: isAgent ? user?.id : '',
+        isManagerRole: !isAgent
       });
     }
     setShowModal(true);
@@ -164,13 +195,18 @@ export function Customers() {
     if (!user) return;
     setSaving(true);
 
+    // owner_id: للوكيل = نفسه دائماً، للمدير = الوكيل المختار من فريقه (مُتحقق منه بالـ schema)
+    const isAgent = user.role === 'agent' || user.role === 'premium_agent';
+    const finalOwnerId = isAgent ? user.id : data.owner_id;
+
     try {
       if (editingCustomer) {
+        const { isManagerRole, ...customerData } = data;
         const { error } = await supabase
           .from('customers')
           .update({
-            ...data,
-            owner_id: data.owner_id || editingCustomer.owner_id,
+            ...customerData,
+            owner_id: finalOwnerId || editingCustomer.owner_id,
             updated_at: new Date().toISOString()
           })
           .eq('id', editingCustomer.id);
@@ -185,11 +221,12 @@ export function Customers() {
           p_new_values: data
         });
       } else {
+        const { isManagerRole, ...customerData } = data;
         const { error } = await supabase
           .from('customers')
           .insert({
-            ...data,
-            owner_id: data.owner_id || user.id
+            ...customerData,
+            owner_id: finalOwnerId
           });
 
         if (error) throw error;
@@ -470,15 +507,24 @@ export function Customers() {
                 </select>
               </div>
 
-              {(user?.role === 'development_manager' || user?.role === 'general_supervisor' || user?.role === 'super_admin') && (
+              {user && user.role !== 'agent' && user.role !== 'premium_agent' && (
                 <div className="form-group">
-                  <label className="input-label">الوكيل</label>
-                  <select {...register('owner_id')} className="input-field">
+                  <label className="input-label">الوكيل المسؤول *</label>
+                  <select
+                    {...register('owner_id')}
+                    className={clsx('input-field', errors.owner_id && 'border-error-500')}
+                  >
                     <option value="">اختر الوكيل</option>
                     {agents.map((agent) => (
                       <option key={agent.id} value={agent.id}>{agent.name}</option>
                     ))}
                   </select>
+                  {agents.length === 0 && (
+                    <p className="text-xs text-secondary-400 mt-1">لا يوجد أعضاء في فريقك حالياً</p>
+                  )}
+                  {errors.owner_id && (
+                    <p className="text-sm text-error-600 mt-1">{errors.owner_id.message}</p>
+                  )}
                 </div>
               )}
 
