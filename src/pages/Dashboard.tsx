@@ -174,35 +174,58 @@ export function Dashboard() {
 
     const { data: teamUsers } = await supabase
       .from('users')
-      .select('id, name, target')
-      .in('id', userIds)
-      .eq('is_active', true)
-      .limit(10);
+      .select('id, name, target, manager_id, is_active')
+      .in('id', userIds);
 
     if (!teamUsers) return;
 
-    const performance: TeamPerformance[] = [];
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('amount, installment:installment_id(policy:policy_id(owner_id))')
+      .eq('payment_month', monthStartStr)
+      .eq('is_cancelled', false);
 
-    for (const teamUser of teamUsers) {
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-        .eq('payment_month', monthStartStr)
-        .eq('is_cancelled', false);
+    // Sum production directly owned by each user (policies registered under their own owner_id)
+    const directAchieved = new Map<string, number>();
+    (payments || []).forEach((p: any) => {
+      const ownerId = p.installment?.policy?.owner_id;
+      if (!ownerId) return;
+      directAchieved.set(ownerId, (directAchieved.get(ownerId) || 0) + Number(p.amount));
+    });
 
-      const userPayments = (payments || []).filter(
-        (p: any) => p.installment?.policy?.owner_id === teamUser.id
-      );
+    // Build a map of manager_id -> direct subordinate ids (within the currently visible subtree)
+    const childrenMap = new Map<string, string[]>();
+    teamUsers.forEach((u) => {
+      if (u.manager_id) {
+        const list = childrenMap.get(u.manager_id) || [];
+        list.push(u.id);
+        childrenMap.set(u.manager_id, list);
+      }
+    });
 
-      const achieved = userPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+    // A manager/supervisor's achievement = their own direct production + the rolled-up
+    // production of everyone below them in the hierarchy (so a supervisor sees credit
+    // for their team's work even if they don't personally own any policies).
+    const rolledUpCache = new Map<string, number>();
+    const getRolledUpAchieved = (userId: string): number => {
+      if (rolledUpCache.has(userId)) return rolledUpCache.get(userId)!;
+      let total = directAchieved.get(userId) || 0;
+      const children = childrenMap.get(userId) || [];
+      for (const childId of children) {
+        total += getRolledUpAchieved(childId);
+      }
+      rolledUpCache.set(userId, total);
+      return total;
+    };
 
-      performance.push({
-        id: teamUser.id,
-        name: teamUser.name,
-        achieved,
-        target: teamUser.target || 0
-      });
-    }
+    const performance: TeamPerformance[] = teamUsers
+      .filter((u) => u.is_active)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        achieved: getRolledUpAchieved(u.id),
+        target: u.target || 0
+      }));
 
     setTeamPerformance(performance.sort((a, b) => b.achieved - a.achieved).slice(0, 5));
   };
