@@ -612,6 +612,7 @@ export function MonthlyClosing() {
           {/* ── Structured Print Report (visible only when printing) ── */}
           <PrintReport
             supervisorName={user?.name || ''}
+            supervisorRoleLabel={ROLE_LABELS[user?.role ?? 'supervisor']}
             monthLabel={monthLabel}
             closingDate={closingRecord?.closed_at ? format(new Date(closingRecord.closed_at), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
             supervisors={supervisors}
@@ -679,11 +680,12 @@ export function MonthlyClosing() {
 // ─── Print Report (structured, print-only) ────────────────
 // يظهر فقط عند الطباعة — صفحة ملخص أولى ثم تفاصيل مفصّلة حسب الهيكل الإداري
 function PrintReport({
-  supervisorName, monthLabel, closingDate,
+  supervisorName, supervisorRoleLabel, monthLabel, closingDate,
   supervisors, directAgents,
   grandProduction, grandCollection, grandTotal,
 }: {
   supervisorName: string;
+  supervisorRoleLabel: string;
   monthLabel: string;
   closingDate: string;
   supervisors: SupervisorSummary[];
@@ -746,7 +748,7 @@ function PrintReport({
       <div className="pr-title">تقرير تقفيل الشهر</div>
       <div className="pr-sub">ملخص القيادات</div>
       <div className="pr-meta">
-        <span><b>المراقب العام:</b> {supervisorName}</span>
+        <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
         <span><b>الشهر:</b> {monthLabel}</span>
         <span><b>تاريخ التقفيل:</b> {closingDate}</span>
       </div>
@@ -790,9 +792,9 @@ function PrintReport({
       ))}
 
       <div className="pr-grand-box">
-        <div className="row"><span>إجمالي المراقب العام — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
-        <div className="row"><span>إجمالي المراقب العام — التحصيل</span><span>{fmt(grandCollection)}</span></div>
-        <div className="row total"><span>إجمالي المراقب العام — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
+        <div className="row"><span>إجمالي {supervisorRoleLabel} — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
+        <div className="row"><span>إجمالي {supervisorRoleLabel} — التحصيل</span><span>{fmt(grandCollection)}</span></div>
+        <div className="row total"><span>إجمالي {supervisorRoleLabel} — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
       </div>
 
       {/* ══ الصفحات التالية: تفاصيل الوكلاء ══ */}
@@ -876,7 +878,7 @@ function PrintReport({
       ))}
 
       <div className="pr-grand-box">
-        <div className="row total"><span>إجمالي المراقب العام بالكامل</span><span>{fmt(grandTotal)}</span></div>
+        <div className="row total"><span>إجمالي {supervisorRoleLabel} بالكامل</span><span>{fmt(grandTotal)}</span></div>
         <div className="row"><span>الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
         <div className="row"><span>التحصيل</span><span>{fmt(grandCollection)}</span></div>
       </div>
