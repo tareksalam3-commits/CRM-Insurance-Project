@@ -69,6 +69,12 @@ interface SupervisorSummary {
 const fmt = (n: number) =>
   new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0 }).format(n);
 
+// آخر 6 أرقام فقط من رقم الوثيقة
+const last6 = (policyNumber: string) => {
+  const digits = (policyNumber || '').toString();
+  return digits.length > 6 ? digits.slice(-6) : digits;
+};
+
 // ─── component ────────────────────────────────────────────
 export function MonthlyClosing() {
   const { user } = useAuth();
@@ -363,7 +369,7 @@ export function MonthlyClosing() {
       </div>
 
       {/* ── Month Navigator ── */}
-      <div className="card">
+      <div className="card print:hidden">
         <div className="flex items-center justify-between">
           <button onClick={() => setSelectedMonth(m => subMonths(m, 1))} className="btn btn-ghost">
             <ChevronRight className="w-5 h-5" />
@@ -395,7 +401,7 @@ export function MonthlyClosing() {
       ) : (
         <>
           {/* ── Totals ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:hidden">
             <div className="card bg-success-50 border border-success-200">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-success-100 flex items-center justify-center flex-shrink-0">
@@ -432,7 +438,7 @@ export function MonthlyClosing() {
           </div>
 
           {/* ── Supervisors Tree ── */}
-          <div className="space-y-3">
+          <div className="space-y-3 print:hidden">
 
             {supervisors.map((sv) => (
               <div key={sv.supervisorId} className="card p-0 overflow-hidden">
@@ -549,7 +555,7 @@ export function MonthlyClosing() {
           </div>
 
           {/* ── Close / Open actions ── */}
-          <div className="card">
+          <div className="card print:hidden">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 {isClosed ? (
@@ -603,6 +609,17 @@ export function MonthlyClosing() {
               </div>
             </div>
           </div>
+          {/* ── Structured Print Report (visible only when printing) ── */}
+          <PrintReport
+            supervisorName={user?.name || ''}
+            monthLabel={monthLabel}
+            closingDate={closingRecord?.closed_at ? format(new Date(closingRecord.closed_at), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
+            supervisors={supervisors}
+            directAgents={directAgents}
+            grandProduction={grandProduction}
+            grandCollection={grandCollection}
+            grandTotal={grandTotal}
+          />
         </>
       )}
 
@@ -659,7 +676,209 @@ export function MonthlyClosing() {
   );
 }
 
-// ─── Agent Row Sub-component ──────────────────────────────
+// ─── Print Report (structured, print-only) ────────────────
+// يظهر فقط عند الطباعة — صفحة ملخص أولى ثم تفاصيل مفصّلة حسب الهيكل الإداري
+function PrintReport({
+  supervisorName, monthLabel, closingDate,
+  supervisors, directAgents,
+  grandProduction, grandCollection, grandTotal,
+}: {
+  supervisorName: string;
+  monthLabel: string;
+  closingDate: string;
+  supervisors: SupervisorSummary[];
+  directAgents: AgentSummary[];
+  grandProduction: number;
+  grandCollection: number;
+  grandTotal: number;
+}) {
+  // كل المراقبين + الوكلاء المباشرين كـ "مراقب" وهمي ليظهروا بنفس البنية
+  const allSupervisors: SupervisorSummary[] = [
+    ...supervisors,
+    ...(directAgents.length > 0 ? [{
+      supervisorId: 'direct',
+      supervisorName: 'وكلاء مباشرون',
+      supervisorRole: 'agent' as UserRole,
+      production: directAgents.reduce((s, a) => s + a.production, 0),
+      collection: directAgents.reduce((s, a) => s + a.collection, 0),
+      total: directAgents.reduce((s, a) => s + a.total, 0),
+      groups: [{
+        leaderId: 'direct_group',
+        leaderName: 'وكلاء مباشرون',
+        leaderRole: 'agent' as UserRole,
+        production: directAgents.reduce((s, a) => s + a.production, 0),
+        collection: directAgents.reduce((s, a) => s + a.collection, 0),
+        total: directAgents.reduce((s, a) => s + a.total, 0),
+        agents: directAgents,
+      }],
+    }] : []),
+  ];
+
+  return (
+    <div className="hidden print:block print-report" dir="rtl">
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 14mm 12mm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        .print-report { font-family: 'Tahoma', 'Arial', sans-serif; color: #111; font-size: 12px; }
+        .print-report .pr-page-break { page-break-before: always; break-before: page; }
+        .print-report table { width: 100%; border-collapse: collapse; }
+        .print-report th, .print-report td { border: 1px solid #999; padding: 4px 6px; text-align: center; }
+        .print-report th { background: #e8e8e8; font-weight: 700; }
+        .print-report .pr-title { text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
+        .print-report .pr-sub { text-align: center; font-size: 12px; color: #444; margin-bottom: 14px; }
+        .print-report .pr-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 6px; }
+        .print-report .pr-section-title { font-weight: 800; font-size: 14px; margin: 14px 0 6px; background:#f1f1f1; padding: 4px 8px; border-right: 4px solid #444; }
+        .print-report .pr-sup-name { font-weight: 800; font-size: 13px; }
+        .print-report .pr-group-row td:first-child { text-align: right; font-weight: 700; }
+        .print-report .pr-totals-row td { font-weight: 800; background: #f6f6f6; }
+        .print-report .pr-grand-box { border: 2px solid #333; padding: 10px 14px; margin-top: 16px; }
+        .print-report .pr-grand-box .row { display:flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+        .print-report .pr-grand-box .row.total { font-weight: 800; font-size: 15px; border-top: 1px solid #999; margin-top: 4px; padding-top: 6px; }
+        .print-report .pr-detail-header { font-size: 12px; margin: 10px 0 6px; line-height: 1.9; }
+        .print-report .pr-detail-header b { font-size: 13px; }
+        .print-report .pr-agent-block { margin-bottom: 14px; }
+        .print-report .pr-agent-title { font-weight: 700; font-size: 12.5px; margin: 8px 0 4px; }
+      `}</style>
+
+      {/* ══ صفحة 1: ملخص القيادات ══ */}
+      <div className="pr-title">تقرير تقفيل الشهر</div>
+      <div className="pr-sub">ملخص القيادات</div>
+      <div className="pr-meta">
+        <span><b>المراقب العام:</b> {supervisorName}</span>
+        <span><b>الشهر:</b> {monthLabel}</span>
+        <span><b>تاريخ التقفيل:</b> {closingDate}</span>
+      </div>
+
+      {allSupervisors.map((sv) => (
+        <div key={sv.supervisorId} style={{ marginBottom: 10 }}>
+          <div className="pr-sup-name" style={{ margin: '8px 0 4px' }}>المراقب: {sv.supervisorName}</div>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: '30%' }}>المراقب</th>
+                <th style={{ width: '30%' }}>رئيس المجموعة</th>
+                <th>الإنتاج الجديد</th>
+                <th>التحصيل</th>
+                <th>الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sv.groups.map((grp, idx) => (
+                <tr key={grp.leaderId} className="pr-group-row">
+                  {idx === 0 && (
+                    <td rowSpan={sv.groups.length}>{sv.supervisorName}</td>
+                  )}
+                  <td>{grp.leaderName}</td>
+                  <td>{fmt(grp.production)}</td>
+                  <td>{fmt(grp.collection)}</td>
+                  <td>{fmt(grp.total)}</td>
+                </tr>
+              ))}
+              <tr className="pr-totals-row">
+                <td colSpan={2}>إجمالي {sv.supervisorName}</td>
+                <td>{fmt(sv.production)}</td>
+                <td>{fmt(sv.collection)}</td>
+                <td>{fmt(sv.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      <div className="pr-grand-box">
+        <div className="row"><span>إجمالي المراقب العام — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
+        <div className="row"><span>إجمالي المراقب العام — التحصيل</span><span>{fmt(grandCollection)}</span></div>
+        <div className="row total"><span>إجمالي المراقب العام — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
+      </div>
+
+      {/* ══ الصفحات التالية: تفاصيل الوكلاء ══ */}
+      {allSupervisors.map((sv) => (
+        <div key={sv.supervisorId + '_detail'} className="pr-page-break">
+          {sv.groups.map((grp) => (
+            <div key={grp.leaderId} style={{ marginBottom: 10 }}>
+              <div className="pr-section-title">
+                المراقب: {sv.supervisorName} &nbsp;&nbsp;|&nbsp;&nbsp; رئيس المجموعة: {grp.leaderName}
+              </div>
+
+              {grp.agents.map((agent) => (
+                <div key={agent.id} className="pr-agent-block">
+                  <div className="pr-agent-title">الوكيل: {agent.name}</div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '5%' }}>م</th>
+                        <th>اسم العميل</th>
+                        <th>آخر 6 أرقام من الوثيقة</th>
+                        <th>رقم القسط</th>
+                        <th>نوع العملية</th>
+                        <th>قيمة القسط</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agent.details.map((d, i) => (
+                        <tr key={i}>
+                          <td>{i + 1}</td>
+                          <td style={{ textAlign: 'right' }}>{d.customerName}</td>
+                          <td dir="ltr">{last6(d.policyNumber)}</td>
+                          <td>{d.installmentNumber}</td>
+                          <td>{d.type === 'new' ? 'جديد' : 'تحصيل'}</td>
+                          <td>{fmt(d.amount)}</td>
+                        </tr>
+                      ))}
+                      {agent.details.length === 0 && (
+                        <tr><td colSpan={6}>لا توجد عمليات لهذا الوكيل هذا الشهر</td></tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr className="pr-totals-row">
+                        <td colSpan={4}>إجمالي الوكيل</td>
+                        <td colSpan={2}>
+                          جديد: {fmt(agent.production)} &nbsp;|&nbsp;
+                          تحصيل: {fmt(agent.collection)} &nbsp;|&nbsp;
+                          الإجمالي: {fmt(agent.total)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ))}
+
+              <table style={{ marginTop: 2 }}>
+                <tbody>
+                  <tr className="pr-totals-row">
+                    <td>إجمالي رئيس المجموعة: {grp.leaderName}</td>
+                    <td>جديد: {fmt(grp.production)}</td>
+                    <td>تحصيل: {fmt(grp.collection)}</td>
+                    <td>الإجمالي: {fmt(grp.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ))}
+
+          <table style={{ marginTop: 6 }}>
+            <tbody>
+              <tr className="pr-totals-row">
+                <td>إجمالي المراقب: {sv.supervisorName}</td>
+                <td>جديد: {fmt(sv.production)}</td>
+                <td>تحصيل: {fmt(sv.collection)}</td>
+                <td>الإجمالي: {fmt(sv.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      <div className="pr-grand-box">
+        <div className="row total"><span>إجمالي المراقب العام بالكامل</span><span>{fmt(grandTotal)}</span></div>
+        <div className="row"><span>الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
+        <div className="row"><span>التحصيل</span><span>{fmt(grandCollection)}</span></div>
+      </div>
+    </div>
+  );
+}
 function AgentRow({ agent, expanded, onToggle }: {
   agent: AgentSummary;
   expanded: boolean;
