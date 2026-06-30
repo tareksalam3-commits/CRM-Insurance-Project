@@ -57,13 +57,6 @@ export function Dashboard() {
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState<{ production: number; collection: number }>({ production: 0, collection: 0 });
-  const [newTarget, setNewTarget] = useState(0);
-
-  useEffect(() => {
-    if (user) {
-      setNewTarget(user.target);
-    }
-  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -139,7 +132,7 @@ export function Dashboard() {
       const newProduction = filteredPayments.filter((p: any) => p.installment?.is_first);
       const periodicCollection = filteredPayments.filter((p: any) => !p.installment?.is_first);
 
-      const totalTarget = newTarget || 0;
+      const totalTarget = user?.target || 0;
       const totalAchieved = newProduction.reduce((sum: number, p: any) => sum + Number(p.amount), 0) +
         periodicCollection.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
 
@@ -256,6 +249,25 @@ export function Dashboard() {
     }).format(amount);
   };
 
+  const RADIAN = Math.PI / 180;
+  const renderProductionLabel = ({ cx, cy, midAngle, outerRadius, name, value }: any) => {
+    const radius = outerRadius + 35;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="#475569"
+        textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central"
+        className="text-xs font-medium"
+      >
+        {`${name}: ${formatCurrency(value)}`}
+      </text>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -275,7 +287,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="kpi-card">
           <div className="flex items-center justify-between">
             <div>
@@ -419,9 +431,9 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card">
           <h3 className="font-semibold text-secondary-900 mb-4">الإنتاج والتحصيل هذا الشهر</h3>
-          <div className="h-64">
+          <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart margin={{ top: 20, right: 50, bottom: 20, left: 50 }}>
                 <Pie
                   data={[
                     { name: 'الإنتاج الجديد', value: chartData.production, color: '#22c55e' },
@@ -431,8 +443,9 @@ export function Dashboard() {
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={80}
-                  label={({ name, value }: any) => `${name}: ${formatCurrency(value)}`}
+                  outerRadius={65}
+                  label={renderProductionLabel}
+                  labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
                 >
                   <Cell fill="#22c55e" />
                   <Cell fill="#3b82f6" />
