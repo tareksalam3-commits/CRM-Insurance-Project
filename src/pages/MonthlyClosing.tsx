@@ -259,6 +259,7 @@ export function MonthlyClosing() {
 
       // أطفال المستخدم الحالي المباشرون
       const myChildren = childrenOf.get(user!.id) || [];
+      const myDirectGroups: GroupSummary[] = [];
       for (const cid of myChildren) {
         const cu = usersMap.get(cid);
         if (!cu) continue;
@@ -266,18 +267,26 @@ export function MonthlyClosing() {
         if (lvl <= 4) {
           supervisorList.push(buildSupervisor(cid));
         } else if (lvl === 5) {
-          // group_leader مباشر تحتي
-          const g = buildGroup(cid);
-          supervisorList.push({
-            supervisorId: cid, supervisorName: cu.name, supervisorRole: cu.role,
-            production: g.production, collection: g.collection, total: g.total,
-            groups: [g],
-          });
+          // group_leader مباشر تحتي — يُجمع تحت اسمي أنا (المراقب الحالي)، مش كأنه مراقب منفصل
+          myDirectGroups.push(buildGroup(cid));
         } else {
           // وكيل مباشر
           if (agentMap.has(cid)) directAgentList.push(agentMap.get(cid)!);
           else directAgentList.push({ id: cu.id, name: cu.name, role: cu.role, manager_id: cu.manager_id, production: 0, collection: 0, total: 0, details: [] });
         }
+      }
+
+      // كل قادة المجموعات المباشرين تحتي يظهروا في جدول واحد باسمي أنا (المراقب الحقيقي)
+      if (myDirectGroups.length > 0) {
+        supervisorList.unshift({
+          supervisorId: user!.id,
+          supervisorName: user!.name,
+          supervisorRole: user!.role,
+          production: myDirectGroups.reduce((s, g) => s + g.production, 0),
+          collection: myDirectGroups.reduce((s, g) => s + g.collection, 0),
+          total: myDirectGroups.reduce((s, g) => s + g.total, 0),
+          groups: myDirectGroups,
+        });
       }
 
       // الإجمالي الكلي
