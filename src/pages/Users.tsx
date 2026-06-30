@@ -89,6 +89,7 @@ export function Users() {
   // ── forms ──────────────────────────────────────────────
   const {
     register, handleSubmit, reset,
+    watch,
     formState: { errors },
   } = useForm<UserFormData>({ resolver: zodResolver(userSchema) });
 
@@ -384,6 +385,27 @@ export function Users() {
     }
   };
 
+  // ── manager dropdown filtering ─────────────────────────
+  // كل درجة وظيفية لها درجة واحدة فقط مسموح يكون هو المدير المباشر
+  const EXPECTED_PARENT: Partial<Record<UserRole, UserRole>> = {
+    development_manager:  'super_admin',
+    general_supervisor:   'development_manager',
+    supervisor:           'general_supervisor',
+    group_leader:         'supervisor',      // رئيس المجموعة لا بد تحت مراقب
+    agent:                'group_leader',
+    premium_agent:        'group_leader',
+  };
+
+  const selectedRole = watch('role') as UserRole | undefined;
+
+  const allowedManagers = allUsers.filter((u) => {
+    if (!selectedRole) return true;
+    if (u.id === editingUser?.id) return false;
+    const expected = EXPECTED_PARENT[selectedRole];
+    if (!expected) return false; // super_admin مثلاً ما يحتاج مدير
+    return u.role === expected;
+  });
+
   // ── guard ──────────────────────────────────────────────
   if (!canManage) {
     return (
@@ -645,14 +667,22 @@ export function Users() {
                   <label className="input-label">المدير المباشر</label>
                   <select {...register('manager_id')} className="input-field">
                     <option value="">بدون مدير</option>
-                    {allUsers
-                      .filter((u) => u.id !== editingUser?.id)
-                      .map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} — {ROLE_LABELS[u.role]}
-                        </option>
-                      ))}
+                    {allowedManagers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} — {ROLE_LABELS[u.role]}
+                      </option>
+                    ))}
                   </select>
+                  {selectedRole && EXPECTED_PARENT[selectedRole] && allowedManagers.length === 0 && (
+                    <p className="text-xs text-error-600 mt-1">
+                      لا يوجد {ROLE_LABELS[EXPECTED_PARENT[selectedRole]!]} متاح — يجب إضافته أولاً
+                    </p>
+                  )}
+                  {selectedRole && EXPECTED_PARENT[selectedRole] && (
+                    <p className="text-xs text-secondary-400 mt-1">
+                      يجب أن يكون المدير المباشر: {ROLE_LABELS[EXPECTED_PARENT[selectedRole]!]}
+                    </p>
+                  )}
                 </div>
               </div>
 
