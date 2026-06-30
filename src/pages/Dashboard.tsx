@@ -249,25 +249,6 @@ export function Dashboard() {
     }).format(amount);
   };
 
-  const RADIAN = Math.PI / 180;
-  const renderProductionLabel = ({ cx, cy, midAngle, outerRadius, name, value }: any) => {
-    const radius = outerRadius + 35;
-    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-    return (
-      <text
-        x={x}
-        y={y}
-        fill="#475569"
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        className="text-xs font-medium"
-      >
-        {`${name}: ${formatCurrency(value)}`}
-      </text>
-    );
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -431,9 +412,17 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card">
           <h3 className="font-semibold text-secondary-900 mb-4">الإنتاج والتحصيل هذا الشهر</h3>
-          <div className="h-72">
+
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#22c55e' }} />
+            <span className="text-sm font-medium text-secondary-700">
+              الإنتاج الجديد: {formatCurrency(chartData.production)}
+            </span>
+          </div>
+
+          <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart margin={{ top: 20, right: 50, bottom: 20, left: 50 }}>
+              <PieChart>
                 <Pie
                   data={[
                     { name: 'الإنتاج الجديد', value: chartData.production, color: '#22c55e' },
@@ -443,9 +432,9 @@ export function Dashboard() {
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={65}
-                  label={renderProductionLabel}
-                  labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={2}
                 >
                   <Cell fill="#22c55e" />
                   <Cell fill="#3b82f6" />
@@ -460,6 +449,13 @@ export function Dashboard() {
                 />
               </PieChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#3b82f6' }} />
+            <span className="text-sm font-medium text-secondary-700">
+              التحصيل الدوري: {formatCurrency(chartData.collection)}
+            </span>
           </div>
         </div>
 
