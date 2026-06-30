@@ -177,6 +177,31 @@ export function Policies() {
       if (editingPolicy) {
         const oldData = editingPolicy;
 
+        const fieldsAffectingInstallments =
+          data.premium_amount !== Number(oldData.premium_amount) ||
+          data.payment_method !== oldData.payment_method ||
+          data.start_date !== oldData.start_date;
+
+        if (fieldsAffectingInstallments) {
+          const { count: paidCount } = await supabase
+            .from('installments')
+            .select('id', { count: 'exact', head: true })
+            .eq('policy_id', editingPolicy.id)
+            .eq('status', 'paid');
+
+          if ((paidCount || 0) > 0) {
+            const confirmed = window.confirm(
+              `تنبيه: يوجد ${paidCount} قسط مدفوع مسبقاً في هذه الوثيقة بالقيمة/الموعد القديم.\n\n` +
+              `تعديل قيمة القسط أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة).\n\n` +
+              `هل تريد المتابعة؟`
+            );
+            if (!confirmed) {
+              setSaving(false);
+              return;
+            }
+          }
+        }
+
         const { error } = await supabase
           .from('policies')
           .update({
@@ -226,8 +251,11 @@ export function Policies() {
       loadPolicies();
     } catch (error: any) {
       console.error('Error saving policy:', error);
-      if (error.code === '23505') {
+      const msg: string = error?.message || '';
+      if (error.code === '23505' && msg.includes('policy_number')) {
         alert('رقم الوثيقة مسجل مسبقاً');
+      } else if (error.code === '23505') {
+        alert('حدث تعارض في البيانات أثناء الحفظ، برجاء المحاولة مرة أخرى');
       } else {
         alert('حدث خطأ أثناء الحفظ');
       }
