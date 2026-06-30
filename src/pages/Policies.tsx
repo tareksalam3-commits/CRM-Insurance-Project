@@ -130,7 +130,7 @@ export function Policies() {
   const loadCustomers = async () => {
     const { data } = await supabase
       .from('customers')
-      .select('id, name')
+      .select('id, name, owner_id')
       .order('name');
 
     setCustomers(data as Customer[]);
@@ -220,11 +220,14 @@ export function Policies() {
           p_new_values: data
         });
       } else {
+        const selectedCustomer = customers.find((c) => c.id === data.customer_id);
+        const policyOwnerId = selectedCustomer?.owner_id || user.id;
+
         const { data: newPolicy, error } = await supabase
           .from('policies')
           .insert({
             ...data,
-            owner_id: user.id
+            owner_id: policyOwnerId
           })
           .select()
           .single();
