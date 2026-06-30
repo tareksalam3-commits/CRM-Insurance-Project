@@ -82,7 +82,8 @@ export function Dashboard() {
         customersRes,
         policiesRes,
         installmentsRes,
-        paymentsRes
+        paymentsRes,
+        targetUsersRes
       ] = await Promise.all([
         supabase
           .from('customers')
@@ -103,7 +104,12 @@ export function Dashboard() {
           .from('payments')
           .select('id, amount, payment_month, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
           .eq('payment_month', monthStartStr)
-          .eq('is_cancelled', false)
+          .eq('is_cancelled', false),
+
+        supabase
+          .from('users')
+          .select('target')
+          .in('id', userIds)
       ]);
 
       const filteredInstallments = (installmentsRes.data || []).filter(
@@ -132,7 +138,10 @@ export function Dashboard() {
       const newProduction = filteredPayments.filter((p: any) => p.installment?.is_first);
       const periodicCollection = filteredPayments.filter((p: any) => !p.installment?.is_first);
 
-      const totalTarget = user?.target || 0;
+      const totalTarget = (targetUsersRes.data || []).reduce(
+        (sum: number, u: any) => sum + Number(u.target || 0),
+        0
+      );
       const totalAchieved = newProduction.reduce((sum: number, p: any) => sum + Number(p.amount), 0) +
         periodicCollection.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
 
