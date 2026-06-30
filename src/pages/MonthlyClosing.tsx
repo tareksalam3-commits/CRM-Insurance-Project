@@ -753,7 +753,9 @@ function PrintReport({
 
       {allSupervisors.map((sv) => (
         <div key={sv.supervisorId} style={{ marginBottom: 10 }}>
-          <div className="pr-sup-name" style={{ margin: '8px 0 4px' }}>المراقب: {sv.supervisorName}</div>
+          <div className="pr-sup-name" style={{ margin: '8px 0 4px' }}>
+            {sv.supervisorId === 'direct' ? 'وكلاء مباشرون' : `${ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: ${sv.supervisorName}`}
+          </div>
           <table>
             <thead>
               <tr>
@@ -799,12 +801,14 @@ function PrintReport({
           {sv.groups.map((grp) => (
             <div key={grp.leaderId} style={{ marginBottom: 10 }}>
               <div className="pr-section-title">
-                المراقب: {sv.supervisorName} &nbsp;&nbsp;|&nbsp;&nbsp; رئيس المجموعة: {grp.leaderName}
+                {sv.supervisorId === 'direct'
+                  ? 'وكلاء مباشرون'
+                  : <>{ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: {sv.supervisorName} &nbsp;&nbsp;|&nbsp;&nbsp; {ROLE_LABELS[grp.leaderRole] || 'رئيس المجموعة'}: {grp.leaderName}</>}
               </div>
 
               {grp.agents.map((agent) => (
                 <div key={agent.id} className="pr-agent-block">
-                  <div className="pr-agent-title">الوكيل: {agent.name}</div>
+                  <div className="pr-agent-title">{ROLE_LABELS[agent.role] || 'الوكيل'}: {agent.name}</div>
                   <table>
                     <thead>
                       <tr>
@@ -848,7 +852,7 @@ function PrintReport({
               <table style={{ marginTop: 2 }}>
                 <tbody>
                   <tr className="pr-totals-row">
-                    <td>إجمالي رئيس المجموعة: {grp.leaderName}</td>
+                    <td>إجمالي {ROLE_LABELS[grp.leaderRole] || 'رئيس المجموعة'}: {grp.leaderName}</td>
                     <td>جديد: {fmt(grp.production)}</td>
                     <td>تحصيل: {fmt(grp.collection)}</td>
                     <td>الإجمالي: {fmt(grp.total)}</td>
@@ -861,7 +865,7 @@ function PrintReport({
           <table style={{ marginTop: 6 }}>
             <tbody>
               <tr className="pr-totals-row">
-                <td>إجمالي المراقب: {sv.supervisorName}</td>
+                <td>إجمالي {sv.supervisorId === 'direct' ? 'وكلاء مباشرون' : `${ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: ${sv.supervisorName}`}</td>
                 <td>جديد: {fmt(sv.production)}</td>
                 <td>تحصيل: {fmt(sv.collection)}</td>
                 <td>الإجمالي: {fmt(sv.total)}</td>
