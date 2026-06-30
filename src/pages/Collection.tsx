@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
   supabase,
@@ -28,9 +29,14 @@ type InstallmentWithRelations = Installment & {
   policy: Policy & { customer: { name: string }; owner: { name: string } };
 };
 
+const VALID_TABS: TabType[] = ['new_production', 'periodic', 'overdue', 'paid_new', 'paid_periodic'];
+
 export function Collection() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab]               = useState<TabType>('new_production');
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as TabType | null;
+  const initialTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'new_production';
+  const [activeTab, setActiveTab]               = useState<TabType>(initialTab);
   const [installments, setInstallments]         = useState<InstallmentWithRelations[]>([]);
   const [loading, setLoading]                   = useState(true);
   const [page, setPage]                         = useState(1);
@@ -47,6 +53,13 @@ export function Collection() {
   const [policyInstallments, setPolicyInstallments] = useState<InstallmentWithRelations[]>([]);
   const [loadingPolicyInstallments, setLoadingPolicyInstallments] = useState(false);
   const pageSize = 10;
+
+  useEffect(() => {
+    if (tabFromUrl && VALID_TABS.includes(tabFromUrl) && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+      setPage(1);
+    }
+  }, [tabFromUrl]);
 
   useEffect(() => {
     if (user) loadInstallments();
