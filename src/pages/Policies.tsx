@@ -21,7 +21,8 @@ import {
   ChevronRight,
   Pause,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format } from 'date-fns';
@@ -51,6 +52,9 @@ export function Policies() {
   const [showModal, setShowModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<Policy | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deletableIds, setDeletableIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -114,6 +118,8 @@ export function Policies() {
 
       setPolicies(data as Policy[]);
       setTotalPages(Math.ceil((count || 0) / pageSize));
+
+      await checkDeletablePolicies((data as Policy[]) || []);
     } catch (error) {
       console.error('Error loading policies:', error);
     } finally {
@@ -227,6 +233,88 @@ export function Policies() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const checkDeletablePolicies = async (policyList: Policy[]) => {
+    if (policyList.length === 0) {
+      setDeletableIds(new Set());
+      return;
+    }
+    try {
+      const policyIds = policyList.map((p) => p.id);
+      const currentMonth = format(new Date(), 'yyyy-MM-01');
+
+      // نجيب كل الدفعات الغير ملغاة المرتبطة بهذه الوثائق (عبر installments)
+      const { data: installmentsData } = await supabase
+        .from('installments')
+        .select('id, policy_id')
+        .in('policy_id', policyIds);
+
+      const installmentToPolicy = new Map<string, string>(
+        (installmentsData || []).map((i: any) => [i.id, i.policy_id])
+      );
+      const installmentIds = (installmentsData || []).map((i: any) => i.id);
+
+      let hasOldPaymentPolicyIds = new Set<string>();
+
+      if (installmentIds.length > 0) {
+        const { data: paymentsData } = await supabase
+          .from('payments')
+          .select('installment_id, payment_month')
+          .in('installment_id', installmentIds)
+          .eq('is_cancelled', false)
+          .neq('payment_month', currentMonth);
+
+        for (const p of paymentsData || []) {
+          const policyId = installmentToPolicy.get((p as any).installment_id);
+          if (policyId) hasOldPaymentPolicyIds.add(policyId);
+        }
+      }
+
+      const deletable = new Set(
+        policyIds.filter((id) => !hasOldPaymentPolicyIds.has(id))
+      );
+      setDeletableIds(deletable);
+    } catch (error) {
+      console.error('Error checking deletable policies:', error);
+      setDeletableIds(new Set());
+    }
+  };
+
+  const handleDeletePolicy = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc('delete_policy_safe', {
+        p_policy_id: deleteConfirm.id
+      });
+
+      if (error) {
+        if (error.message?.includes('دفعات مسددة من شهور سابقة')) {
+          alert('لا يمكن حذف هذه الوثيقة لوجود دفعات مسددة من شهور سابقة');
+        } else if (error.message?.includes('صلاحية')) {
+          alert('ليس لديك صلاحية لحذف هذه الوثيقة');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      await supabase.rpc('log_activity', {
+        p_action: 'policy_delete',
+        p_entity_type: 'policy',
+        p_entity_id: deleteConfirm.id,
+        p_old_values: deleteConfirm
+      });
+
+      setDeleteConfirm(null);
+      loadPolicies();
+    } catch (error) {
+      console.error('Error deleting policy:', error);
+      alert('حدث خطأ أثناء حذف الوثيقة');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -423,6 +511,23 @@ export function Policies() {
                           >
                             <FileText className="w-4 h-4" />
                           </button>
+                          {deletableIds.has(policy.id) ? (
+                            <button
+                              onClick={() => setDeleteConfirm(policy)}
+                              className="p-1.5 rounded-lg hover:bg-error-50 text-secondary-400 hover:text-error-600"
+                              title="حذف الوثيقة"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              disabled
+                              className="p-1.5 rounded-lg text-secondary-200 cursor-not-allowed"
+                              title="لا يمكن الحذف: توجد دفعات من شهور سابقة"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -594,6 +699,46 @@ export function Policies() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div
+            className="modal-content max-w-sm animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-error-100 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-error-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-secondary-900 mb-2">
+                تأكيد حذف الوثيقة
+              </h3>
+              <p className="text-secondary-600 mb-2">
+                هل أنت متأكد من حذف الوثيقة رقم{' '}
+                <span className="font-medium text-secondary-900">{deleteConfirm.policy_number}</span>؟
+              </p>
+              <p className="text-sm text-warning-600 mb-6">
+                لا يمكن التراجع عن هذا الإجراء، وسيتم حذف كل الأقساط المرتبطة بها.
+              </p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="btn btn-secondary"
+                  disabled={deleting}
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleDeletePolicy}
+                  disabled={deleting}
+                  className="btn btn-error"
+                >
+                  {deleting ? 'جاري الحذف...' : 'حذف'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
