@@ -7,6 +7,7 @@ import {
   Users as UsersIcon,
   BarChart3,
   CalendarCheck,
+  Network,
   User,
   History,
   Settings,
@@ -16,7 +17,7 @@ import {
   Shield
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { ROLE_LABELS, getRoleLevel, canViewSettings, canManageUsers } from '../lib/supabase';
+import { ROLE_LABELS, getRoleLevel, canViewSettings, canManageUsers, canViewOrgStructure } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 import clsx from 'clsx';
 
@@ -26,6 +27,7 @@ const menuItems = [
   { path: '/policies',       icon: FileText,         label: 'الوثائق' },
   { path: '/collection',     icon: CreditCard,       label: 'التحصيل والسداد' },
   { path: '/users',          icon: UsersIcon,        label: 'المستخدمون', management: true },
+  { path: '/org-structure',  icon: Network,          label: 'الهيكل الوظيفي', orgStructure: true },
   { path: '/reports',        icon: BarChart3,        label: 'التقارير' },
   { path: '/monthly-closing',icon: CalendarCheck,    label: 'تقفيل الشهر' },
   { path: '/activity-log',   icon: History,          label: 'سجل العمليات' },
@@ -53,6 +55,7 @@ export function Sidebar() {
   const filteredItems = menuItems.filter((item) => {
     if (item.superAdminOnly) return canViewSettings(user.role);
     if (item.management)     return canManageUsers(user.role);
+    if ((item as any).orgStructure) return canViewOrgStructure(user.role);
     return true;
   });
 
