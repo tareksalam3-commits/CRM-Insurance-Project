@@ -263,6 +263,10 @@ export function canCloseMonth(role: UserRole): boolean {
   return getRoleLevel(role) <= 4;
 }
 
+export function canViewOrgStructure(role: UserRole): boolean {
+  return getRoleLevel(role) <= 5;
+}
+
 export function canViewSettings(role: UserRole): boolean {
   return role === 'super_admin';
 }
