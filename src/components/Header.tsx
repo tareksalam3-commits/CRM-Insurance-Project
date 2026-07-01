@@ -3,10 +3,10 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Bell, Search, X, User, Settings, LogOut, Shield, Menu,
   LayoutDashboard, Users, FileText, CreditCard, BarChart3,
-  CalendarCheck, History
+  CalendarCheck, History, Network
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { ROLE_LABELS, getRoleLevel, canViewSettings } from '../lib/supabase';
+import { ROLE_LABELS, getRoleLevel, canViewSettings, canViewOrgStructure } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 import { supabase, Notification } from '../lib/supabase';
 import clsx from 'clsx';
@@ -19,6 +19,7 @@ const pageTitles: Record<string, string> = {
   '/policies':        'الوثائق',
   '/collection':      'التحصيل والسداد',
   '/users':           'المستخدمون',
+  '/org-structure':   'الهيكل الوظيفي',
   '/reports':         'التقارير',
   '/monthly-closing': 'تقفيل الشهر',
   '/activity-log':    'سجل العمليات',
@@ -31,6 +32,7 @@ const drawerMenuItems = [
   { path: '/customers',       icon: Users,           label: 'العملاء' },
   { path: '/policies',        icon: FileText,        label: 'الوثائق' },
   { path: '/collection',      icon: CreditCard,      label: 'التحصيل والسداد' },
+  { path: '/org-structure',   icon: Network,         label: 'الهيكل الوظيفي', orgStructure: true },
   { path: '/reports',         icon: BarChart3,       label: 'التقارير' },
   { path: '/monthly-closing', icon: CalendarCheck,   label: 'تقفيل الشهر' },
   { path: '/activity-log',    icon: History,         label: 'سجل العمليات' },
@@ -248,6 +250,7 @@ export function Header() {
               {drawerMenuItems
                 .filter((item) => {
                   if ((item as any).superAdminOnly) return canViewSettings(user.role);
+                  if ((item as any).orgStructure)   return canViewOrgStructure(user.role);
                   return true;
                 })
                 .map((item) => {
