@@ -81,18 +81,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (emailOrPhone: string, password: string) => {
-    const isEmail = emailOrPhone.includes('@');
+    const trimmed = emailOrPhone.trim();
+    const isEmail = trimmed.includes('@');
 
-    const credentials: { email?: string; phone?: string; password: string } = {
-      password
-    };
-    if (isEmail) {
-      credentials.email = emailOrPhone;
-    } else {
-      credentials.phone = emailOrPhone;
+    let emailToUse = trimmed;
+
+    if (!isEmail) {
+      // إدخال رقم هاتف: نبحث عن البريد الإلكتروني المرتبط به عبر دالة آمنة في قاعدة البيانات،
+      // ثم نكمل تسجيل الدخول بالبريد الإلكتروني كالمعتاد (بدون OTP وبدون تغيير نظام المصادقة)
+      const { data: resolvedEmail, error: lookupError } = await supabase
+        .rpc('get_email_by_phone', { p_phone: trimmed });
+
+      if (lookupError || !resolvedEmail) {
+        return { error: new Error('Invalid login credentials') };
+      }
+      emailToUse = resolvedEmail as string;
     }
 
-    const { error } = await supabase.auth.signInWithPassword(credentials as any);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password
+    });
 
     return { error };
   };
