@@ -65,6 +65,34 @@ interface SupervisorSummary {
   groups: GroupSummary[];
 }
 
+interface GroupLeaderAgg {
+  id: string;
+  name: string;
+  production: number;
+  collection: number;
+  total: number;
+}
+
+interface SupervisorAgg {
+  id: string;
+  name: string;
+  groupLeaders: GroupLeaderAgg[];
+  production: number;
+  collection: number;
+  total: number;
+}
+
+interface PrintDetailRow {
+  supervisorName: string;
+  groupLeaderName: string;
+  agentName: string;
+  customerName: string;
+  policyNumber: string;
+  installmentNumber: number;
+  amount: number;
+  type: 'new' | 'collection';
+}
+
 // ─── helpers ─────────────────────────────────────────────
 const fmt = (n: number) =>
   new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0 }).format(n);
@@ -93,6 +121,8 @@ export function MonthlyClosing() {
   const [grandCollection, setGrandCollection] = useState(0);
   const [supervisors, setSupervisors]     = useState<SupervisorSummary[]>([]);
   const [directAgents, setDirectAgents]   = useState<AgentSummary[]>([]);
+  const [printSupervisors, setPrintSupervisors] = useState<SupervisorAgg[]>([]);
+  const [printDetailRows, setPrintDetailRows]   = useState<PrintDetailRow[]>([]);
 
   // UI expand state
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
@@ -299,6 +329,162 @@ export function MonthlyClosing() {
       setGrandCollection(totalColl);
       setSupervisors(supervisorList);
       setDirectAgents(directAgentList);
+
+      // ── بناء بيانات التقرير المطبوع الجديد (هيكل إداري بحت) ──
+      // كل الأدوار الأعلى من "مراقب" (مراقب عام / مدير تطوير / مدير النظام)
+      // تُعامل كـ "مراقب عام" وتعرض كل المراقبين التابعين لها.
+      const isSupervisorPrinter = user!.role === 'supervisor';
+
+      const getAgentIdsUnder = (managerId: string): string[] => {
+        const result: string[] = [];
+        const kids = childrenOf.get(managerId) || [];
+        for (const kid of kids) {
+          const ku = usersMap.get(kid);
+          if (!ku) continue;
+          if (getRoleLevel(ku.role) >= 6) result.push(kid);
+          else result.push(...getAgentIdsUnder(kid));
+        }
+        return result;
+      };
+
+      const sumAgentIds = (idsToSum: string[]) => {
+        let production = 0, collection = 0, total = 0;
+        for (const id of idsToSum) {
+          const a = agentMap.get(id);
+          if (a) { production += a.production; collection += a.collection; total += a.total; }
+        }
+        return { production, collection, total };
+      };
+
+      const buildGroupLeaderAgg = (glId: string): GroupLeaderAgg => {
+        const gl = usersMap.get(glId)!;
+        return { id: glId, name: gl.name, ...sumAgentIds(getAgentIdsUnder(glId)) };
+      };
+
+      const buildSupervisorAgg = (supId: string, nameOverride?: string): SupervisorAgg => {
+        const sup = usersMap.get(supId);
+        const kids = childrenOf.get(supId) || [];
+        const groupLeaders: GroupLeaderAgg[] = [];
+        const directAgentIds: string[] = [];
+
+        for (const kid of kids) {
+          const ku = usersMap.get(kid);
+          if (!ku) continue;
+          if (ku.role === 'group_leader') {
+            groupLeaders.push(buildGroupLeaderAgg(kid));
+          } else if (getRoleLevel(ku.role) >= 6) {
+            directAgentIds.push(kid);
+          }
+        }
+        if (directAgentIds.length > 0) {
+          groupLeaders.push({ id: supId + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
+        }
+        const totals = groupLeaders.reduce((acc, g) => ({
+          production: acc.production + g.production,
+          collection: acc.collection + g.collection,
+          total: acc.total + g.total,
+        }), { production: 0, collection: 0, total: 0 });
+
+        return { id: supId, name: nameOverride ?? sup?.name ?? '', groupLeaders, ...totals };
+      };
+
+      const printSupervisorList: SupervisorAgg[] = [];
+
+      if (isSupervisorPrinter) {
+        // حالة "مراقب": هو نفسه رأس الشجرة، وتحته رؤساء المجموعات مباشرة
+        printSupervisorList.push(buildSupervisorAgg(user!.id, user!.name));
+      } else {
+        // حالة "مراقب عام" (أو أعلى): كل المراقبين التابعين له، كل مع رؤساء مجموعاته
+        const kids = childrenOf.get(user!.id) || [];
+        const directGroupLeaderIds: string[] = [];
+        const directAgentIds: string[] = [];
+
+        for (const kid of kids) {
+          const ku = usersMap.get(kid);
+          if (!ku) continue;
+          if (ku.role === 'supervisor') {
+            printSupervisorList.push(buildSupervisorAgg(kid));
+          } else if (ku.role === 'group_leader') {
+            directGroupLeaderIds.push(kid);
+          } else if (getRoleLevel(ku.role) >= 6) {
+            directAgentIds.push(kid);
+          }
+        }
+
+        // أي رؤساء مجموعات أو وكلاء تابعين مباشرة للمراقب العام (بدون مراقب بينهم)
+        // تُجمع تحت اسم المراقب العام نفسه كصف "مراقب" إضافي
+        if (directGroupLeaderIds.length > 0 || directAgentIds.length > 0) {
+          const groupLeaders: GroupLeaderAgg[] = directGroupLeaderIds.map(buildGroupLeaderAgg);
+          if (directAgentIds.length > 0) {
+            groupLeaders.push({ id: user!.id + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
+          }
+          const totals = groupLeaders.reduce((acc, g) => ({
+            production: acc.production + g.production,
+            collection: acc.collection + g.collection,
+            total: acc.total + g.total,
+          }), { production: 0, collection: 0, total: 0 });
+          printSupervisorList.push({ id: user!.id, name: user!.name, groupLeaders, ...totals });
+        }
+      }
+
+      setPrintSupervisors(printSupervisorList);
+
+      // ── تفاصيل العمليات المسددة (صفحة 2 وما بعدها) — قائمة مسطّحة ──
+      const resolveHierarchyNames = (agentId: string) => {
+        const agent = usersMap.get(agentId);
+        const agentName = agent?.name || '';
+
+        if (isSupervisorPrinter) {
+          let groupLeaderName = 'وكلاء مباشرون';
+          let cur = agent?.manager_id;
+          while (cur && cur !== user!.id) {
+            const m = usersMap.get(cur);
+            if (!m) break;
+            if (m.role === 'group_leader') { groupLeaderName = m.name; break; }
+            cur = m.manager_id;
+          }
+          return { supervisorName: user!.name, groupLeaderName, agentName };
+        }
+
+        let groupLeaderName = '';
+        let supervisorName = '';
+        let cur = agent?.manager_id;
+        while (cur) {
+          const m = usersMap.get(cur);
+          if (!m) break;
+          if (!groupLeaderName && m.role === 'group_leader') groupLeaderName = m.name;
+          if (!supervisorName && m.role === 'supervisor') supervisorName = m.name;
+          if (cur === user!.id) break;
+          cur = m.manager_id;
+        }
+        if (!supervisorName) supervisorName = user!.name;
+        if (!groupLeaderName) groupLeaderName = 'وكلاء مباشرون';
+        return { supervisorName, groupLeaderName, agentName };
+      };
+
+      const detailRows: PrintDetailRow[] = payments.map((p) => {
+        const ownerId = p.installment.policy.owner_id;
+        const { supervisorName, groupLeaderName, agentName } = resolveHierarchyNames(ownerId);
+        return {
+          supervisorName,
+          groupLeaderName,
+          agentName,
+          customerName: p.installment.policy.customer.name,
+          policyNumber: p.installment.policy.policy_number,
+          installmentNumber: p.installment.installment_number,
+          amount: Number(p.amount),
+          type: p.installment.is_first ? 'new' : 'collection',
+        };
+      });
+
+      detailRows.sort((a, b) =>
+        a.supervisorName.localeCompare(b.supervisorName, 'ar') ||
+        a.groupLeaderName.localeCompare(b.groupLeaderName, 'ar') ||
+        a.agentName.localeCompare(b.agentName, 'ar') ||
+        a.customerName.localeCompare(b.customerName, 'ar')
+      );
+
+      setPrintDetailRows(detailRows);
 
     } catch (err) {
       console.error('Error loading monthly closing data:', err);
@@ -624,8 +810,8 @@ export function MonthlyClosing() {
             supervisorRoleLabel={ROLE_LABELS[user?.role ?? 'supervisor']}
             monthLabel={monthLabel}
             closingDate={closingRecord?.closed_at ? format(new Date(closingRecord.closed_at), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
-            supervisors={supervisors}
-            directAgents={directAgents}
+            printSupervisors={printSupervisors}
+            printDetailRows={printDetailRows}
             grandProduction={grandProduction}
             grandCollection={grandCollection}
             grandTotal={grandTotal}
@@ -687,44 +873,22 @@ export function MonthlyClosing() {
 }
 
 // ─── Print Report (structured, print-only) ────────────────
-// يظهر فقط عند الطباعة — صفحة ملخص أولى ثم تفاصيل مفصّلة حسب الهيكل الإداري
+// يظهر فقط عند الطباعة — صفحة تجميعات أولى (هيكل إداري بحت) ثم صفحات تفاصيل العمليات المسددة
 function PrintReport({
   supervisorName, supervisorRoleLabel, monthLabel, closingDate,
-  supervisors, directAgents,
+  printSupervisors, printDetailRows,
   grandProduction, grandCollection, grandTotal,
 }: {
   supervisorName: string;
   supervisorRoleLabel: string;
   monthLabel: string;
   closingDate: string;
-  supervisors: SupervisorSummary[];
-  directAgents: AgentSummary[];
+  printSupervisors: SupervisorAgg[];
+  printDetailRows: PrintDetailRow[];
   grandProduction: number;
   grandCollection: number;
   grandTotal: number;
 }) {
-  // كل المراقبين + الوكلاء المباشرين كـ "مراقب" وهمي ليظهروا بنفس البنية
-  const allSupervisors: SupervisorSummary[] = [
-    ...supervisors,
-    ...(directAgents.length > 0 ? [{
-      supervisorId: 'direct',
-      supervisorName: 'وكلاء مباشرون',
-      supervisorRole: 'agent' as UserRole,
-      production: directAgents.reduce((s, a) => s + a.production, 0),
-      collection: directAgents.reduce((s, a) => s + a.collection, 0),
-      total: directAgents.reduce((s, a) => s + a.total, 0),
-      groups: [{
-        leaderId: 'direct_group',
-        leaderName: 'وكلاء مباشرون',
-        leaderRole: 'agent' as UserRole,
-        production: directAgents.reduce((s, a) => s + a.production, 0),
-        collection: directAgents.reduce((s, a) => s + a.collection, 0),
-        total: directAgents.reduce((s, a) => s + a.total, 0),
-        agents: directAgents,
-      }],
-    }] : []),
-  ];
-
   return (
     <div className="hidden print:block print-report" dir="rtl">
       <style>{`
@@ -740,57 +904,60 @@ function PrintReport({
         .print-report .pr-title { text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
         .print-report .pr-sub { text-align: center; font-size: 12px; color: #444; margin-bottom: 14px; }
         .print-report .pr-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 6px; }
-        .print-report .pr-section-title { font-weight: 800; font-size: 14px; margin: 14px 0 6px; background:#f1f1f1; padding: 4px 8px; border-right: 4px solid #444; }
         .print-report .pr-sup-name { font-weight: 800; font-size: 13px; }
         .print-report .pr-group-row td:first-child { text-align: right; font-weight: 700; }
         .print-report .pr-totals-row td { font-weight: 800; background: #f6f6f6; }
         .print-report .pr-grand-box { border: 2px solid #333; padding: 10px 14px; margin-top: 16px; }
         .print-report .pr-grand-box .row { display:flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
         .print-report .pr-grand-box .row.total { font-weight: 800; font-size: 15px; border-top: 1px solid #999; margin-top: 4px; padding-top: 6px; }
-        .print-report .pr-detail-header { font-size: 12px; margin: 10px 0 6px; line-height: 1.9; }
-        .print-report .pr-detail-header b { font-size: 13px; }
-        .print-report .pr-agent-block { margin-bottom: 14px; }
-        .print-report .pr-agent-title { font-weight: 700; font-size: 12.5px; margin: 8px 0 4px; }
+
+        /* جدول التفاصيل: عنوان التقرير ورأس الجدول يتكرران تلقائياً في كل صفحة مطبوعة */
+        .print-report .pr-detail-table thead { display: table-header-group; }
+        .print-report .pr-detail-table tfoot { display: table-footer-group; }
+        .print-report .pr-detail-table tr { page-break-inside: avoid; }
+        .print-report .pr-detail-title-row th { background: #fff; border: none; padding: 0 0 4px; }
+        .print-report .pr-detail-title-row .pr-title { margin-bottom: 0; }
+        .print-report .pr-detail-meta-row th { background: #fff; border: none; border-bottom: 2px solid #333; padding: 0 0 8px; }
+        .print-report .pr-detail-meta-row .pr-meta { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
       `}</style>
 
-      {/* ══ صفحة 1: ملخص القيادات ══ */}
+      {/* ══ صفحة 1: التجميعات (هيكل إداري بحت — بدون تفاصيل عملاء) ══ */}
       <div className="pr-title">تقرير تقفيل الشهر</div>
-      <div className="pr-sub">ملخص القيادات</div>
+      <div className="pr-sub">صفحة التجميعات</div>
       <div className="pr-meta">
         <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
         <span><b>الشهر:</b> {monthLabel}</span>
         <span><b>تاريخ التقفيل:</b> {closingDate}</span>
       </div>
 
-      {allSupervisors.map((sv) => (
-        <div key={sv.supervisorId} style={{ marginBottom: 10 }}>
+      {printSupervisors.map((sv) => (
+        <div key={sv.id} style={{ marginBottom: 10 }}>
           <div className="pr-sup-name" style={{ margin: '8px 0 4px' }}>
-            {sv.supervisorId === 'direct' ? 'وكلاء مباشرون' : `${ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: ${sv.supervisorName}`}
+            {ROLE_LABELS['supervisor']}: {sv.name}
           </div>
           <table>
             <thead>
               <tr>
-                <th style={{ width: '30%' }}>المراقب</th>
-                <th style={{ width: '30%' }}>رئيس المجموعة</th>
-                <th>الإنتاج الجديد</th>
-                <th>التحصيل</th>
+                <th style={{ width: '32%' }}>رئيس المجموعة</th>
+                <th>إجمالي الجديد</th>
+                <th>إجمالي التحصيل</th>
                 <th>الإجمالي</th>
               </tr>
             </thead>
             <tbody>
-              {sv.groups.map((grp, idx) => (
-                <tr key={grp.leaderId} className="pr-group-row">
-                  {idx === 0 && (
-                    <td rowSpan={sv.groups.length}>{sv.supervisorName}</td>
-                  )}
-                  <td>{grp.leaderName}</td>
-                  <td>{fmt(grp.production)}</td>
-                  <td>{fmt(grp.collection)}</td>
-                  <td>{fmt(grp.total)}</td>
+              {sv.groupLeaders.map((gl) => (
+                <tr key={gl.id} className="pr-group-row">
+                  <td>{gl.name}</td>
+                  <td>{fmt(gl.production)}</td>
+                  <td>{fmt(gl.collection)}</td>
+                  <td>{fmt(gl.total)}</td>
                 </tr>
               ))}
+              {sv.groupLeaders.length === 0 && (
+                <tr><td colSpan={4}>لا توجد مجموعات لهذا المراقب</td></tr>
+              )}
               <tr className="pr-totals-row">
-                <td colSpan={2}>إجمالي {sv.supervisorName}</td>
+                <td>إجمالي {sv.name}</td>
                 <td>{fmt(sv.production)}</td>
                 <td>{fmt(sv.collection)}</td>
                 <td>{fmt(sv.total)}</td>
@@ -800,96 +967,69 @@ function PrintReport({
         </div>
       ))}
 
+      {printSupervisors.length === 0 && (
+        <p style={{ textAlign: 'center', margin: '20px 0' }}>لا توجد بيانات لهذا الشهر</p>
+      )}
+
       <div className="pr-grand-box">
         <div className="row"><span>إجمالي {supervisorRoleLabel} — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
         <div className="row"><span>إجمالي {supervisorRoleLabel} — التحصيل</span><span>{fmt(grandCollection)}</span></div>
         <div className="row total"><span>إجمالي {supervisorRoleLabel} — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
       </div>
 
-      {/* ══ الصفحات التالية: تفاصيل الوكلاء ══ */}
-      {allSupervisors.map((sv) => (
-        <div key={sv.supervisorId + '_detail'} className="pr-page-break">
-          {sv.groups.map((grp) => (
-            <div key={grp.leaderId} style={{ marginBottom: 10 }}>
-              <div className="pr-section-title">
-                {sv.supervisorId === 'direct'
-                  ? 'وكلاء مباشرون'
-                  : <>{ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: {sv.supervisorName} &nbsp;&nbsp;|&nbsp;&nbsp; {ROLE_LABELS[grp.leaderRole] || 'رئيس المجموعة'}: {grp.leaderName}</>}
-              </div>
-
-              {grp.agents.map((agent) => (
-                <div key={agent.id} className="pr-agent-block">
-                  <div className="pr-agent-title">{ROLE_LABELS[agent.role] || 'الوكيل'}: {agent.name}</div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '5%' }}>م</th>
-                        <th>اسم العميل</th>
-                        <th>آخر 6 أرقام من الوثيقة</th>
-                        <th>رقم القسط</th>
-                        <th>نوع العملية</th>
-                        <th>قيمة القسط</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agent.details.map((d, i) => (
-                        <tr key={i}>
-                          <td>{i + 1}</td>
-                          <td style={{ textAlign: 'right' }}>{d.customerName}</td>
-                          <td dir="ltr">{last6(d.policyNumber)}</td>
-                          <td>{d.installmentNumber}</td>
-                          <td>{d.type === 'new' ? 'جديد' : 'تحصيل'}</td>
-                          <td>{fmt(d.amount)}</td>
-                        </tr>
-                      ))}
-                      {agent.details.length === 0 && (
-                        <tr><td colSpan={6}>لا توجد عمليات لهذا الوكيل هذا الشهر</td></tr>
-                      )}
-                    </tbody>
-                    <tfoot>
-                      <tr className="pr-totals-row">
-                        <td colSpan={4}>إجمالي الوكيل</td>
-                        <td colSpan={2}>
-                          جديد: {fmt(agent.production)} &nbsp;|&nbsp;
-                          تحصيل: {fmt(agent.collection)} &nbsp;|&nbsp;
-                          الإجمالي: {fmt(agent.total)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+      {/* ══ الصفحة الثانية وما بعدها: كل عمليات السداد خلال الشهر — جدول واحد مسطّح ══ */}
+      <div className="pr-page-break">
+        <table className="pr-detail-table">
+          <thead>
+            <tr className="pr-detail-title-row">
+              <th colSpan={8}>
+                <div className="pr-title">تقرير تقفيل الشهر</div>
+              </th>
+            </tr>
+            <tr className="pr-detail-meta-row">
+              <th colSpan={8}>
+                <div className="pr-meta">
+                  <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
+                  <span><b>الشهر:</b> {monthLabel}</span>
+                  <span><b>تفاصيل عمليات السداد</b></span>
                 </div>
-              ))}
-
-              <table style={{ marginTop: 2 }}>
-                <tbody>
-                  <tr className="pr-totals-row">
-                    <td>إجمالي {ROLE_LABELS[grp.leaderRole] || 'رئيس المجموعة'}: {grp.leaderName}</td>
-                    <td>جديد: {fmt(grp.production)}</td>
-                    <td>تحصيل: {fmt(grp.collection)}</td>
-                    <td>الإجمالي: {fmt(grp.total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          ))}
-
-          <table style={{ marginTop: 6 }}>
-            <tbody>
-              <tr className="pr-totals-row">
-                <td>إجمالي {sv.supervisorId === 'direct' ? 'وكلاء مباشرون' : `${ROLE_LABELS[sv.supervisorRole] || 'المراقب'}: ${sv.supervisorName}`}</td>
-                <td>جديد: {fmt(sv.production)}</td>
-                <td>تحصيل: {fmt(sv.collection)}</td>
-                <td>الإجمالي: {fmt(sv.total)}</td>
+              </th>
+            </tr>
+            <tr>
+              <th>المراقب</th>
+              <th>رئيس المجموعة</th>
+              <th>الوكيل</th>
+              <th>العميل</th>
+              <th>آخر 6 أرقام الوثيقة</th>
+              <th>رقم القسط</th>
+              <th>قيمة القسط</th>
+              <th>نوع العملية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {printDetailRows.map((r, i) => (
+              <tr key={i}>
+                <td>{r.supervisorName}</td>
+                <td>{r.groupLeaderName}</td>
+                <td>{r.agentName}</td>
+                <td style={{ textAlign: 'right' }}>{r.customerName}</td>
+                <td dir="ltr">{last6(r.policyNumber)}</td>
+                <td>{r.installmentNumber}</td>
+                <td>{fmt(r.amount)}</td>
+                <td>{r.type === 'new' ? 'جديد' : 'تحصيل'}</td>
               </tr>
-            </tbody>
-          </table>
-        </div>
-      ))}
-
-      <div className="pr-grand-box">
-        <div className="row total"><span>إجمالي {supervisorRoleLabel} بالكامل</span><span>{fmt(grandTotal)}</span></div>
-        <div className="row"><span>الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
-        <div className="row"><span>التحصيل</span><span>{fmt(grandCollection)}</span></div>
+            ))}
+            {printDetailRows.length === 0 && (
+              <tr><td colSpan={8}>لا توجد عمليات سداد مسجّلة لهذا الشهر</td></tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr className="pr-totals-row">
+              <td colSpan={6}>الإجمالي الكلي لعمليات السداد</td>
+              <td colSpan={2}>{fmt(grandTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );
