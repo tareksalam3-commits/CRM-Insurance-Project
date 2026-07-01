@@ -18,6 +18,7 @@ const Collection   = lazy(() => import('./pages/Collection').then(m => ({ defaul
 const Users        = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
 const Reports      = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
 const MonthlyClosing = lazy(() => import('./pages/MonthlyClosing').then(m => ({ default: m.MonthlyClosing })));
+const OrgStructure  = lazy(() => import('./pages/OrgStructure').then(m => ({ default: m.OrgStructure })));
 const ActivityLog  = lazy(() => import('./pages/ActivityLog').then(m => ({ default: m.ActivityLog })));
 const Profile      = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
@@ -69,6 +70,7 @@ function AppLayout() {
               <Route path="/users"           element={<Users />} />
               <Route path="/reports"         element={<Reports />} />
               <Route path="/monthly-closing" element={<MonthlyClosing />} />
+              <Route path="/org-structure"   element={<OrgStructure />} />
               <Route path="/activity-log"    element={<ActivityLog />} />
               <Route path="/profile"         element={<Profile />} />
               <Route path="/settings"        element={<Settings />} />
