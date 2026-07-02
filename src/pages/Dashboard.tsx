@@ -226,12 +226,15 @@ export function Dashboard() {
     // - المراقب العام: المراقبين + رؤساء المجموعات
     // - المراقب: رؤساء المجموعات + الوكلاء
     // - رئيس المجموعة: الوكلاء (آخر درجتين في الهيكل، فتصبح درجة واحدة)
+    // - الوكيل: يرى أداءه فقط
     // - Super Admin: بلا قيود، يرى الجميع كما كان الحال سابقاً
     const VISIBLE_ROLES_BY_VIEWER: Partial<Record<UserRole, UserRole[]>> = {
       development_manager: ['general_supervisor', 'supervisor'],
       general_supervisor: ['supervisor', 'group_leader'],
       supervisor: ['group_leader', 'agent', 'premium_agent'],
-      group_leader: ['agent', 'premium_agent']
+      group_leader: ['agent', 'premium_agent'],
+      agent: ['agent'],
+      premium_agent: ['premium_agent']
     };
 
     const viewerRole = user?.role as UserRole | undefined;
