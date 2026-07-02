@@ -6,7 +6,6 @@ import {
   Shield,
   Building2,
   Bell,
-  Calendar,
   Save,
   Loader2
 } from 'lucide-react';
@@ -18,7 +17,6 @@ import { z } from 'zod';
 const settingsSchema = z.object({
   company_name: z.string().min(1, 'اسم الشركة مطلوب'),
   company_logo_url: z.string().url('الرابط غير صحيح').optional().or(z.literal('')),
-  insurance_year_start: z.string().optional(),
   notification_days_before: z.number().min(1).max(30),
   overdue_months_to_suspend: z.number().min(1).max(6)
 });
@@ -62,7 +60,6 @@ export function Settings() {
         reset({
           company_name: data.company_name || '',
           company_logo_url: data.company_logo_url || '',
-          insurance_year_start: data.insurance_year_start || '',
           notification_days_before: data.notification_days_before || 7,
           overdue_months_to_suspend: data.overdue_months_to_suspend || 2
         });
@@ -85,7 +82,6 @@ export function Settings() {
         .update({
           company_name: data.company_name,
           company_logo_url: data.company_logo_url || null,
-          insurance_year_start: data.insurance_year_start || null,
           notification_days_before: data.notification_days_before,
           overdue_months_to_suspend: data.overdue_months_to_suspend,
           updated_at: new Date().toISOString()
@@ -166,27 +162,6 @@ export function Settings() {
                   dir="ltr"
                 />
               </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-lg bg-success-100 flex items-center justify-center">
-                <Calendar className="w-5 h-5 text-success-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-secondary-900">السنة التأمينية</h3>
-                <p className="text-sm text-secondary-500">إعدادات السنة التأمينية</p>
-              </div>
-            </div>
-
-            <div className="form-group max-w-md">
-              <label className="input-label">تاريخ بداية السنة التأمينية</label>
-              <input
-                {...register('insurance_year_start')}
-                type="date"
-                className="input-field"
-              />
             </div>
           </div>
 
