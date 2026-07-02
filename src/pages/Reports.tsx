@@ -21,6 +21,8 @@ export function Reports() {
   const { user } = useAuth();
   const [reportType, setReportType] = useState<ReportType>('production');
   const [dateRange, setDateRange] = useState<DateRange>('month');
+  // فلتر الشهر: بصيغة yyyy-MM، يُستخدم فقط عندما تكون dateRange = 'month'
+  const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -29,13 +31,16 @@ export function Reports() {
     if (user) {
       loadReport();
     }
-  }, [user, reportType, dateRange]);
+  }, [user, reportType, dateRange, selectedMonth]);
 
   const getDateRange = () => {
     const now = new Date();
     switch (dateRange) {
-      case 'month':
-        return { start: startOfMonth(now), end: endOfMonth(now) };
+      case 'month': {
+        // استخدام الشهر المُختار من الفلتر بدل الاعتماد دائماً على الشهر الحالي
+        const base = selectedMonth ? new Date(`${selectedMonth}-01T00:00:00`) : now;
+        return { start: startOfMonth(base), end: endOfMonth(base) };
+      }
       case 'quarter':
         return { start: subMonths(startOfMonth(now), 2), end: endOfMonth(now) };
       case 'year':
@@ -265,6 +270,7 @@ export function Reports() {
         .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
 
       performance.push({
+        id: leader.id,
         name: leader.name,
         count: teamIds.length - 1,
         achieved
@@ -303,6 +309,7 @@ export function Reports() {
         .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
 
       performance.push({
+        id: supervisor.id,
         name: supervisor.name,
         count: teamIds.length - 1,
         achieved
@@ -332,18 +339,55 @@ export function Reports() {
     { id: 'supervisors', label: 'أداء المراقبين' }
   ];
 
+  const { start: periodStart, end: periodEnd } = getDateRange();
+  const currentReportLabel = reportButtons.find((r) => r.id === reportType)?.label;
+
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="space-y-6 animate-fadeIn print:space-y-3">
+      {/* رأس خاص بالطباعة فقط - لا يظهر على الشاشة */}
+      <div className="hidden print:block text-center mb-4">
+        <h1 className="text-xl font-bold">{currentReportLabel}</h1>
+        <p className="text-sm text-secondary-600 mt-1">
+          الفترة من {format(periodStart, 'd MMMM yyyy', { locale: ar })} إلى{' '}
+          {format(periodEnd, 'd MMMM yyyy', { locale: ar })}
+        </p>
+        <p className="text-xs text-secondary-400 mt-1">
+          تاريخ الطباعة: {format(new Date(), 'd MMMM yyyy - HH:mm', { locale: ar })}
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-xl font-bold text-secondary-900">التقارير</h2>
           <p className="text-sm text-secondary-500 mt-1">
             تقارير وإحصائيات الأداء
           </p>
         </div>
+        <button
+          onClick={() => window.print()}
+          className="btn btn-secondary flex items-center gap-2"
+          title="طباعة التقرير"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
+          </svg>
+          طباعة
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 print:hidden">
         {reportButtons.map((btn) => (
           <button
             key={btn.id}
@@ -358,27 +402,36 @@ export function Reports() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4 print:hidden">
         <select
           value={dateRange}
           onChange={(e) => setDateRange(e.target.value as DateRange)}
           className="input-field w-auto"
         >
-          <option value="month">الشهر الحالي</option>
+          <option value="month">شهر محدد</option>
           <option value="quarter">الربع السنوي</option>
           <option value="year">السنة الحالية</option>
         </select>
+
+        {dateRange === 'month' && (
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="input-field w-auto"
+          />
+        )}
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-48">
+        <div className="flex items-center justify-center h-48 print:hidden">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 card">
-            <h3 className="font-semibold text-secondary-900 mb-4">
-              {reportButtons.find((r) => r.id === reportType)?.label}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1">
+          <div className="lg:col-span-2 card print:shadow-none print:border print:break-inside-avoid">
+            <h3 className="font-semibold text-secondary-900 mb-4 print:hidden">
+              {currentReportLabel}
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -400,15 +453,17 @@ export function Reports() {
             </div>
           </div>
 
-          <div className="card">
+          <div className="card print:shadow-none print:border print:break-inside-avoid">
             <h3 className="font-semibold text-secondary-900 mb-4">ملخص التقرير</h3>
             {data && (
               <div className="space-y-4">
                 {data.total !== undefined && (
-                  <div className="p-4 bg-primary-50 rounded-lg">
+                  <div className="p-4 bg-primary-50 rounded-lg print:bg-white print:border print:p-2">
                     <p className="text-sm text-secondary-600">الإجمالي</p>
                     <p className="text-2xl font-bold text-primary-700 mt-1">
-                      {typeof data.total === 'number' && reportType.includes('production') || reportType.includes('collection') || reportType === 'overdue'
+                      {(typeof data.total === 'number' && reportType.includes('production')) ||
+                      reportType.includes('collection') ||
+                      reportType === 'overdue'
                         ? formatCurrency(data.total)
                         : data.total}
                     </p>
@@ -438,11 +493,38 @@ export function Reports() {
                 )}
 
                 {data.agents && (
-                  <div className="space-y-2">
-                    {data.agents.slice(0, 5).map((agent: any, idx: number) => (
+                  <div className="space-y-2 max-h-64 overflow-y-auto print:max-h-none print:overflow-visible">
+                    {data.agents.map((agent: any, idx: number) => (
                       <div key={agent.id || idx} className="flex justify-between items-center">
                         <span className="text-secondary-600">{agent.name}</span>
                         <span className="font-semibold">{agent.rate}%</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {data.leaders && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto print:max-h-none print:overflow-visible">
+                    {data.leaders.map((leader: any, idx: number) => (
+                      <div key={leader.id || idx} className="flex justify-between items-center">
+                        <span className="text-secondary-600">
+                          {leader.name} <span className="text-xs text-secondary-400">({leader.count} عضو)</span>
+                        </span>
+                        <span className="font-semibold">{formatCurrency(leader.achieved)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {data.supervisors && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto print:max-h-none print:overflow-visible">
+                    {data.supervisors.map((supervisor: any, idx: number) => (
+                      <div key={supervisor.id || idx} className="flex justify-between items-center">
+                        <span className="text-secondary-600">
+                          {supervisor.name}{' '}
+                          <span className="text-xs text-secondary-400">({supervisor.count} عضو)</span>
+                        </span>
+                        <span className="font-semibold">{formatCurrency(supervisor.achieved)}</span>
                       </div>
                     ))}
                   </div>
