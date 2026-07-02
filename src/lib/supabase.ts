@@ -191,7 +191,6 @@ export type Settings = {
   id: string;
   company_name: string;
   company_logo_url?: string;
-  insurance_year_start?: string;
   notification_days_before: number;
   overdue_months_to_suspend: number;
   created_at: string;
