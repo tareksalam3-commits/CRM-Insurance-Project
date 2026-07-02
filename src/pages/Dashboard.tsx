@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase';
+import { supabase, type UserRole } from '../lib/supabase';
 import {
   Users,
   FileText,
@@ -48,6 +48,7 @@ interface DashboardStats {
 interface TeamPerformance {
   id: string;
   name: string;
+  role: UserRole;
   achieved: number;
   target: number;
 }
@@ -176,7 +177,7 @@ export function Dashboard() {
 
     const { data: teamUsers } = await supabase
       .from('users')
-      .select('id, name, target, manager_id, is_active')
+      .select('id, name, role, target, manager_id, is_active')
       .in('id', userIds);
 
     if (!teamUsers) return;
@@ -220,11 +221,29 @@ export function Dashboard() {
       return total;
     };
 
+    // كل درجة وظيفية تعرض فقط الدرجتين اللي تحتها مباشرة في كارت "أداء الفريق":
+    // - مدير التطوير: المراقبين العموم + المراقبين
+    // - المراقب العام: المراقبين + رؤساء المجموعات
+    // - المراقب: رؤساء المجموعات + الوكلاء
+    // - رئيس المجموعة: الوكلاء (آخر درجتين في الهيكل، فتصبح درجة واحدة)
+    // - Super Admin: بلا قيود، يرى الجميع كما كان الحال سابقاً
+    const VISIBLE_ROLES_BY_VIEWER: Partial<Record<UserRole, UserRole[]>> = {
+      development_manager: ['general_supervisor', 'supervisor'],
+      general_supervisor: ['supervisor', 'group_leader'],
+      supervisor: ['group_leader', 'agent', 'premium_agent'],
+      group_leader: ['agent', 'premium_agent']
+    };
+
+    const viewerRole = user?.role as UserRole | undefined;
+    const allowedRoles = viewerRole ? VISIBLE_ROLES_BY_VIEWER[viewerRole] ?? null : null;
+
     const performance: TeamPerformance[] = teamUsers
       .filter((u) => u.is_active)
+      .filter((u) => (allowedRoles ? allowedRoles.includes(u.role as UserRole) : true))
       .map((u) => ({
         id: u.id,
         name: u.name,
+        role: u.role as UserRole,
         achieved: getRolledUpAchieved(u.id),
         target: u.target || 0
       }));
