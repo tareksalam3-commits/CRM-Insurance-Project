@@ -295,8 +295,41 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      <div className="space-y-6 animate-fadeIn">
+        <div className="mb-6">
+          <div className="h-6 w-32 bg-secondary-200 rounded-md animate-pulse" />
+          <div className="h-4 w-48 bg-secondary-100 rounded-md animate-pulse mt-2" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="kpi-card">
+              <div className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <div className="h-3 w-16 bg-secondary-100 rounded animate-pulse" />
+                  <div className="h-6 w-20 bg-secondary-200 rounded animate-pulse" />
+                </div>
+                <div className="w-12 h-12 rounded-xl bg-secondary-100 animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="h-4 w-24 bg-secondary-200 rounded animate-pulse mb-4" />
+          <div className="h-3 w-full bg-secondary-100 rounded-full animate-pulse mb-6" />
+          <div className="grid grid-cols-3 gap-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-24 bg-secondary-50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <div className="h-4 w-24 bg-secondary-200 rounded animate-pulse mb-4" />
+          <div className="space-y-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-8 bg-secondary-50 rounded animate-pulse" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -311,6 +344,20 @@ export function Dashboard() {
           </p>
         </div>
       </div>
+
+      {stats && stats.totalPolicies === 0 && stats.totalCustomers === 0 && (
+        <div className="card bg-secondary-50/60 border-dashed flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-secondary-100 flex items-center justify-center flex-shrink-0">
+            <TrendingUp className="w-6 h-6 text-secondary-400" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-secondary-700">لا يوجد نشاط مسجل بعد هذا الشهر</p>
+            <p className="text-xs text-secondary-500 mt-0.5">
+              ابدأ بإضافة عميل أو وثيقة جديدة وستظهر إحصائياتك هنا تلقائيًا
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <button
@@ -537,7 +584,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
           <h3 className="font-semibold text-secondary-900 mb-4">حالة الوثائق</h3>
-          <div className="h-48">
+          <div className="h-48 relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -553,9 +600,22 @@ export function Dashboard() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip
+                  formatter={(value: any, name: any) => [value, name]}
+                  contentStyle={{
+                    direction: 'rtl',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}
+                />
               </PieChart>
             </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-xl font-bold text-secondary-900">
+                {stats?.totalPolicies || 0}
+              </span>
+              <span className="text-[10px] text-secondary-400">إجمالي</span>
+            </div>
           </div>
           <div className="flex justify-center gap-4 mt-2">
             {policyStatusData.map((entry) => (
@@ -580,7 +640,7 @@ export function Dashboard() {
             </span>
           </div>
 
-          <div className="h-56">
+          <div className="h-56 relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -609,6 +669,12 @@ export function Dashboard() {
                 />
               </PieChart>
             </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-lg font-bold text-secondary-900">
+                {formatCurrency(chartData.production + chartData.collection)}
+              </span>
+              <span className="text-[10px] text-secondary-400">الإجمالي</span>
+            </div>
           </div>
 
           <div className="flex items-center justify-center gap-2 mt-3">
