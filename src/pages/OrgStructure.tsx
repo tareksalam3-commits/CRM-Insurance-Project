@@ -14,6 +14,7 @@ interface OrgUser {
   role: UserRole;
   manager_id: string | null;
   is_active: boolean;
+  avatar_url: string | null;
 }
 
 interface OrgNode {
@@ -21,6 +22,7 @@ interface OrgNode {
   name: string;
   role: UserRole;
   isActive: boolean;
+  avatarUrl: string | null;
   employeeCount: number;   // كل من تحته (غير مباشرين كذلك)
   totalPaid: number;       // إجمالي المسدد لحد الآن (هو + كل من تحته)
   children: OrgNode[];
@@ -61,7 +63,7 @@ export function OrgStructure() {
 
       const { data: usersData } = await supabase
         .from('users')
-        .select('id, name, role, manager_id, is_active')
+        .select('id, name, role, manager_id, is_active, avatar_url')
         .in('id', ids);
 
       const usersMap = new Map<string, OrgUser>((usersData || []).map((u: any) => [u.id, u]));
@@ -95,6 +97,7 @@ export function OrgStructure() {
         const totalPaid = (directPaid.get(id) || 0) + children.reduce((s, c) => s + c.totalPaid, 0);
         return {
           id: u.id, name: u.name, role: u.role, isActive: u.is_active,
+          avatarUrl: u.avatar_url || null,
           employeeCount, totalPaid, children,
         };
       };
@@ -171,6 +174,42 @@ export function OrgStructure() {
   );
 }
 
+// ─── Avatar ──────────────────────────────────────────────
+// يعرض صورة البروفايل لو موجودة، وإلا يرجع لأيقونة الحرف الأول كما كان.
+// عند فشل تحميل الصورة (رابط تالف) يرجع تلقائياً لنفس الأيقونة الافتراضية.
+function OrgAvatar({
+  name, avatarUrl, style,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  style: { bg: string; text: string; ring: string };
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  if (avatarUrl && !imgError) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        onError={() => setImgError(true)}
+        className={clsx(
+          'w-10 h-10 rounded-full object-cover flex-shrink-0 ring-2',
+          style.ring
+        )}
+      />
+    );
+  }
+
+  return (
+    <div className={clsx(
+      'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ring-2',
+      style.bg, style.text, style.ring
+    )}>
+      {name.charAt(0)}
+    </div>
+  );
+}
+
 // ─── Recursive node ────────────────────────────────────────
 function OrgNodeView({
   node, depth, expanded, onToggle,
@@ -195,12 +234,7 @@ function OrgNodeView({
         )}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className={clsx(
-            'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ring-2',
-            style.bg, style.text, style.ring
-          )}>
-            {node.name.charAt(0)}
-          </div>
+          <OrgAvatar name={node.name} avatarUrl={node.avatarUrl} style={style} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="font-semibold text-secondary-900 truncate">{node.name}</p>
