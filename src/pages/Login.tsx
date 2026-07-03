@@ -41,18 +41,56 @@ export function Login() {
     setError('');
     setGoogleLoading(true);
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    // بنجيب رابط تسجيل الدخول بس من غير ما نحول التبويب الحالي (skipBrowserRedirect)
+    // عشان نفتحه إحنا في نافذة منبثقة (Popup) جوه التطبيق بدل ما يقفل التطبيق كله
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: window.location.origin,
+        skipBrowserRedirect: true
       }
     });
 
-    if (error) {
+    if (error || !data?.url) {
       setGoogleLoading(false);
       setError('حدث خطأ أثناء تسجيل الدخول بجوجل');
+      return;
     }
-    // عند النجاح هيتم تحويل المستخدم لصفحة جوجل ثم رجوعه تلقائياً للتطبيق
+
+    const width = 480;
+    const height = 620;
+    const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
+
+    const popup = window.open(
+      data.url,
+      'google-oauth-login',
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no,scrollbars=yes,resizable=yes`
+    );
+
+    if (!popup) {
+      setGoogleLoading(false);
+      setError('الرجاء السماح بالنوافذ المنبثقة (Popups) من إعدادات المتصفح ثم إعادة المحاولة');
+      return;
+    }
+
+    // بنراقب النافذة المنبثقة: لما تسجيل الدخول يخلص هيتسجل الـ session تلقائياً
+    // (لأن النافذتين على نفس الـ origin)، فبنقفل النافذة المنبثقة ونكمل داخل التطبيق
+    const checkInterval = window.setInterval(async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+
+      if (sessionData.session) {
+        window.clearInterval(checkInterval);
+        if (!popup.closed) popup.close();
+        setGoogleLoading(false);
+        return;
+      }
+
+      if (popup.closed) {
+        window.clearInterval(checkInterval);
+        setGoogleLoading(false);
+      }
+    }, 700);
   };
 
   const isValid = () => {
