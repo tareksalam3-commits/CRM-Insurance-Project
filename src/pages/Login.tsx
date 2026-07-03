@@ -1,9 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { Shield, Mail, Phone, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+          }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
 
 export function Login() {
   const [loginType, setLoginType] = useState<'email' | 'phone'>('email');
@@ -13,8 +34,64 @@ export function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+
+    const handleCredentialResponse = async (response: { credential: string }) => {
+      setError('');
+      setGoogleLoading(true);
+
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: response.credential
+      });
+
+      if (error) {
+        setGoogleLoading(false);
+        setError('حدث خطأ أثناء تسجيل الدخول بجوجل');
+      }
+      // عند النجاح الـ session بتتسجل تلقائياً والتطبيق هيحوّل المستخدم لوحده
+    };
+
+    const initGoogle = () => {
+      if (!window.google || !googleBtnRef.current) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse,
+        cancel_on_tap_outside: true
+      });
+
+      // بنعمل رندر لزرار جوجل الأصلي (المسؤول عن ظهور نافذة اختيار الحساب
+      // كـ popup حقيقي جوه نفس الصفحة) بس مخفي، وهنستخدم زرارنا المصمم
+      // إحنا عشان نضغط عليه بالنيابة عن المستخدم
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        type: 'standard',
+        theme: 'outline',
+        size: 'large',
+        width: 320
+      });
+
+      setGoogleReady(true);
+    };
+
+    if (window.google) {
+      initGoogle();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) {
+          clearInterval(interval);
+          initGoogle();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,60 +114,27 @@ export function Login() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = () => {
     setError('');
-    setGoogleLoading(true);
 
-    // بنجيب رابط تسجيل الدخول بس من غير ما نحول التبويب الحالي (skipBrowserRedirect)
-    // عشان نفتحه إحنا في نافذة منبثقة (Popup) جوه التطبيق بدل ما يقفل التطبيق كله
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-        skipBrowserRedirect: true
-      }
-    });
-
-    if (error || !data?.url) {
-      setGoogleLoading(false);
-      setError('حدث خطأ أثناء تسجيل الدخول بجوجل');
+    if (!GOOGLE_CLIENT_ID) {
+      setError('لم يتم إعداد تسجيل الدخول بجوجل بعد');
       return;
     }
 
-    const width = 480;
-    const height = 620;
-    const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
-    const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
-
-    const popup = window.open(
-      data.url,
-      'google-oauth-login',
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no,scrollbars=yes,resizable=yes`
-    );
-
-    if (!popup) {
-      setGoogleLoading(false);
-      setError('الرجاء السماح بالنوافذ المنبثقة (Popups) من إعدادات المتصفح ثم إعادة المحاولة');
+    if (!googleReady || !googleBtnRef.current) {
+      setError('جاري تجهيز تسجيل الدخول بجوجل، حاول بعد لحظة');
       return;
     }
 
-    // بنراقب النافذة المنبثقة: لما تسجيل الدخول يخلص هيتسجل الـ session تلقائياً
-    // (لأن النافذتين على نفس الـ origin)، فبنقفل النافذة المنبثقة ونكمل داخل التطبيق
-    const checkInterval = window.setInterval(async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
+    // بندوس بالنيابة عن المستخدم على زرار جوجل الأصلي المخفي، وهو ده اللي
+    // بيفتح نافذة اختيار الحساب الحقيقية (popup صغير جوه نفس الصفحة) وبتقفل
+    // نفسها تلقائياً بعد الاختيار من غير ما تخرج من التطبيق خالص
+    const realButton = googleBtnRef.current.querySelector(
+      'div[role="button"]'
+    ) as HTMLElement | null;
 
-      if (sessionData.session) {
-        window.clearInterval(checkInterval);
-        if (!popup.closed) popup.close();
-        setGoogleLoading(false);
-        return;
-      }
-
-      if (popup.closed) {
-        window.clearInterval(checkInterval);
-        setGoogleLoading(false);
-      }
-    }, 700);
+    realButton?.click();
   };
 
   const isValid = () => {
@@ -123,7 +167,7 @@ export function Login() {
             {googleLoading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>جاري التحويل إلى جوجل...</span>
+                <span>جاري تسجيل الدخول بجوجل...</span>
               </>
             ) : (
               <>
@@ -149,6 +193,11 @@ export function Login() {
               </>
             )}
           </button>
+
+          {/* زرار جوجل الأصلي بيترندر هنا مخفي، وهو المسؤول عن فتح نافذة
+              اختيار الحساب الحقيقية. زرارنا المصمم فوق بيضغط عليه بالنيابة
+              عن المستخدم عشان نحافظ على شكل التصميم */}
+          <div ref={googleBtnRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', top: -9999, left: -9999 }} />
 
           <div className="flex items-center gap-3 my-6">
             <div className="flex-1 h-px bg-secondary-200"></div>
