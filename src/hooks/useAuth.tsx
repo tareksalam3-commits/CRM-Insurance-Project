@@ -10,6 +10,8 @@ interface AuthContextType {
   signIn: (emailOrPhone: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  registerPasskey: () => Promise<{ error: Error | null }>;
+  signInWithPasskey: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -106,6 +108,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  // تسجيل بصمة/بيانات جهاز جديدة للمستخدم الحالي (لازم يكون مسجل دخول الأول
+  // بكلمة السر مرة واحدة قبل ما يقدر يضيف بصمة)
+  const registerPasskey = async () => {
+    try {
+      // @ts-expect-error - الميزة تجريبية ولسه مش موجودة في الـ types الرسمية
+      const { error } = await supabase.auth.registerPasskey();
+      return { error: error as Error | null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  };
+
+  // تسجيل الدخول بالبصمة (Face ID / Touch ID / بصمة الجهاز) بدون إيميل أو باسورد
+  const signInWithPasskey = async () => {
+    try {
+      // @ts-expect-error - الميزة تجريبية ولسه مش موجودة في الـ types الرسمية
+      const { error } = await supabase.auth.signInWithPasskey();
+      return { error: error as Error | null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -122,7 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signOut,
-        refreshUser
+        refreshUser,
+        registerPasskey,
+        signInWithPasskey
       }}
     >
       {children}
