@@ -11,9 +11,18 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    detectSessionInUrl: true,
+    // تفعيل ميزة الدخول بالبصمة (Passkeys / WebAuthn) - لسه تجريبية (beta) من Supabase
+    experimental: {
+      passkeys: true
+    }
   }
 });
+
+// فحص إن جهاز/متصفح المستخدم بيدعم أصلاً تسجيل الدخول بالبصمة (WebAuthn)
+export function isPasskeySupported(): boolean {
+  return typeof window !== 'undefined' && !!window.PublicKeyCredential;
+}
 
 export type User = {
   id: string;
