@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
 import { Shield, Mail, Phone, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -11,6 +12,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
@@ -35,6 +37,24 @@ export function Login() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setGoogleLoading(true);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+
+    if (error) {
+      setGoogleLoading(false);
+      setError('حدث خطأ أثناء تسجيل الدخول بجوجل');
+    }
+    // عند النجاح هيتم تحويل المستخدم لصفحة جوجل ثم رجوعه تلقائياً للتطبيق
+  };
+
   const isValid = () => {
     if (loginType === 'email') {
       return emailOrPhone.includes('@') && password.length >= 6;
@@ -54,6 +74,48 @@ export function Login() {
               نظام CRM التأمينات
             </h1>
             <p className="text-secondary-500">سجل دخولك للوصول إلى النظام</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={googleLoading || loading}
+            className="w-full flex items-center justify-center gap-3 py-3 rounded-lg border border-secondary-200 bg-white text-secondary-700 font-medium hover:bg-secondary-50 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {googleLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>جاري التحويل إلى جوجل...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47c-.28 1.5-1.13 2.77-2.4 3.62v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.11C3.25 21.3 7.31 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.11H1.27a12 12 0 0 0 0 10.76l4-3.11z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.77c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.27 6.62l4 3.11C6.22 6.88 8.87 4.77 12 4.77z"
+                  />
+                </svg>
+                <span>الدخول بحساب جوجل</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center gap-3 my-6">
+            <div className="flex-1 h-px bg-secondary-200"></div>
+            <span className="text-xs text-secondary-400">أو</span>
+            <div className="flex-1 h-px bg-secondary-200"></div>
           </div>
 
           <div className="flex rounded-lg bg-secondary-100 p-1 mb-6">
