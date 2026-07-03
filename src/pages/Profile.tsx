@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase';
+import { supabase, isPasskeySupported } from '../lib/supabase';
 import { ROLE_LABELS } from '../lib/supabase';
 import {
   User,
@@ -20,7 +20,8 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Fingerprint
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -47,8 +48,11 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 type PasswordFormData = z.infer<typeof passwordSchema>;
 
 export function Profile() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, registerPasskey } = useAuth();
   const [activeTab, setActiveTab] = useState<'personal' | 'security'>('personal');
+  const [registeringPasskey, setRegisteringPasskey] = useState(false);
+  const [passkeyMessage, setPasskeyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const passkeySupported = isPasskeySupported();
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -164,6 +168,20 @@ export function Profile() {
     if (/[^A-Za-z0-9]/.test(newPasswordValue)) strength += 25;
     setPasswordStrength(strength);
   }, [newPasswordValue]);
+
+  const handleRegisterPasskey = async () => {
+    setRegisteringPasskey(true);
+    setPasskeyMessage(null);
+
+    const { error } = await registerPasskey();
+
+    if (error) {
+      setPasskeyMessage({ type: 'error', text: 'تعذر تسجيل البصمة، حاول مرة أخرى' });
+    } else {
+      setPasskeyMessage({ type: 'success', text: 'تم تسجيل البصمة بنجاح، يمكنك الآن الدخول بها' });
+    }
+    setRegisteringPasskey(false);
+  };
 
   const onProfileSubmit = async (data: ProfileFormData) => {
     if (!user) return;
@@ -555,6 +573,44 @@ export function Profile() {
               </form>
             </div>
           ) : (
+            <div className="space-y-6">
+            {passkeySupported && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-[#E6F7F1] rounded-lg text-[#10B981]">
+                    <Fingerprint className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">الدخول بالبصمة</h3>
+                    <p className="text-sm text-slate-400">سجّل بصمة جهازك للدخول بدون كتابة كلمة المرور في كل مرة</p>
+                  </div>
+                </div>
+
+                {passkeyMessage && (
+                  <div className={clsx(
+                    'p-4 rounded-xl text-sm flex items-center gap-3 mb-4',
+                    passkeyMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
+                  )}>
+                    {passkeyMessage.type === 'success'
+                      ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      : <XCircle className="w-4 h-4 shrink-0" />
+                    }
+                    {passkeyMessage.text}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleRegisterPasskey}
+                  disabled={registeringPasskey}
+                  className="bg-[#10B981] hover:bg-[#059669] text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-[#10B981]/20 disabled:opacity-70"
+                >
+                  {registeringPasskey ? <Loader2 className="w-5 h-5 animate-spin" /> : <Fingerprint className="w-5 h-5" />}
+                  تسجيل بصمة هذا الجهاز
+                </button>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
               <div className="flex items-center gap-3 mb-8">
                 <div className="p-2 bg-[#E6F7F1] rounded-lg text-[#10B981]">
@@ -677,6 +733,7 @@ export function Profile() {
                   </button>
                 </div>
               </form>
+            </div>
             </div>
           )}
         </div>
