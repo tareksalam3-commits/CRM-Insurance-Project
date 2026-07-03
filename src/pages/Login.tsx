@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase';
-import { Shield, Mail, Phone, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { supabase, isPasskeySupported } from '../lib/supabase';
+import { Shield, Mail, Phone, Lock, Eye, EyeOff, Loader2, Fingerprint } from 'lucide-react';
 import clsx from 'clsx';
 
 declare global {
@@ -35,9 +35,11 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
-  const { signIn } = useAuth();
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const { signIn, signInWithPasskey } = useAuth();
   const navigate = useNavigate();
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  const passkeySupported = isPasskeySupported();
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
@@ -137,6 +139,20 @@ export function Login() {
     realButton?.click();
   };
 
+  const handlePasskeySignIn = async () => {
+    setError('');
+    setPasskeyLoading(true);
+
+    const { error } = await signInWithPasskey();
+
+    if (error) {
+      setPasskeyLoading(false);
+      setError('لم يتم التعرف على البصمة، حاول مرة أخرى أو استخدم كلمة المرور');
+    } else {
+      navigate('/');
+    }
+  };
+
   const isValid = () => {
     if (loginType === 'email') {
       return emailOrPhone.includes('@') && password.length >= 6;
@@ -157,6 +173,27 @@ export function Login() {
             </h1>
             <p className="text-secondary-500">سجل دخولك للوصول إلى النظام</p>
           </div>
+
+          {passkeySupported && (
+            <button
+              type="button"
+              onClick={handlePasskeySignIn}
+              disabled={passkeyLoading || loading}
+              className="w-full flex items-center justify-center gap-3 py-3 mb-3 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 font-medium hover:bg-primary-100 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {passkeyLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>جاري التحقق من البصمة...</span>
+                </>
+              ) : (
+                <>
+                  <Fingerprint className="w-5 h-5" />
+                  <span>الدخول بالبصمة</span>
+                </>
+              )}
+            </button>
+          )}
 
           <button
             type="button"
