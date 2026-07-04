@@ -129,11 +129,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const options = await optionsRes.json();
       if (!optionsRes.ok) {
-        return { error: new Error(options.error || 'تعذر بدء تسجيل البصمة') };
+        return { error: new Error(`[OPTIONS] ${options.error || 'تعذر بدء تسجيل البصمة'}`) };
       }
 
       // 2) نطلب من المتصفح إنشاء بيانات اعتماد WebAuthn (بصمة/Face ID)
-      const attestationResponse = await startRegistration({ optionsJSON: options });
+      let attestationResponse;
+      try {
+        attestationResponse = await startRegistration({ optionsJSON: options });
+      } catch (startErr: any) {
+        console.error('startRegistration failed. options was:', options, startErr);
+        return {
+          error: new Error(
+            `[START] ${startErr?.name || ''}: ${startErr?.message || startErr}`
+          )
+        };
+      }
 
       // 3) نبعت النتيجة للـ Edge Function عشان تتحقق منها وتحفظها
       const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-register-verify`, {
@@ -149,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok || !verifyData.verified) {
-        return { error: new Error(verifyData.error || 'تعذر تسجيل البصمة، حاول مرة أخرى') };
+        return { error: new Error(`[VERIFY] ${verifyData.error || 'تعذر تسجيل البصمة، حاول مرة أخرى'}`) };
       }
 
       return { error: null };
@@ -157,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (err?.name === 'NotAllowedError') {
         return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
       }
-      return { error: err as Error };
+      return { error: new Error(`[OTHER] ${err?.name || ''}: ${err?.message || err}`) };
     }
   };
 
