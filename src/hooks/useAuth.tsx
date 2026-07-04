@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Session, User as AuthUser } from '@supabase/supabase-js';
-import { supabase, User } from '../lib/supabase';
+import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { supabase, User, WEBAUTHN_FUNCTIONS_URL } from '../lib/supabase';
 
 interface AuthContextType {
   session: Session | null;
@@ -112,10 +113,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // بكلمة السر مرة واحدة قبل ما يقدر يضيف بصمة)
   const registerPasskey = async () => {
     try {
-      // @ts-expect-error - الميزة تجريبية ولسه مش موجودة في الـ types الرسمية
-      const { error } = await supabase.auth.registerPasskey();
-      return { error: error as Error | null };
-    } catch (err) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        return { error: new Error('لازم تسجل دخول الأول') };
+      }
+
+      // 1) نجيب options التسجيل من الـ Edge Function
+      const optionsRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-register-options`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        return { error: new Error(options.error || 'تعذر بدء تسجيل البصمة') };
+      }
+
+      // 2) نطلب من المتصفح إنشاء بيانات اعتماد WebAuthn (بصمة/Face ID)
+      const attestationResponse = await startRegistration({ optionsJSON: options });
+
+      // 3) نبعت النتيجة للـ Edge Function عشان تتحقق منها وتحفظها
+      const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-register-verify`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          attestationResponse,
+          deviceLabel: navigator.userAgent
+        })
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.verified) {
+        return { error: new Error(verifyData.error || 'تعذر تسجيل البصمة، حاول مرة أخرى') };
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
+      }
       return { error: err as Error };
     }
   };
@@ -123,10 +164,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // تسجيل الدخول بالبصمة (Face ID / Touch ID / بصمة الجهاز) بدون إيميل أو باسورد
   const signInWithPasskey = async () => {
     try {
-      // @ts-expect-error - الميزة تجريبية ولسه مش موجودة في الـ types الرسمية
-      const { error } = await supabase.auth.signInWithPasskey();
-      return { error: error as Error | null };
-    } catch (err) {
+      // 1) نجيب options الدخول من الـ Edge Function (بدون الحاجة لمعرفة هوية المستخدم مسبقًا)
+      const optionsRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-auth-options`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        return { error: new Error(options.error || 'تعذر بدء الدخول بالبصمة') };
+      }
+
+      // 2) نطلب من المتصفح تأكيد الهوية عبر البصمة/Face ID
+      const assertionResponse = await startAuthentication({ optionsJSON: options });
+
+      // 3) نبعت النتيجة للـ Edge Function عشان تتحقق وتنشئ جلسة دخول حقيقية
+      const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-auth-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assertionResponse })
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.verified) {
+        return { error: new Error(verifyData.error || 'لم يتم التعرف على البصمة، حاول مرة أخرى') };
+      }
+
+      // 4) نكمل تسجيل الدخول فعليًا في العميل باستخدام الـ token اللي رجع من السيرفر
+      const { error: otpError } = await supabase.auth.verifyOtp({
+        email: verifyData.email,
+        token_hash: verifyData.token_hash,
+        type: 'email'
+      });
+
+      if (otpError) {
+        return { error: otpError };
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
+      }
       return { error: err as Error };
     }
   };
