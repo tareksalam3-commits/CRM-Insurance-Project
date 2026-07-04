@@ -27,7 +27,6 @@ declare global {
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
 
 export function Login() {
-  const [loginType, setLoginType] = useState<'email' | 'phone'>('email');
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -154,10 +153,10 @@ export function Login() {
   };
 
   const isValid = () => {
-    if (loginType === 'email') {
-      return emailOrPhone.includes('@') && password.length >= 6;
-    }
-    return emailOrPhone.length >= 10 && password.length >= 6;
+    const value = emailOrPhone.trim();
+    const looksLikeEmail = value.includes('@');
+    const looksLikePhone = value.length >= 10 && !looksLikeEmail;
+    return (looksLikeEmail || looksLikePhone) && password.length >= 6;
   };
 
   return (
@@ -174,62 +173,61 @@ export function Login() {
             <p className="text-secondary-500">سجل دخولك للوصول إلى النظام</p>
           </div>
 
-          {passkeySupported && (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {passkeySupported && (
+              <button
+                type="button"
+                onClick={handlePasskeySignIn}
+                disabled={passkeyLoading || loading}
+                className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 text-xs font-medium hover:bg-primary-100 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {passkeyLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Fingerprint className="w-4 h-4" />
+                    <span>البصمة</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={handlePasskeySignIn}
-              disabled={passkeyLoading || loading}
-              className="w-full flex items-center justify-center gap-3 py-3 mb-3 rounded-lg border border-primary-200 bg-primary-50 text-primary-700 font-medium hover:bg-primary-100 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={handleGoogleSignIn}
+              disabled={googleLoading || loading}
+              className={clsx(
+                'flex items-center justify-center gap-1.5 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 text-xs font-medium hover:bg-secondary-50 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed',
+                !passkeySupported && 'col-span-2'
+              )}
             >
-              {passkeyLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>جاري التحقق من البصمة...</span>
-                </>
+              {googleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
-                  <Fingerprint className="w-5 h-5" />
-                  <span>الدخول بالبصمة</span>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47c-.28 1.5-1.13 2.77-2.4 3.62v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.11C3.25 21.3 7.31 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.11H1.27a12 12 0 0 0 0 10.76l4-3.11z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.77c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.27 6.62l4 3.11C6.22 6.88 8.87 4.77 12 4.77z"
+                    />
+                  </svg>
+                  <span>جوجل</span>
                 </>
               )}
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={googleLoading || loading}
-            className="w-full flex items-center justify-center gap-3 py-3 rounded-lg border border-secondary-200 bg-white text-secondary-700 font-medium hover:bg-secondary-50 transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {googleLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>جاري تسجيل الدخول بجوجل...</span>
-              </>
-            ) : (
-              <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47c-.28 1.5-1.13 2.77-2.4 3.62v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.11C3.25 21.3 7.31 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.11H1.27a12 12 0 0 0 0 10.76l4-3.11z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.77c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.27 6.62l4 3.11C6.22 6.88 8.87 4.77 12 4.77z"
-                  />
-                </svg>
-                <span>الدخول بحساب جوجل</span>
-              </>
-            )}
-          </button>
+          </div>
 
           {/* زرار جوجل الأصلي بيترندر هنا مخفي، وهو المسؤول عن فتح نافذة
               اختيار الحساب الحقيقية. زرارنا المصمم فوق بيضغط عليه بالنيابة
@@ -242,53 +240,20 @@ export function Login() {
             <div className="flex-1 h-px bg-secondary-200"></div>
           </div>
 
-          <div className="flex rounded-lg bg-secondary-100 p-1 mb-6">
-            <button
-              onClick={() => setLoginType('email')}
-              className={clsx(
-                'flex-1 py-2 text-sm font-medium rounded-md transition-all duration-200',
-                loginType === 'email'
-                  ? 'bg-white text-secondary-900 shadow-sm'
-                  : 'text-secondary-600'
-              )}
-            >
-              <Mail className="w-4 h-4 inline-block ml-1" />
-              البريد الإلكتروني
-            </button>
-            <button
-              onClick={() => setLoginType('phone')}
-              className={clsx(
-                'flex-1 py-2 text-sm font-medium rounded-md transition-all duration-200',
-                loginType === 'phone'
-                  ? 'bg-white text-secondary-900 shadow-sm'
-                  : 'text-secondary-600'
-              )}
-            >
-              <Phone className="w-4 h-4 inline-block ml-1" />
-              رقم الهاتف
-            </button>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="form-group">
-              <label className="input-label">
-                {loginType === 'email' ? 'البريد الإلكتروني' : 'رقم الهاتف'}
-              </label>
+              <label className="input-label">البريد الإلكتروني أو رقم الهاتف</label>
               <div className="relative">
                 <input
-                  type={loginType === 'email' ? 'email' : 'tel'}
+                  type="text"
                   value={emailOrPhone}
                   onChange={(e) => setEmailOrPhone(e.target.value)}
-                  placeholder={
-                    loginType === 'email'
-                      ? 'example@company.com'
-                      : '01xxxxxxxxx'
-                  }
+                  placeholder="example@company.com أو 01xxxxxxxxx"
                   className="input-field pe-10"
                   dir="ltr"
                   required
                 />
-                {loginType === 'email' ? (
+                {emailOrPhone.includes('@') ? (
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
                 ) : (
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
