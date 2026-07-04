@@ -11,11 +11,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
-    // تفعيل ميزة الدخول بالبصمة (Passkeys / WebAuthn) - لسه تجريبية (beta) من Supabase
-    experimental: {
-      passkeys: true
-    }
+    detectSessionInUrl: true
   }
 });
 
@@ -23,6 +19,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export function isPasskeySupported(): boolean {
   return typeof window !== 'undefined' && !!window.PublicKeyCredential;
 }
+
+// رابط الـ Edge Functions الخاصة بتسجيل الدخول بالبصمة (WebAuthn)
+export const WEBAUTHN_FUNCTIONS_URL = `${supabaseUrl}/functions/v1`;
 
 export type User = {
   id: string;
