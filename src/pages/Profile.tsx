@@ -176,7 +176,7 @@ export function Profile() {
     const { error } = await registerPasskey();
 
     if (error) {
-      setPasskeyMessage({ type: 'error', text: 'تعذر تسجيل البصمة، حاول مرة أخرى' });
+      setPasskeyMessage({ type: 'error', text: `تعذر تسجيل البصمة: ${error.message || 'خطأ غير معروف'}` });
     } else {
       setPasskeyMessage({ type: 'success', text: 'تم تسجيل البصمة بنجاح، يمكنك الآن الدخول بها' });
     }
