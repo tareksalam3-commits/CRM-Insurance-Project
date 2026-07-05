@@ -12,6 +12,7 @@ import { supabase, Notification } from '../lib/supabase';
 import clsx from 'clsx';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { ConnectionStatusBadge } from './ConnectionStatusBadge';
 
 const pageTitles: Record<string, string> = {
   '/':                'لوحة التحكم',
@@ -223,7 +224,7 @@ export function Header() {
             <div className="flex items-center justify-between px-4 h-14 bg-primary-600">
               <div className="flex items-center gap-2">
                 <Shield className="w-7 h-7 text-white" />
-                <span className="font-bold text-white text-base">نظام التأمين</span>
+                <ConnectionStatusBadge variant="light" />
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30">
                 <X className="w-5 h-5 text-white" />
