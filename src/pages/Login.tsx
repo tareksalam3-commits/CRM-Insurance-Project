@@ -62,23 +62,27 @@ export function Login() {
     const initGoogle = () => {
       if (!window.google || !googleBtnRef.current) return;
 
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleCredentialResponse,
-        cancel_on_tap_outside: true
-      });
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleCredentialResponse,
+          cancel_on_tap_outside: true
+        });
 
-      // بنعمل رندر لزرار جوجل الأصلي (المسؤول عن ظهور نافذة اختيار الحساب
-      // كـ popup حقيقي جوه نفس الصفحة) بس مخفي، وهنستخدم زرارنا المصمم
-      // إحنا عشان نضغط عليه بالنيابة عن المستخدم
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        type: 'standard',
-        theme: 'outline',
-        size: 'large',
-        width: 320
-      });
+        // بنعمل رندر لزرار جوجل الأصلي (المسؤول عن ظهور نافذة اختيار الحساب
+        // كـ popup حقيقي جوه نفس الصفحة) بس مخفي، وهنستخدم زرارنا المصمم
+        // إحنا عشان نضغط عليه بالنيابة عن المستخدم
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          width: 320
+        });
 
-      setGoogleReady(true);
+        setGoogleReady(true);
+      } catch (err) {
+        console.error('Google Identity Services init failed:', err);
+      }
     };
 
     if (window.google) {
@@ -119,7 +123,12 @@ export function Login() {
     setError('');
 
     if (!GOOGLE_CLIENT_ID) {
-      setError('لم يتم إعداد تسجيل الدخول بجوجل بعد');
+      setError('لم يتم إعداد تسجيل الدخول بجوجل بعد (VITE_GOOGLE_CLIENT_ID غير موجود)');
+      return;
+    }
+
+    if (!window.google) {
+      setError('لم تُحمَّل مكتبة جوجل بعد، تأكد من اتصالك بالإنترنت وحاول تاني');
       return;
     }
 
@@ -135,7 +144,14 @@ export function Login() {
       'div[role="button"]'
     ) as HTMLElement | null;
 
-    realButton?.click();
+    if (realButton) {
+      realButton.click();
+    } else {
+      // fallback: لو زرار جوجل الأصلي مش موجود في الـ DOM لأي سبب،
+      // نطلب من مكتبة جوجل تفتح نافذة One Tap مباشرة
+      console.warn('Google button element not found, falling back to prompt()');
+      window.google.accounts.id.prompt();
+    }
   };
 
   const handlePasskeySignIn = async () => {
@@ -229,6 +245,12 @@ export function Login() {
             </button>
           </div>
 
+          {error && (
+            <div className="p-3 mb-4 rounded-lg bg-error-50 border border-error-200 text-error-700 text-sm">
+              {error}
+            </div>
+          )}
+
           {/* زرار جوجل الأصلي بيترندر هنا مخفي، وهو المسؤول عن فتح نافذة
               اختيار الحساب الحقيقية. زرارنا المصمم فوق بيضغط عليه بالنيابة
               عن المستخدم عشان نحافظ على شكل التصميم */}
@@ -288,12 +310,6 @@ export function Login() {
                 </button>
               </div>
             </div>
-
-            {error && (
-              <div className="p-3 rounded-lg bg-error-50 border border-error-200 text-error-700 text-sm">
-                {error}
-              </div>
-            )}
 
             <button
               type="submit"
