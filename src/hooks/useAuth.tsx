@@ -208,7 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // 4) نكمل تسجيل الدخول فعليًا في العميل باستخدام الـ token اللي رجع من السيرفر
       const { error: otpError } = await supabase.auth.verifyOtp({
-        email: verifyData.email,
         token_hash: verifyData.token_hash,
         type: 'email'
       });
