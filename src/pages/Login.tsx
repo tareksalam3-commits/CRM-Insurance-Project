@@ -54,7 +54,7 @@ export function Login() {
 
       if (error) {
         setGoogleLoading(false);
-        setError('حدث خطأ أثناء تسجيل الدخول بجوجل');
+        setError(`حدث خطأ أثناء تسجيل الدخول بجوجل: ${error.message}`);
       }
       // عند النجاح الـ session بتتسجل تلقائياً والتطبيق هيحوّل المستخدم لوحده
     };
