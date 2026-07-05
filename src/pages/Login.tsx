@@ -146,7 +146,7 @@ export function Login() {
 
     if (error) {
       setPasskeyLoading(false);
-      setError('لم يتم التعرف على البصمة، حاول مرة أخرى أو استخدم كلمة المرور');
+      setError(`لم يتم التعرف على البصمة: ${error.message || 'خطأ غير معروف'}`);
     } else {
       navigate('/');
     }
