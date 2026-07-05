@@ -15,6 +15,7 @@ import {
 import clsx from 'clsx';
 import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { getDailyMessage } from '../lib/dailyMessages';
 import {
   Tooltip,
   ResponsiveContainer,
@@ -347,6 +348,18 @@ export function Dashboard() {
           </p>
         </div>
       </div>
+
+      {user && (
+        <div className="card bg-primary-50/60 border border-primary-100 py-3 px-4 flex items-start gap-2 mb-6">
+          <span className="text-lg leading-none">💡</span>
+          <div>
+            <p className="text-xs font-semibold text-primary-700">رسالة اليوم</p>
+            <p className="text-sm text-secondary-700 mt-0.5 leading-snug">
+              {getDailyMessage(user.role)}
+            </p>
+          </div>
+        </div>
+      )}
 
       {stats && stats.totalPolicies === 0 && stats.totalCustomers === 0 && (
         <div className="card bg-secondary-50/60 border-dashed flex items-center gap-4">
