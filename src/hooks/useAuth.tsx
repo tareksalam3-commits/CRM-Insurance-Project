@@ -181,11 +181,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const options = await optionsRes.json();
       if (!optionsRes.ok) {
-        return { error: new Error(options.error || 'تعذر بدء الدخول بالبصمة') };
+        return { error: new Error(`[OPTIONS] ${options.error || 'تعذر بدء الدخول بالبصمة'}`) };
       }
 
       // 2) نطلب من المتصفح تأكيد الهوية عبر البصمة/Face ID
-      const assertionResponse = await startAuthentication({ optionsJSON: options });
+      let assertionResponse;
+      try {
+        assertionResponse = await startAuthentication({ optionsJSON: options });
+      } catch (startErr: any) {
+        if (startErr?.name === 'NotAllowedError') {
+          return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
+        }
+        return { error: new Error(`[START] ${startErr?.name || ''}: ${startErr?.message || startErr}`) };
+      }
 
       // 3) نبعت النتيجة للـ Edge Function عشان تتحقق وتنشئ جلسة دخول حقيقية
       const verifyRes = await fetch(`${WEBAUTHN_FUNCTIONS_URL}/webauthn-auth-verify`, {
@@ -195,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok || !verifyData.verified) {
-        return { error: new Error(verifyData.error || 'لم يتم التعرف على البصمة، حاول مرة أخرى') };
+        return { error: new Error(`[VERIFY] ${verifyData.error || 'لم يتم التعرف على البصمة، حاول مرة أخرى'}`) };
       }
 
       // 4) نكمل تسجيل الدخول فعليًا في العميل باستخدام الـ token اللي رجع من السيرفر
@@ -206,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (otpError) {
-        return { error: otpError };
+        return { error: new Error(`[OTP] ${otpError.message}`) };
       }
 
       return { error: null };
@@ -214,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (err?.name === 'NotAllowedError') {
         return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
       }
-      return { error: err as Error };
+      return { error: new Error(`[OTHER] ${err?.name || ''}: ${err?.message || err}`) };
     }
   };
 
