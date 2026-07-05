@@ -15,9 +15,18 @@ declare global {
             callback: (response: { credential: string }) => void;
             auto_select?: boolean;
             cancel_on_tap_outside?: boolean;
+            nonce?: string;
           }) => void;
           renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
-          prompt: () => void;
+          prompt: (
+            callback?: (notification: {
+              isNotDisplayed: () => boolean;
+              isSkippedMoment: () => boolean;
+              isDismissedMoment: () => boolean;
+              getNotDisplayedReason?: () => string;
+              getSkippedReason?: () => string;
+            }) => void
+          ) => void;
         };
       };
     };
@@ -38,7 +47,21 @@ export function Login() {
   const { signIn, signInWithPasskey } = useAuth();
   const navigate = useNavigate();
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  const googleNonceRef = useRef<string>('');
   const passkeySupported = isPasskeySupported();
+
+  // بيولّد nonce عشوائي، وبيرجع النسخة الأصلية (لتأكيد الهوية مع Supabase)
+  // والنسخة المشفّرة SHA-256 (لإرسالها لجوجل) - ده مطلوب من Supabase عشان
+  // يتأكد إن الـ id_token جه فعلاً من نفس محاولة تسجيل الدخول دي
+  const generateNonce = async (): Promise<{ raw: string; hashed: string }> => {
+    const raw = crypto.randomUUID();
+    const encoder = new TextEncoder();
+    const data = encoder.encode(raw);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashed = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return { raw, hashed };
+  };
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
@@ -49,7 +72,8 @@ export function Login() {
 
       const { error } = await supabase.auth.signInWithIdToken({
         provider: 'google',
-        token: response.credential
+        token: response.credential,
+        nonce: googleNonceRef.current
       });
 
       if (error) {
@@ -59,14 +83,18 @@ export function Login() {
       // عند النجاح الـ session بتتسجل تلقائياً والتطبيق هيحوّل المستخدم لوحده
     };
 
-    const initGoogle = () => {
+    const initGoogle = async () => {
       if (!window.google || !googleBtnRef.current) return;
 
       try {
+        const { raw, hashed } = await generateNonce();
+        googleNonceRef.current = raw;
+
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleCredentialResponse,
-          cancel_on_tap_outside: true
+          cancel_on_tap_outside: true,
+          nonce: hashed
         });
 
         // بنعمل رندر لزرار جوجل الأصلي (المسؤول عن ظهور نافذة اختيار الحساب
@@ -137,21 +165,23 @@ export function Login() {
       return;
     }
 
-    // بندوس بالنيابة عن المستخدم على زرار جوجل الأصلي المخفي، وهو ده اللي
-    // بيفتح نافذة اختيار الحساب الحقيقية (popup صغير جوه نفس الصفحة) وبتقفل
-    // نفسها تلقائياً بعد الاختيار من غير ما تخرج من التطبيق خالص
-    const realButton = googleBtnRef.current.querySelector(
-      'div[role="button"]'
-    ) as HTMLElement | null;
-
-    if (realButton) {
-      realButton.click();
-    } else {
-      // fallback: لو زرار جوجل الأصلي مش موجود في الـ DOM لأي سبب،
-      // نطلب من مكتبة جوجل تفتح نافذة One Tap مباشرة
-      console.warn('Google button element not found, falling back to prompt()');
-      window.google.accounts.id.prompt();
-    }
+    // بنستخدم "One Tap" من جوجل كخيار أساسي، لأنه أسرع بكتير وبيظهر كبطاقة
+    // صغيرة سريعة فيها الحساب الجاهز على الجهاز، من غير ما يفتح صفحة كاملة
+    window.google.accounts.id.prompt((notification) => {
+      const notShown = notification.isNotDisplayed?.() || notification.isSkippedMoment?.();
+      if (notShown) {
+        console.warn(
+          'Google One Tap لم يظهر، السبب:',
+          notification.getNotDisplayedReason?.() || notification.getSkippedReason?.()
+        );
+        // فولباك: لو One Tap مش هيظهر لأي سبب (مثلاً المستخدم رفضه قبل كده)،
+        // نستخدم زرار جوجل التقليدي (نافذة اختيار حساب كاملة) بدل ما نسيب المستخدم من غير حل
+        const realButton = googleBtnRef.current?.querySelector(
+          'div[role="button"]'
+        ) as HTMLElement | null;
+        realButton?.click();
+      }
+    });
   };
 
   const handlePasskeySignIn = async () => {
