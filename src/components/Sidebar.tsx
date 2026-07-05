@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { ROLE_LABELS, getRoleLevel, canViewSettings, canManageUsers, canViewOrgStructure } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
+import { ConnectionStatusBadge } from './ConnectionStatusBadge';
 import clsx from 'clsx';
 
 const menuItems = [
@@ -87,8 +88,11 @@ export function Sidebar() {
         <div className="flex items-center justify-between h-16 px-4 border-b border-secondary-200">
           {!sidebarCollapsed && (
             <div className="flex items-center gap-2">
-              <Shield className="w-8 h-8 text-primary-600" />
-              <span className="font-bold text-lg text-secondary-900">CRM</span>
+              <Shield className="w-8 h-8 text-primary-600 flex-shrink-0" />
+              <div className="flex flex-col">
+                <span className="font-bold text-lg text-secondary-900 leading-tight">CRM</span>
+                <ConnectionStatusBadge variant="dark" />
+              </div>
             </div>
           )}
           {sidebarCollapsed && <Shield className="w-8 h-8 text-primary-600 mx-auto" />}
