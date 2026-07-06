@@ -22,6 +22,7 @@ const OrgStructure  = lazy(() => import('./pages/OrgStructure').then(m => ({ def
 const ActivityLog  = lazy(() => import('./pages/ActivityLog').then(m => ({ default: m.ActivityLog })));
 const Profile      = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const AssistantWidget = lazy(() => import('./features/assistant/AssistantWidget').then(m => ({ default: m.AssistantWidget })));
 
 function LoadingSpinner() {
   return (
@@ -78,6 +79,10 @@ function AppLayout() {
           </Suspense>
         </div>
       </main>
+
+      <Suspense fallback={null}>
+        <AssistantWidget />
+      </Suspense>
     </div>
   );
 }
