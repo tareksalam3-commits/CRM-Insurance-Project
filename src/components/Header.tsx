@@ -189,7 +189,7 @@ export function Header() {
             <button onClick={() => setProfileOpen(!profileOpen)} className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-secondary-100">
               <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                 {user.avatar_url
-                  ? <img src={user.avatar_url} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+                  ? <img src={user.avatar_url} alt={user.name} className="w-8 h-8 rounded-full object-cover" loading="lazy" decoding="async" />
                   : <span className="text-primary-700 font-semibold text-sm">{user.name.charAt(0)}</span>}
               </div>
               <div className="hidden lg:block text-right">
@@ -236,7 +236,7 @@ export function Header() {
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-full bg-primary-100 border-2 border-primary-200 flex items-center justify-center flex-shrink-0">
                   {user.avatar_url
-                    ? <img src={user.avatar_url} alt={user.name} className="w-11 h-11 rounded-full object-cover" />
+                    ? <img src={user.avatar_url} alt={user.name} className="w-11 h-11 rounded-full object-cover" loading="lazy" decoding="async" />
                     : <span className="text-primary-700 font-bold">{user.name.charAt(0)}</span>}
                 </div>
                 <div>

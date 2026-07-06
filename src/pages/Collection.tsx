@@ -43,6 +43,7 @@ export function Collection() {
   const [totalPages, setTotalPages]             = useState(1);
   const [totalCount, setTotalCount]             = useState(0);
   const [searchQuery, setSearchQuery]           = useState('');
+  const [localSearch, setLocalSearch]           = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState<InstallmentWithRelations | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -64,6 +65,17 @@ export function Collection() {
   useEffect(() => {
     if (user) loadInstallments();
   }, [user, activeTab, page, searchQuery]);
+
+  // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== searchQuery) {
+        setSearchQuery(localSearch);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearch]);
 
   // ===================================
   // تحميل الأقساط — مُصحَّح
@@ -367,8 +379,8 @@ export function Collection() {
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="بحث برقم الوثيقة..."
               className="input-field pr-10"
             />

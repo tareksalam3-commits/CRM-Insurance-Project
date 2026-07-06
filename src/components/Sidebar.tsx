@@ -139,7 +139,7 @@ export function Sidebar() {
           <div className={clsx('flex items-center gap-3 mb-3', sidebarCollapsed && 'justify-center')}>
             <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
               {user.avatar_url
-                ? <img src={user.avatar_url} alt={user.name} className="w-10 h-10 rounded-full object-cover" />
+                ? <img src={user.avatar_url} alt={user.name} className="w-10 h-10 rounded-full object-cover" loading="lazy" decoding="async" />
                 : <span className="text-primary-700 font-semibold">{user.name.charAt(0)}</span>
               }
             </div>

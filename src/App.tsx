@@ -8,7 +8,17 @@ import { Login } from './pages/Login';
 import { useAppStore } from './store/appStore';
 import clsx from 'clsx';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // تفادي إعادة الجلب غير الضرورية عند التنقل بين الصفحات أو العودة للتطبيق
+      staleTime: 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const Dashboard    = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const Customers    = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));

@@ -192,6 +192,8 @@ function OrgAvatar({
         src={avatarUrl}
         alt={name}
         onError={() => setImgError(true)}
+        loading="lazy"
+        decoding="async"
         className={clsx(
           'w-10 h-10 rounded-full object-cover flex-shrink-0 ring-2',
           style.ring

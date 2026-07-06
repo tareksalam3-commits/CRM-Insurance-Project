@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&display=swap');
+/* تم نقل تحميل الخط إلى index.html عبر preconnect + link لتفادي تأخير عرض
+   الصفحة الذي يسببه @import داخل CSS (نفس الخط، فقط بطريقة تحميل أسرع) */
 
 @tailwind base;
 @tailwind components;

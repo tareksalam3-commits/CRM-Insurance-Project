@@ -78,6 +78,7 @@ export function Users() {
   const [page, setPage]                 = useState(1);
   const [totalPages, setTotalPages]     = useState(1);
   const [searchQuery, setSearchQuery]   = useState('');
+  const [localSearch, setLocalSearch]   = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [showPwd, setShowPwd]           = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
@@ -102,6 +103,17 @@ export function Users() {
   useEffect(() => {
     if (user && canManage) loadUsers();
   }, [user, canManage, page, searchQuery, statusFilter]);
+
+  // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== searchQuery) {
+        setSearchQuery(localSearch);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearch]);
 
   // load all users once (for manager dropdown)
   useEffect(() => {
@@ -440,8 +452,8 @@ export function Users() {
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="بحث بالاسم أو البريد..."
               className="input-field pr-10"
             />
