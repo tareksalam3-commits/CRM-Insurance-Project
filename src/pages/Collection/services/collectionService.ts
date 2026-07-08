@@ -1,5 +1,5 @@
 import { supabase, type Policy } from '../../../lib/supabase';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import type { TabType, InstallmentWithRelations } from '../types';
 
 const PAGE_SIZE = 10;
@@ -19,6 +19,14 @@ export interface FetchInstallmentsResult {
 // ===================================
 // تحميل الأقساط — مُصحَّح
 // ===================================
+// تُستدعى مرة عند فتح صفحة التحصيل: تُلغي أي وثيقة (نشطة/موقوفة) عندها قسط
+// غير مسدد فات على استحقاقه 3 شهور كاملة أو أكثر — قبل حساب تبويب "المتأخر"،
+// عشان الوثائق دي تخرج من "المتأخر" أول ما توصل للحد ده مباشرة.
+export async function cancelSeverelyOverduePolicies(): Promise<void> {
+  const { error } = await supabase.rpc('cancel_severely_overdue_policies');
+  if (error) throw error;
+}
+
 export async function fetchInstallments({ activeTab, page, searchQuery }: FetchInstallmentsParams): Promise<FetchInstallmentsResult> {
   const now        = new Date();
   const monthStart = startOfMonth(now);
@@ -26,11 +34,19 @@ export async function fetchInstallments({ activeTab, page, searchQuery }: FetchI
   const monthStartStr = format(monthStart, 'yyyy-MM-dd');
   const monthEndStr   = format(monthEnd,   'yyyy-MM-dd');
 
+  // حدود تبويب "المتأخر": من شهر فات لحد شهرين فاتوا على تاريخ الاستحقاق
+  // (شهر فات = يبدأ يظهر، شهرين = أقصى مدة، بعد كده تتلغي الوثيقة ولا يظهر
+  // القسط هنا أصلاً - راجع cancelSeverelyOverduePolicies أعلاه)
+  const overdueRangeStartStr = format(startOfMonth(subMonths(now, 2)), 'yyyy-MM-dd'); // بداية شهر -2 (أقصى مدة قبل الإلغاء)
+  const overdueRangeEndExclusiveStr = format(startOfMonth(now), 'yyyy-MM-dd'); // بداية الشهر الحالي (أي قسط قبله يُعتبر "فاته شهر" على الأقل)
+
+  // !inner ضروري عشان نقدر نفلتر لاحقاً على policy.status (مسموح دايماً هنا
+  // لأن installments.policy_id مفتاح أجنبي إلزامي، فكل قسط له وثيقة مؤكد)
   let query = supabase
     .from('installments')
     .select(
       `*,
-       policy:policy_id(
+       policy:policy_id!inner(
          *,
          customer:customer_id(name),
          owner:owner_id(name)
@@ -55,7 +71,15 @@ export async function fetchInstallments({ activeTab, page, searchQuery }: FetchI
         .lte('due_date', monthEndStr);
       break;
     case 'overdue':
-      query = query.eq('status', 'overdue');
+      // بيُحسب مباشرة من تاريخ الاستحقاق (مش من عمود status المخزّن، لأنه
+      // محتاج جدولة دورية مش متوفرة حالياً) — يعرض بس اللي فاته شهر لحد
+      // شهرين، ويستبعد أي وثيقة اتلغت فعلاً (احتياطاً، رغم إننا بنلغيها قبل
+      // النداء ده مباشرة في نفس تحميل الصفحة)
+      query = query
+        .eq('status', 'pending')
+        .gte('due_date', overdueRangeStartStr)
+        .lt('due_date', overdueRangeEndExclusiveStr)
+        .neq('policy.status', 'cancelled');
       break;
     case 'paid_new':
       query = query

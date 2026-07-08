@@ -360,7 +360,7 @@ export function Policies() {
                               <Pause className="w-4 h-4" />
                             </button>
                           )}
-                          {policy.status === 'suspended' && (
+                          {(policy.status === 'suspended' || policy.status === 'cancelled') && (
                             <button
                               onClick={() => handleStatusChange(policy, 'active')}
                               className="p-1.5 rounded-lg hover:bg-success-50 text-success-600 hover:text-success-700"

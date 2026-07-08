@@ -22,6 +22,7 @@ import { ar } from 'date-fns/locale';
 import { VALID_TABS, type TabType, type InstallmentWithRelations } from './types';
 import {
   fetchInstallments, fetchPolicyInstallments, processPayment, cancelPayment,
+  cancelSeverelyOverduePolicies,
 } from './services/collectionService';
 
 export function Collection() {
@@ -72,6 +73,16 @@ export function Collection() {
   const loadInstallments = async () => {
     setLoading(true);
     try {
+      // فحص وإلغاء أي وثيقة فاتها 3 شهور أو أكثر على قسط غير مسدد — قبل عرض
+      // تبويب "المتأخر"، عشان الوثائق دي تختفي منه أول ما توصل للحد ده.
+      // بيتنفذ هنا (عند فتح الصفحة) بدل جدولة دورية غير متاحة حالياً.
+      try {
+        await cancelSeverelyOverduePolicies();
+      } catch (err) {
+        // فشل هذا الفحص لا يجب أن يمنع عرض بيانات التحصيل نفسها
+        console.error('Error cancelling severely overdue policies:', err);
+      }
+
       const { installments: results, totalCount: count, totalPages: pages } =
         await fetchInstallments({ activeTab, page, searchQuery });
 

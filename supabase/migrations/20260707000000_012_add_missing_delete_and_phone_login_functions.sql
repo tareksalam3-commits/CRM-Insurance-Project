@@ -147,3 +147,42 @@ END;
 $function$;
 
 DROP POLICY IF EXISTS "avatars_public_read" ON storage.objects;
+
+/*
+## طلب عميل: منطق جديد لتبويب "المتأخر" + إلغاء تلقائي بعد 3 شهور تأخير
+
+- شهر واحد متأخر على تاريخ الاستحقاق = يظهر في تبويب "المتأخر"
+- شهرين متأخر = أقصى مدة يفضل فيها ظاهر في "المتأخر"
+- 3 شهور متأخر = يخرج من "المتأخر" وتُلغى الوثيقة تلقائياً (status = cancelled)
+
+لا يوجد pg_cron مفعّل حالياً (بقرار من العميل)، فالإلغاء بيتم بدل الجدولة
+الدورية عن طريق استدعاء الدالة دي من الواجهة (صفحة التحصيل) في كل مرة تُفتح
+فيها الصفحة — راجع src/pages/Collection/services/collectionService.ts
+(cancelSeverelyOverduePolicies) وsrc/pages/Collection/index.tsx.
+
+تبويب "المتأخر" نفسه بقى بيُحسب مباشرة من تاريخ الاستحقاق (بدل الاعتماد على
+عمود installments.status = 'overdue' المخزّن، لأن تحديثه بيحتاج جدولة دورية
+مش متاحة) — أي قسط "pending" بين شهر وشهرين فايتين على استحقاقه، وبشرط إن
+الوثيقة نفسها لسه مش ملغية.
+*/
+CREATE OR REPLACE FUNCTION public.cancel_severely_overdue_policies()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_current_month date := date_trunc('month', CURRENT_DATE)::date;
+BEGIN
+    UPDATE policies
+    SET status = 'cancelled',
+        updated_at = now()
+    WHERE status IN ('active', 'suspended')
+      AND id IN (
+          SELECT DISTINCT i.policy_id
+          FROM installments i
+          WHERE i.status = 'pending'
+            AND date_trunc('month', i.due_date)::date <= (v_current_month - interval '3 months')::date
+      );
+END;
+$function$;
