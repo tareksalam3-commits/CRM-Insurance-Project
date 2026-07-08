@@ -95,6 +95,9 @@ async function getScopedTeamAchievement(userIds: string[]): Promise<AgentRow[]> 
 export interface AssistantAnswer {
   title: string;
   lines: string[];
+  // اقتراحات قابلة للنقر (تُملأ فقط في حالة عدم التأكد من نية المستخدم)
+  // تُتيح للواجهة عرضها كأزرار بدل نص عادي، دون كسر أي كود قديم يعتمد على lines فقط
+  suggestions?: string[];
 }
 
 /** ملخص أداء اليوم */
@@ -418,6 +421,48 @@ export async function getBranchSummary(user: User): Promise<AssistantAnswer> {
       `عدد الوثائق: ${policies.length} (منها ${activePolicies} نشطة)`,
       `إجمالي التحصيل هذا الشهر: ${formatCurrency(totalCollected)}`
     ]
+  };
+}
+
+/** عدد الوكلاء (الإجمالي ضمن نطاق رؤية المستخدم) */
+export async function getAgentsCount(user: User): Promise<AssistantAnswer> {
+  const userIds = await getScopedUserIds(user);
+  const team = await getScopedTeamAchievement(userIds);
+  const agentsOnly = team.filter((t) => t.role === 'agent' || t.role === 'premium_agent');
+
+  return {
+    title: '👥 عدد الوكلاء',
+    lines: [`إجمالي عدد الوكلاء: ${agentsOnly.length}`]
+  };
+}
+
+/** عدد العملاء (الإجمالي الكلي، وليس فقط عملاء اليوم) */
+export async function getCustomersCount(user: User): Promise<AssistantAnswer> {
+  const userIds = await getScopedUserIds(user);
+
+  const { count } = await supabase
+    .from('customers')
+    .select('id', { count: 'exact', head: true })
+    .in('owner_id', userIds);
+
+  return {
+    title: '👥 عدد العملاء',
+    lines: [`إجمالي عدد العملاء: ${count ?? 0}`]
+  };
+}
+
+/** عدد الوثائق (الإجمالي الكلي، وليس فقط وثائق اليوم) */
+export async function getDocumentsCount(user: User): Promise<AssistantAnswer> {
+  const userIds = await getScopedUserIds(user);
+
+  const { count } = await supabase
+    .from('policies')
+    .select('id', { count: 'exact', head: true })
+    .in('owner_id', userIds);
+
+  return {
+    title: '📄 عدد الوثائق',
+    lines: [`إجمالي عدد الوثائق: ${count ?? 0}`]
   };
 }
 

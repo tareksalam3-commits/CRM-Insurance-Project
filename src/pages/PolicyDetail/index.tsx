@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import {
-  supabase,
-  Policy,
-  Installment,
   POLICY_TYPE_LABELS,
   PAYMENT_METHOD_LABELS,
   POLICY_STATUS_LABELS,
   INSTALLMENT_STATUS_LABELS,
-} from '../lib/supabase';
+} from '../../lib/supabase';
 import {
   ChevronRight,
   FileText,
@@ -26,17 +23,12 @@ import clsx from 'clsx';
 import { format, startOfMonth } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
-// ===================================
-// أنواع البيانات
-// ===================================
-type InstallmentWithPayment = Installment & {
-  payments?: { id: string; is_cancelled: boolean }[];
-};
-
-type PolicyWithRelations = Policy & {
-  customer: { id: string; name: string; phone?: string; national_id?: string };
-  owner: { id: string; name: string };
-};
+import type { InstallmentWithPayment, PolicyWithRelations } from './types';
+import { fetchPolicyById, fetchInstallmentsByPolicyId, payInstallment } from './services/policyDetailService';
+import {
+  canPay, isEarlyPayment, computeInstallmentStats,
+  getInstallmentBadgeClass, getPolicyStatusBadgeClass,
+} from './business/installmentHelpers';
 
 export function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
@@ -68,18 +60,9 @@ export function PolicyDetail() {
   const loadPolicy = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('policies')
-        .select(`
-          *,
-          customer:customer_id(id, name, phone, national_id),
-          owner:owner_id(id, name)
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
-      setPolicy(data as PolicyWithRelations);
+      if (!id) return;
+      const data = await fetchPolicyById(id);
+      setPolicy(data);
       await loadInstallments();
     } catch (error) {
       console.error('Error loading policy:', error);
@@ -96,17 +79,7 @@ export function PolicyDetail() {
     if (!id) return;
     setLoadingInstallments(true);
     try {
-      const { data, error } = await supabase
-        .from('installments')
-        .select(`
-          *,
-          payments(id, is_cancelled)
-        `)
-        .eq('policy_id', id)
-        .order('installment_number', { ascending: true });
-
-      if (error) throw error;
-      setInstallments((data as InstallmentWithPayment[]) || []);
+      setInstallments(await fetchInstallmentsByPolicyId(id));
     } catch (error) {
       console.error('Error loading installments:', error);
     } finally {
@@ -130,28 +103,7 @@ export function PolicyDetail() {
     setProcessingPayment(true);
 
     try {
-      // payment_month = الشهر الفعلي للدفع (وليس تاريخ استحقاق القسط)
-      // هذا يدعم السداد المبكر تلقائياً
-      const now = new Date();
-      const paymentMonth = format(startOfMonth(now), 'yyyy-MM-dd');
-
-      const { error } = await supabase
-        .from('payments')
-        .insert({
-          installment_id: selectedInstallment.id,
-          amount: selectedInstallment.amount,
-          paid_by_user_id: user.id,
-          payment_month: paymentMonth,
-        });
-
-      if (error) throw error;
-
-      // تسجيل في سجل النشاط
-      await supabase.rpc('log_activity', {
-        p_action: 'payment_create',
-        p_entity_type: 'installment',
-        p_entity_id: selectedInstallment.id,
-      });
+      await payInstallment(selectedInstallment, user.id);
 
       setShowPayModal(false);
       setSelectedInstallment(null);
@@ -179,45 +131,10 @@ export function PolicyDetail() {
     }
   };
 
-  const getInstallmentBadgeClass = (status: string) => {
-    switch (status) {
-      case 'paid':    return 'badge-success';
-      case 'overdue': return 'badge-error';
-      default:        return 'badge-secondary';
-    }
-  };
-
-  const getPolicyStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'active':    return 'badge-success';
-      case 'suspended': return 'badge-warning';
-      case 'cancelled': return 'badge-error';
-      default:          return 'badge-secondary';
-    }
-  };
-
-  // ===================================
-  // هل القسط قابل للسداد؟
-  // قسط مدفوع مسبقاً (future) أو pending/overdue = يمكن سداده
-  // ===================================
-  const canPay = (inst: InstallmentWithPayment) => {
-    return inst.status === 'pending' || inst.status === 'overdue';
-  };
-
-  // هل هذا سداد مبكر؟ (تاريخ استحقاق في المستقبل)
-  const isEarlyPayment = (inst: InstallmentWithPayment) => {
-    return new Date(inst.due_date) > new Date() && inst.status === 'pending';
-  };
-
   // ===================================
   // إحصائيات الأقساط
   // ===================================
-  const stats = {
-    total: installments.length,
-    paid: installments.filter((i) => i.status === 'paid').length,
-    pending: installments.filter((i) => i.status === 'pending').length,
-    overdue: installments.filter((i) => i.status === 'overdue').length,
-  };
+  const stats = computeInstallmentStats(installments);
 
   // ===================================
   // شاشة التحميل

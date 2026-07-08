@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { supabase, isPasskeySupported } from '../lib/supabase';
-import { ROLE_LABELS } from '../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import { isPasskeySupported, ROLE_LABELS } from '../../lib/supabase';
 import {
   User,
   Mail,
@@ -26,39 +25,25 @@ import {
 import clsx from 'clsx';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { format } from 'date-fns';
 
-const profileSchema = z.object({
-  name: z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
-  phone: z.string().optional(),
-  registration_number: z.string().optional(),
-});
-
-const passwordSchema = z.object({
-  currentPassword: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
-  newPassword: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
-  confirmPassword: z.string()
-}).refine((data) => data.newPassword === data.confirmPassword, {
-  message: 'كلمات المرور غير متطابقة',
-  path: ['confirmPassword']
-});
-
-type ProfileFormData = z.infer<typeof profileSchema>;
-type PasswordFormData = z.infer<typeof passwordSchema>;
+import { profileSchema, passwordSchema, type ProfileFormData, type PasswordFormData, type StatusMessage } from './types';
+import {
+  fetchRankAmongSameRole, fetchPaidThisMonthCount, updateProfile, changePassword, uploadAvatar,
+} from './services/profileService';
 
 export function Profile() {
   const { user, refreshUser, registerPasskey } = useAuth();
   const [activeTab, setActiveTab] = useState<'personal' | 'security'>('personal');
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
-  const [passkeyMessage, setPasskeyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [passkeyMessage, setPasskeyMessage] = useState<StatusMessage | null>(null);
   const passkeySupported = isPasskeySupported();
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [avatarMessage, setAvatarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [avatarMessage, setAvatarMessage] = useState<StatusMessage | null>(null);
+  const [profileMessage, setProfileMessage] = useState<StatusMessage | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<StatusMessage | null>(null);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
@@ -98,55 +83,15 @@ export function Profile() {
 
     const fetchStats = async () => {
       try {
-        // 1. Get all users with the same role and their policy counts
-        const { data: sameRoleUsers, error: usersError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', user.role)
-          .eq('is_active', true);
-
-        if (!usersError && sameRoleUsers) {
-          const userIds = sameRoleUsers.map((u: { id: string }) => u.id);
-
-          // Get policy counts for each user with same role
-          const { data: policyCounts, error: policiesError } = await supabase
-            .from('policies')
-            .select('owner_id')
-            .in('owner_id', userIds);
-
-          if (!policiesError && policyCounts) {
-            // Count policies per user
-            const countMap: Record<string, number> = {};
-            for (const p of policyCounts) {
-              countMap[p.owner_id] = (countMap[p.owner_id] || 0) + 1;
-            }
-
-            const myCount = countMap[user.id] || 0;
-            // Rank = number of users with more policies than me + 1
-            const rank = Object.values(countMap).filter((c) => c > myCount).length + 1;
-            setUserRank(rank);
-            setTotalSameRole(userIds.length);
-          }
+        const rankResult = await fetchRankAmongSameRole(user.role, user.id);
+        if (rankResult) {
+          setUserRank(rankResult.rank);
+          setTotalSameRole(rankResult.total);
         }
 
-        // 2. Get paid (non-cancelled) payments this month
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-
-        const { data: payments, error: paymentsError } = await supabase
-          .from('payments')
-          .select('id, installment_id, is_cancelled, installments!inner(policy_id, policies!inner(owner_id))')
-          .eq('is_cancelled', false)
-          .gte('payment_month', monthStart)
-          .lte('payment_month', monthEnd);
-
-        if (!paymentsError && payments) {
-          // Filter only payments for this user's policies
-          const myPayments = payments.filter((pay: any) => {
-            return pay.installments?.policies?.owner_id === user.id;
-          });
-          setPaidThisMonth(myPayments.length);
+        const paidCount = await fetchPaidThisMonthCount(user.id);
+        if (paidCount !== null) {
+          setPaidThisMonth(paidCount);
         }
       } catch (err) {
         console.error('Error fetching profile stats:', err);
@@ -189,18 +134,7 @@ export function Profile() {
     setProfileMessage(null);
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          name: data.name,
-          phone: data.phone,
-          registration_number: data.registration_number,
-          updated_at: new Date().toISOString()
-        } as any)
-        .eq('id', user.id);
-
-      if (error) throw error;
-
+      await updateProfile(user.id, data);
       await refreshUser();
       setProfileMessage({ type: 'success', text: 'تم حفظ البيانات بنجاح' });
     } catch (error) {
@@ -217,21 +151,12 @@ export function Profile() {
     setPasswordMessage(null);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: data.currentPassword
-      });
+      const { error } = await changePassword(user.email, data.currentPassword, data.newPassword);
 
-      if (signInError) {
-        setPasswordMessage({ type: 'error', text: 'كلمة المرور الحالية غير صحيحة' });
+      if (error) {
+        setPasswordMessage({ type: 'error', text: error });
         return;
       }
-
-      const { error } = await supabase.auth.updateUser({
-        password: data.newPassword
-      });
-
-      if (error) throw error;
 
       resetPassword();
       setPasswordMessage({ type: 'success', text: 'تم تغيير كلمة المرور بنجاح' });
@@ -263,30 +188,7 @@ export function Profile() {
     setAvatarMessage(null);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      // Use fixed filename per user to overwrite old avatar
-      const filePath = `avatars/${user.id}.${fileExt}`;
-
-      // Upload with upsert to overwrite existing file
-      const { error: uploadError } = await supabase.storage
-        .from('profiles')
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('profiles')
-        .getPublicUrl(filePath);
-
-      // Add cache-busting to force image refresh
-      const urlWithTimestamp = `${publicUrl}?t=${Date.now()}`;
-
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ avatar_url: urlWithTimestamp } as any)
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
+      await uploadAvatar(user.id, file);
 
       await refreshUser();
       setAvatarMessage({ type: 'success', text: 'تم تحديث الصورة بنجاح' });

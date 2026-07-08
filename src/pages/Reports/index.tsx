@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { supabase, POLICY_TYPE_LABELS, POLICY_STATUS_LABELS } from '../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
 import {
   BarChart,
   Bar,
@@ -14,8 +13,16 @@ import clsx from 'clsx';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
-type ReportType = 'customers' | 'policies' | 'production' | 'collection' | 'overdue' | 'agents' | 'group_leaders' | 'supervisors';
-type DateRange = 'month' | 'quarter' | 'year' | 'custom';
+import type { ReportType, DateRange } from './types';
+import {
+  fetchUserSubtreeIds, fetchCustomersInRange, fetchPoliciesForOwners, fetchPaymentsInRange,
+  fetchAllInstallmentsWithPolicy, fetchAgentsForReport, fetchSimplePaymentsInRange,
+  fetchUsersByRole, fetchLeadersPerformance,
+} from './services/reportsService';
+import {
+  formatCurrency, computeCustomersReport, computePoliciesReport, computeProductionReport,
+  computeCollectionReport, computeOverdueReport, computeAgentsReport, computeTeamPerformanceReport,
+} from './business/reportsCalculator';
 
 export function Reports() {
   const { user } = useAuth();
@@ -53,10 +60,7 @@ export function Reports() {
   const loadReport = async () => {
     setLoading(true);
     try {
-      const { data: subtree } = await supabase.rpc('get_user_subtree', {
-        user_id: user?.id
-      });
-      const userIds = subtree || [user?.id];
+      const userIds = await fetchUserSubtreeIds(user!.id);
       const { start, end } = getDateRange();
 
       switch (reportType) {
@@ -93,303 +97,64 @@ export function Reports() {
   };
 
   const loadCustomersReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: customers } = await supabase
-      .from('customers')
-      .select('id, name, created_at')
-      .in('owner_id', userIds)
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-      .order('created_at', { ascending: false });
-
-    const byMonth: Record<string, number> = {};
-    (customers || []).forEach((c: any) => {
-      const month = format(new Date(c.created_at), 'MMM yyyy', { locale: ar });
-      byMonth[month] = (byMonth[month] || 0) + 1;
-    });
-
-    const chart = Object.entries(byMonth).map(([month, count]) => ({
-      name: month,
-      value: count
-    }));
-
-    const details = (customers || []).map((c: any) => ({
-      'اسم العميل': c.name,
-      'تاريخ التسجيل': format(new Date(c.created_at), 'd MMMM yyyy', { locale: ar })
-    }));
-
-    setData({ customers: customers?.length || 0, total: customers?.length || 0, details });
+    const customers = await fetchCustomersInRange(userIds, start, end);
+    const { data: reportData, chartData: chart } = computeCustomersReport(customers);
+    setData(reportData);
     setChartData(chart);
   };
 
   const loadPoliciesReport = async (userIds: string[]) => {
-    const { data: policies } = await supabase
-      .from('policies')
-      .select('id, policy_number, status, policy_type, start_date, customer:customer_id(name)')
-      .in('owner_id', userIds)
-      .order('start_date', { ascending: false });
-
-    const byStatus = {
-      active: policies?.filter((p) => p.status === 'active').length || 0,
-      suspended: policies?.filter((p) => p.status === 'suspended').length || 0,
-      cancelled: policies?.filter((p) => p.status === 'cancelled').length || 0
-    };
-
-    const byType: Record<string, number> = {};
-    (policies || []).forEach((p: any) => {
-      const type = p.policy_type;
-      byType[type] = (byType[type] || 0) + 1;
-    });
-
-    const chart = [
-      { name: 'نشط', value: byStatus.active, color: '#22c55e' },
-      { name: 'موقوف', value: byStatus.suspended, color: '#f59e0b' },
-      { name: 'ملغى', value: byStatus.cancelled, color: '#ef4444' }
-    ];
-
-    const details = (policies || []).map((p: any) => ({
-      'رقم الوثيقة': p.policy_number,
-      'العميل': p.customer?.name || '-',
-      'النوع': POLICY_TYPE_LABELS[p.policy_type as keyof typeof POLICY_TYPE_LABELS] || p.policy_type,
-      'الحالة': POLICY_STATUS_LABELS[p.status as keyof typeof POLICY_STATUS_LABELS] || p.status,
-      'تاريخ البداية': p.start_date ? format(new Date(p.start_date), 'd MMMM yyyy', { locale: ar }) : '-'
-    }));
-
-    setData({ total: policies?.length || 0, byStatus, byType, details });
+    const policies = await fetchPoliciesForOwners(userIds);
+    const { data: reportData, chartData: chart } = computePoliciesReport(policies);
+    setData(reportData);
     setChartData(chart);
   };
 
   const loadProductionReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: payments } = await supabase
-      .from('payments')
-      .select(
-        'amount, payment_month, installment:installment_id(is_first, policy:policy_id(owner_id, policy_number, customer:customer_id(name), owner:owner_id(name)))'
-      )
-      .gte('payment_month', format(start, 'yyyy-MM-dd'))
-      .lte('payment_month', format(end, 'yyyy-MM-dd'))
-      .eq('is_cancelled', false);
-
-    const filtered = (payments || []).filter(
-      (p: any) => userIds.includes(p.installment?.policy?.owner_id) && p.installment?.is_first
-    );
-
-    const byMonth: Record<string, number> = {};
-    filtered.forEach((p: any) => {
-      const month = format(new Date(p.payment_month), 'MMM yyyy', { locale: ar });
-      byMonth[month] = (byMonth[month] || 0) + Number(p.amount);
-    });
-
-    const total = filtered.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-    const chart = Object.entries(byMonth).map(([month, value]) => ({ name: month, value }));
-
-    const details = filtered.map((p: any) => ({
-      'العميل': p.installment?.policy?.customer?.name || '-',
-      'الوكيل': p.installment?.policy?.owner?.name || '-',
-      'رقم الوثيقة': p.installment?.policy?.policy_number || '-',
-      'الشهر': format(new Date(p.payment_month), 'MMM yyyy', { locale: ar }),
-      'المبلغ': formatCurrency(Number(p.amount))
-    }));
-
-    setData({ total, count: filtered.length, details });
+    const payments = await fetchPaymentsInRange(start, end);
+    const { data: reportData, chartData: chart } = computeProductionReport(payments, userIds);
+    setData(reportData);
     setChartData(chart);
   };
 
   const loadCollectionReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: payments } = await supabase
-      .from('payments')
-      .select(
-        'amount, payment_month, installment:installment_id(is_first, policy:policy_id(owner_id, policy_number, customer:customer_id(name), owner:owner_id(name)))'
-      )
-      .gte('payment_month', format(start, 'yyyy-MM-dd'))
-      .lte('payment_month', format(end, 'yyyy-MM-dd'))
-      .eq('is_cancelled', false);
-
-    const filtered = (payments || []).filter(
-      (p: any) => userIds.includes(p.installment?.policy?.owner_id) && !p.installment?.is_first
-    );
-
-    const byMonth: Record<string, number> = {};
-    filtered.forEach((p: any) => {
-      const month = format(new Date(p.payment_month), 'MMM yyyy', { locale: ar });
-      byMonth[month] = (byMonth[month] || 0) + Number(p.amount);
-    });
-
-    const total = filtered.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-    const chart = Object.entries(byMonth).map(([month, value]) => ({ name: month, value }));
-
-    const details = filtered.map((p: any) => ({
-      'العميل': p.installment?.policy?.customer?.name || '-',
-      'الوكيل': p.installment?.policy?.owner?.name || '-',
-      'رقم الوثيقة': p.installment?.policy?.policy_number || '-',
-      'الشهر': format(new Date(p.payment_month), 'MMM yyyy', { locale: ar }),
-      'المبلغ': formatCurrency(Number(p.amount))
-    }));
-
-    setData({ total, count: filtered.length, details });
+    const payments = await fetchPaymentsInRange(start, end);
+    const { data: reportData, chartData: chart } = computeCollectionReport(payments, userIds);
+    setData(reportData);
     setChartData(chart);
   };
 
   const loadOverdueReport = async (userIds: string[]) => {
-    const { data: installments } = await supabase
-      .from('installments')
-      .select('id, amount, due_date, policy:policy_id(owner_id, policy_number, customer:customer_id(name))');
-
-    const overdue = (installments || []).filter(
-      (i: any) => userIds.includes(i.policy?.owner_id) && new Date(i.due_date) < new Date() && i.status !== 'paid'
-    );
-
-    const total = overdue.reduce((sum: number, i: any) => sum + Number(i.amount), 0);
-    const chart = [{ name: 'متأخر', value: total }];
-
-    const details = overdue.map((i: any) => ({
-      'العميل': i.policy?.customer?.name || '-',
-      'رقم الوثيقة': i.policy?.policy_number || '-',
-      'تاريخ الاستحقاق': format(new Date(i.due_date), 'd MMMM yyyy', { locale: ar }),
-      'المبلغ': formatCurrency(Number(i.amount))
-    }));
-
-    setData({ total, count: overdue.length, details });
+    const installments = await fetchAllInstallmentsWithPolicy();
+    const { data: reportData, chartData: chart } = computeOverdueReport(installments, userIds);
+    setData(reportData);
     setChartData(chart);
   };
 
   const loadAgentsReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: agents } = await supabase
-      .from('users')
-      .select('id, name, target')
-      .in('id', userIds)
-      .in('role', ['agent', 'premium_agent'])
-      .eq('is_active', true);
-
-    const { data: payments } = await supabase
-      .from('payments')
-      .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-      .gte('payment_month', format(start, 'yyyy-MM-dd'))
-      .lte('payment_month', format(end, 'yyyy-MM-dd'))
-      .eq('is_cancelled', false);
-
-    const agentPerformance: any[] = [];
-
-    for (const agent of agents || []) {
-      const achieved = (payments || [])
-        .filter((p: any) => p.installment?.policy?.owner_id === agent.id)
-        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-      agentPerformance.push({
-        name: agent.name,
-        achieved,
-        target: agent.target || 0,
-        rate: agent.target > 0 ? Math.round((achieved / agent.target) * 100) : 0
-      });
-    }
-
-    const sorted = agentPerformance.sort((a, b) => b.achieved - a.achieved);
-
-    const details = sorted.map((a: any) => ({
-      'اسم الوكيل': a.name,
-      'المحقق': formatCurrency(a.achieved),
-      'الهدف': formatCurrency(a.target),
-      'نسبة التحقيق': `${a.rate}%`
-    }));
-
-    setData({ agents: sorted, details });
-    setChartData(sorted.slice(0, 10));
+    const agents = await fetchAgentsForReport(userIds);
+    const payments = await fetchSimplePaymentsInRange(start, end);
+    const { data: reportData, chartData: chart } = computeAgentsReport(agents, payments);
+    setData(reportData);
+    setChartData(chart);
   };
 
   const loadGroupLeadersReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: leaders } = await supabase
-      .from('users')
-      .select('id, name')
-      .in('id', userIds)
-      .eq('role', 'group_leader')
-      .eq('is_active', true);
-
-    const performance: any[] = [];
-
-    for (const leader of leaders || []) {
-      const { data: subtree } = await supabase.rpc('get_user_subtree', {
-        user_id: leader.id
-      });
-      const teamIds: string[] = subtree || [leader.id];
-
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-        .gte('payment_month', format(start, 'yyyy-MM-dd'))
-        .lte('payment_month', format(end, 'yyyy-MM-dd'))
-        .eq('is_cancelled', false);
-
-      const achieved = (payments || [])
-        .filter((p: any) => teamIds.includes(p.installment?.policy?.owner_id))
-        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-      performance.push({
-        id: leader.id,
-        name: leader.name,
-        count: teamIds.length - 1,
-        achieved
-      });
-    }
-
-    const details = performance.map((p: any) => ({
-      'رئيس المجموعة': p.name,
-      'عدد الأعضاء': p.count,
-      'المحقق': formatCurrency(p.achieved)
-    }));
+    const leaders = await fetchUsersByRole(userIds, ['group_leader']);
+    const performance = await fetchLeadersPerformance(leaders, start, end);
+    const { details } = computeTeamPerformanceReport(performance, 'رئيس المجموعة');
 
     setData({ leaders: performance, details });
     setChartData(performance);
   };
 
   const loadSupervisorsReport = async (userIds: string[], start: Date, end: Date) => {
-    const { data: supervisors } = await supabase
-      .from('users')
-      .select('id, name')
-      .in('id', userIds)
-      .in('role', ['supervisor', 'general_supervisor'])
-      .eq('is_active', true);
-
-    const performance: any[] = [];
-
-    for (const supervisor of supervisors || []) {
-      const { data: subtree } = await supabase.rpc('get_user_subtree', {
-        user_id: supervisor.id
-      });
-      const teamIds: string[] = subtree || [supervisor.id];
-
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-        .gte('payment_month', format(start, 'yyyy-MM-dd'))
-        .lte('payment_month', format(end, 'yyyy-MM-dd'))
-        .eq('is_cancelled', false);
-
-      const achieved = (payments || [])
-        .filter((p: any) => teamIds.includes(p.installment?.policy?.owner_id))
-        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-      performance.push({
-        id: supervisor.id,
-        name: supervisor.name,
-        count: teamIds.length - 1,
-        achieved
-      });
-    }
-
-    const details = performance.map((p: any) => ({
-      'المراقب': p.name,
-      'عدد الأعضاء': p.count,
-      'المحقق': formatCurrency(p.achieved)
-    }));
+    const supervisors = await fetchUsersByRole(userIds, ['supervisor', 'general_supervisor']);
+    const performance = await fetchLeadersPerformance(supervisors, start, end);
+    const { details } = computeTeamPerformanceReport(performance, 'المراقب');
 
     setData({ supervisors: performance, details });
     setChartData(performance);
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ar-EG', {
-      style: 'currency',
-      currency: 'EGP',
-      minimumFractionDigits: 0
-    }).format(amount);
   };
 
   const reportButtons: { id: ReportType; label: string }[] = [

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { supabase, type Customer, MARITAL_STATUS_LABELS } from '../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import { type Customer, MARITAL_STATUS_LABELS } from '../../lib/supabase';
 import {
   Plus,
   Search,
@@ -19,29 +19,12 @@ import clsx from 'clsx';
 import { format } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 
-const customerSchema = z.object({
-  name: z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
-  national_id: z.string().optional(),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  birth_date: z.string().optional(),
-  occupation: z.string().optional(),
-  marital_status: z.enum(['single', 'married', 'divorced', 'widowed']).optional(),
-  owner_id: z.string().optional(),
-  isManagerRole: z.boolean().optional()
-}).superRefine((data, ctx) => {
-  if (data.isManagerRole && !data.owner_id) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'يجب اختيار الوكيل المسؤول',
-      path: ['owner_id']
-    });
-  }
-});
-
-type CustomerFormData = z.infer<typeof customerSchema>;
+import { customerSchema, type CustomerFormData } from './types';
+import {
+  fetchAgentsForCurrentUser, fetchCustomersPage, updateCustomer,
+  createCustomer, computeDeletableCustomerIds, deleteCustomer,
+} from './services/customersService';
 
 export function Customers() {
   const { user } = useAuth();
@@ -57,7 +40,6 @@ export function Customers() {
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const pageSize = 10;
 
   const searchQuery = searchParams.get('search') || '';
   const [localSearch, setLocalSearch] = useState(searchQuery);
@@ -81,37 +63,7 @@ export function Customers() {
   const loadAgents = async () => {
     if (!user) return;
     try {
-      // لو المستخدم وكيل، مش محتاج يشوف قائمة وكلاء أصلاً (هيتسجل عليه تلقائياً)
-      if (user.role === 'agent' || user.role === 'premium_agent') {
-        setAgents([]);
-        return;
-      }
-
-      // نجيب المستخدم الحالي + كل من هو تحته في الهيكل الإداري (فريقه)
-      const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
-        user_id: user.id
-      });
-      if (subtreeError) throw subtreeError;
-
-      const allIds: string[] = subtreeIds && subtreeIds.length > 0 ? subtreeIds : [user.id];
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, name, role')
-        .in('id', allIds)
-        .eq('is_active', true)
-        .order('name');
-
-      if (error) throw error;
-
-      // نحط المدير نفسه أول واحد في القائمة، وبعده باقي الفريق
-      const sorted = [...(data || [])].sort((a, b) => {
-        if (a.id === user.id) return -1;
-        if (b.id === user.id) return 1;
-        return a.name.localeCompare(b.name, 'ar');
-      });
-
-      setAgents(sorted);
+      setAgents(await fetchAgentsForCurrentUser(user));
     } catch (error) {
       console.error('Error loading agents:', error);
     }
@@ -134,26 +86,12 @@ export function Customers() {
   const loadCustomers = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('customers')
-        .select('*, owner:owner_id(id, name)', { count: 'exact' })
-        .order('created_at', { ascending: false });
+      const { customers: pageCustomers, totalPages: pages } = await fetchCustomersPage({ page, searchQuery });
 
-      if (searchQuery) {
-        query = query.or(`name.ilike.%${searchQuery}%,national_id.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
-      }
+      setCustomers(pageCustomers);
+      setTotalPages(pages);
 
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-
-      const { data, error, count } = await query.range(from, to);
-
-      if (error) throw error;
-
-      setCustomers(data as Customer[]);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
-
-      await checkDeletableCustomers((data as Customer[]) || []);
+      await checkDeletableCustomers(pageCustomers || []);
     } catch (error) {
       console.error('Error loading customers:', error);
     } finally {
@@ -209,40 +147,9 @@ export function Customers() {
 
     try {
       if (editingCustomer) {
-        const { isManagerRole, ...customerData } = data;
-        const { error } = await supabase
-          .from('customers')
-          .update({
-            ...customerData,
-            owner_id: finalOwnerId || editingCustomer.owner_id,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingCustomer.id);
-
-        if (error) throw error;
-
-        await supabase.rpc('log_activity', {
-          p_action: 'customer_update',
-          p_entity_type: 'customer',
-          p_entity_id: editingCustomer.id,
-          p_old_values: editingCustomer,
-          p_new_values: data
-        });
+        await updateCustomer(editingCustomer.id, data, finalOwnerId, editingCustomer);
       } else {
-        const { isManagerRole, ...customerData } = data;
-        const { error } = await supabase
-          .from('customers')
-          .insert({
-            ...customerData,
-            owner_id: finalOwnerId
-          });
-
-        if (error) throw error;
-
-        await supabase.rpc('log_activity', {
-          p_action: 'customer_create',
-          p_entity_type: 'customer'
-        });
+        await createCustomer(data, finalOwnerId);
       }
 
       handleCloseModal();
@@ -260,20 +167,8 @@ export function Customers() {
   };
 
   const checkDeletableCustomers = async (customerList: Customer[]) => {
-    if (customerList.length === 0) {
-      setDeletableIds(new Set());
-      return;
-    }
     try {
-      const customerIds = customerList.map((c) => c.id);
-      const { data: policiesData } = await supabase
-        .from('policies')
-        .select('customer_id')
-        .in('customer_id', customerIds);
-
-      const idsWithPolicies = new Set((policiesData || []).map((p: any) => p.customer_id));
-      const deletable = new Set(customerIds.filter((id) => !idsWithPolicies.has(id)));
-      setDeletableIds(deletable);
+      setDeletableIds(await computeDeletableCustomerIds(customerList));
     } catch (error) {
       console.error('Error checking deletable customers:', error);
       setDeletableIds(new Set());
@@ -283,25 +178,12 @@ export function Customers() {
   const handleDelete = async (id: string) => {
     setDeleting(true);
     try {
-      const { error } = await supabase
-        .from('customers')
-        .delete()
-        .eq('id', id);
+      const { error } = await deleteCustomer(id);
 
       if (error) {
-        if (error.code === '42501' || error.code === '23503') {
-          alert('لا يمكن حذف هذا العميل لوجود وثائق مرتبطة به');
-        } else {
-          throw error;
-        }
+        alert(error);
         return;
       }
-
-      await supabase.rpc('log_activity', {
-        p_action: 'customer_delete',
-        p_entity_type: 'customer',
-        p_entity_id: id
-      });
 
       setDeleteConfirm(null);
       loadCustomers();

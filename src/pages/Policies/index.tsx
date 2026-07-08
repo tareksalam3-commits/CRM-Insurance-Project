@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import {
-  supabase,
   Policy,
   Customer,
   POLICY_TYPE_LABELS,
@@ -10,7 +9,7 @@ import {
   POLICY_STATUS_LABELS,
   PolicyType,
   PaymentMethod
-} from '../lib/supabase';
+} from '../../lib/supabase';
 import {
   Plus,
   Search,
@@ -28,19 +27,12 @@ import clsx from 'clsx';
 import { format } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 
-const policySchema = z.object({
-  policy_number: z.string().min(1, 'رقم الوثيقة مطلوب'),
-  customer_id: z.string().min(1, 'العميل مطلوب'),
-  policy_type: z.enum(['quadruple', 'protection_investment', 'mixed', 'installments', 'pension_peace']),
-  start_date: z.string().min(1, 'تاريخ البداية مطلوب'),
-  payment_method: z.enum(['monthly', 'quarterly', 'semi_annual', 'annual']),
-  premium_amount: z.number().min(1, 'قيمة القسط مطلوبة'),
-  notes: z.string().optional()
-});
-
-type PolicyFormData = z.infer<typeof policySchema>;
+import { policySchema, type PolicyFormData } from './types';
+import {
+  fetchPoliciesPage, fetchCustomersForDropdown, countPaidInstallments,
+  updatePolicy, createPolicy, computeDeletablePolicyIds, deletePolicySafe, changePolicyStatus,
+} from './services/policiesService';
 
 export function Policies() {
   const { user } = useAuth();
@@ -58,7 +50,6 @@ export function Policies() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const pageSize = 10;
 
   const searchQuery = searchParams.get('search') || '';
   const [localSearch, setLocalSearch] = useState(searchQuery);
@@ -96,30 +87,12 @@ export function Policies() {
   const loadPolicies = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('policies')
-        .select('*, customer:customer_id(*), owner:owner_id(id, name)', { count: 'exact' })
-        .order('created_at', { ascending: false });
+      const { policies: pagePolicies, totalPages: pages } = await fetchPoliciesPage({ page, searchQuery, statusFilter });
 
-      if (searchQuery) {
-        query = query.or(`policy_number.ilike.%${searchQuery}%,customer.name.ilike.%${searchQuery}%`);
-      }
+      setPolicies(pagePolicies);
+      setTotalPages(pages);
 
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-
-      const { data, error, count } = await query.range(from, to);
-
-      if (error) throw error;
-
-      setPolicies(data as Policy[]);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
-
-      await checkDeletablePolicies((data as Policy[]) || []);
+      await checkDeletablePolicies(pagePolicies || []);
     } catch (error) {
       console.error('Error loading policies:', error);
     } finally {
@@ -128,12 +101,7 @@ export function Policies() {
   };
 
   const loadCustomers = async () => {
-    const { data } = await supabase
-      .from('customers')
-      .select('id, name, owner_id')
-      .order('name');
-
-    setCustomers(data as Customer[]);
+    setCustomers(await fetchCustomersForDropdown());
   };
 
   const handleOpenModal = (policy?: Policy) => {
@@ -183,13 +151,9 @@ export function Policies() {
           data.start_date !== oldData.start_date;
 
         if (fieldsAffectingInstallments) {
-          const { count: paidCount } = await supabase
-            .from('installments')
-            .select('id', { count: 'exact', head: true })
-            .eq('policy_id', editingPolicy.id)
-            .eq('status', 'paid');
+          const paidCount = await countPaidInstallments(editingPolicy.id);
 
-          if ((paidCount || 0) > 0) {
+          if (paidCount > 0) {
             const confirmed = window.confirm(
               `تنبيه: يوجد ${paidCount} قسط مدفوع مسبقاً في هذه الوثيقة بالقيمة/الموعد القديم.\n\n` +
               `تعديل قيمة القسط أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة).\n\n` +
@@ -202,52 +166,12 @@ export function Policies() {
           }
         }
 
-        const { error } = await supabase
-          .from('policies')
-          .update({
-            ...data,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingPolicy.id);
-
-        if (error) throw error;
-
-        await supabase.rpc('log_activity', {
-          p_action: 'policy_update',
-          p_entity_type: 'policy',
-          p_entity_id: editingPolicy.id,
-          p_old_values: oldData,
-          p_new_values: data
-        });
+        await updatePolicy(editingPolicy.id, data, oldData);
       } else {
         const selectedCustomer = customers.find((c) => c.id === data.customer_id);
         const policyOwnerId = selectedCustomer?.owner_id || user.id;
 
-        const { data: newPolicy, error } = await supabase
-          .from('policies')
-          .insert({
-            ...data,
-            owner_id: policyOwnerId
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        if (newPolicy) {
-          await supabase.rpc('generate_installments', {
-            p_policy_id: newPolicy.id,
-            p_start_date: data.start_date,
-            p_payment_method: data.payment_method,
-            p_premium_amount: data.premium_amount
-          });
-
-          await supabase.rpc('log_activity', {
-            p_action: 'policy_create',
-            p_entity_type: 'policy',
-            p_entity_id: newPolicy.id
-          });
-        }
+        await createPolicy(data, policyOwnerId);
       }
 
       handleCloseModal();
@@ -268,45 +192,8 @@ export function Policies() {
   };
 
   const checkDeletablePolicies = async (policyList: Policy[]) => {
-    if (policyList.length === 0) {
-      setDeletableIds(new Set());
-      return;
-    }
     try {
-      const policyIds = policyList.map((p) => p.id);
-      const currentMonth = format(new Date(), 'yyyy-MM-01');
-
-      // نجيب كل الدفعات الغير ملغاة المرتبطة بهذه الوثائق (عبر installments)
-      const { data: installmentsData } = await supabase
-        .from('installments')
-        .select('id, policy_id')
-        .in('policy_id', policyIds);
-
-      const installmentToPolicy = new Map<string, string>(
-        (installmentsData || []).map((i: any) => [i.id, i.policy_id])
-      );
-      const installmentIds = (installmentsData || []).map((i: any) => i.id);
-
-      let hasOldPaymentPolicyIds = new Set<string>();
-
-      if (installmentIds.length > 0) {
-        const { data: paymentsData } = await supabase
-          .from('payments')
-          .select('installment_id, payment_month')
-          .in('installment_id', installmentIds)
-          .eq('is_cancelled', false)
-          .neq('payment_month', currentMonth);
-
-        for (const p of paymentsData || []) {
-          const policyId = installmentToPolicy.get((p as any).installment_id);
-          if (policyId) hasOldPaymentPolicyIds.add(policyId);
-        }
-      }
-
-      const deletable = new Set(
-        policyIds.filter((id) => !hasOldPaymentPolicyIds.has(id))
-      );
-      setDeletableIds(deletable);
+      setDeletableIds(await computeDeletablePolicyIds(policyList));
     } catch (error) {
       console.error('Error checking deletable policies:', error);
       setDeletableIds(new Set());
@@ -317,27 +204,12 @@ export function Policies() {
     if (!deleteConfirm) return;
     setDeleting(true);
     try {
-      const { error } = await supabase.rpc('delete_policy_safe', {
-        p_policy_id: deleteConfirm.id
-      });
+      const { error } = await deletePolicySafe(deleteConfirm.id, deleteConfirm);
 
       if (error) {
-        if (error.message?.includes('دفعات مسددة من شهور سابقة')) {
-          alert('لا يمكن حذف هذه الوثيقة لوجود دفعات مسددة من شهور سابقة');
-        } else if (error.message?.includes('صلاحية')) {
-          alert('ليس لديك صلاحية لحذف هذه الوثيقة');
-        } else {
-          throw error;
-        }
+        alert(error);
         return;
       }
-
-      await supabase.rpc('log_activity', {
-        p_action: 'policy_delete',
-        p_entity_type: 'policy',
-        p_entity_id: deleteConfirm.id,
-        p_old_values: deleteConfirm
-      });
 
       setDeleteConfirm(null);
       loadPolicies();
@@ -351,36 +223,7 @@ export function Policies() {
 
   const handleStatusChange = async (policy: Policy, newStatus: 'active' | 'suspended' | 'cancelled') => {
     try {
-      const updateData: any = {
-        status: newStatus,
-        updated_at: new Date().toISOString()
-      };
-
-      if (newStatus === 'suspended') {
-        updateData.suspended_at = new Date().toISOString();
-        updateData.suspended_reason = 'إيقاف يدوي';
-      } else if (newStatus === 'active' && policy.status === 'suspended') {
-        updateData.suspended_at = null;
-        updateData.suspended_reason = null;
-      }
-
-      const { error } = await supabase
-        .from('policies')
-        .update(updateData)
-        .eq('id', policy.id);
-
-      if (error) throw error;
-
-      const action = newStatus === 'suspended' ? 'policy_suspend' :
-                     newStatus === 'cancelled' ? 'policy_cancel' :
-                     'policy_reactivate';
-
-      await supabase.rpc('log_activity', {
-        p_action: action,
-        p_entity_type: 'policy',
-        p_entity_id: policy.id
-      });
-
+      await changePolicyStatus(policy, newStatus);
       loadPolicies();
     } catch (error) {
       console.error('Error changing policy status:', error);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { supabase, type UserRole } from '../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import { type UserRole } from '../../lib/supabase';
 import {
   Users,
   FileText,
@@ -13,9 +13,9 @@ import {
   Target
 } from 'lucide-react';
 import clsx from 'clsx';
-import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { getDailyMessage } from '../lib/dailyMessages';
+import { getDailyMessage } from '../../lib/dailyMessages';
 import {
   Tooltip,
   ResponsiveContainer,
@@ -24,35 +24,12 @@ import {
   Cell
 } from 'recharts';
 
-interface DashboardStats {
-  totalCustomers: number;
-  totalPolicies: number;
-  activePolicies: number;
-  suspendedPolicies: number;
-  cancelledPolicies: number;
-  newProduction: number;
-  newProductionCount: number;
-  periodicCollection: number;
-  periodicCollectionCount: number;
-  dueInstallments: number;
-  dueInstallmentsCount: number;
-  overdueInstallments: number;
-  overdueInstallmentsCount: number;
-  paidInstallments: number;
-  paidInstallmentsCount: number;
-  target: number;
-  achieved: number;
-  remaining: number;
-  achievementRate: number;
-}
-
-interface TeamPerformance {
-  id: string;
-  name: string;
-  role: UserRole;
-  achieved: number;
-  target: number;
-}
+import type { DashboardStats, TeamPerformance } from './types';
+import {
+  fetchUserSubtreeIds, fetchDashboardRawData, fetchTeamUsers,
+  fetchMonthPayments, fetchMonthPaymentsWithFirstFlag, getCurrentMonthStartStr,
+} from './services/dashboardService';
+import { computeDashboardStats, computeTeamPerformance, computeChartData } from './business/dashboardCalculator';
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -76,91 +53,23 @@ export function Dashboard() {
       const monthEnd = endOfMonth(now);
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
 
-      const { data: subtree } = await supabase.rpc('get_user_subtree', {
-        user_id: user?.id
-      });
+      const userIds = await fetchUserSubtreeIds(user!.id);
 
-      const userIds = subtree || [user?.id];
-
-      const [
-        customersRes,
-        policiesRes,
-        installmentsRes,
-        paymentsRes
-      ] = await Promise.all([
-        supabase
-          .from('customers')
-          .select('id', { count: 'exact', head: true })
-          .in('owner_id', userIds),
-
-        supabase
-          .from('policies')
-          .select('id, status, owner_id')
-          .in('owner_id', userIds),
-
-        supabase
-          .from('installments')
-          .select('id, amount, due_date, status, is_first, policy:policy_id(owner_id)')
-          .in('status', ['pending', 'overdue']),
-
-        supabase
-          .from('payments')
-          .select('id, amount, payment_month, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-          .eq('payment_month', monthStartStr)
-          .eq('is_cancelled', false)
-      ]);
-
-      const filteredInstallments = (installmentsRes.data || []).filter(
-        (i: any) => userIds.includes(i.policy?.owner_id)
-      );
-
-      const filteredPayments = (paymentsRes.data || []).filter(
-        (p: any) => userIds.includes(p.installment?.policy?.owner_id)
-      );
+      const { customersRes, policiesRes, installmentsRes, paymentsRes } =
+        await fetchDashboardRawData(userIds, monthStartStr);
 
       const policies = policiesRes.data || [];
-      const activePolicies = policies.filter((p) => p.status === 'active').length;
-      const suspendedPolicies = policies.filter((p) => p.status === 'suspended').length;
-      const cancelledPolicies = policies.filter((p) => p.status === 'cancelled').length;
 
-      const dueInstallments = filteredInstallments.filter((i: any) => {
-        const dueDate = new Date(i.due_date);
-        return isWithinInterval(dueDate, { start: monthStart, end: monthEnd });
-      });
-
-      const overdueInstallments = filteredInstallments.filter((i: any) => {
-        const dueDate = new Date(i.due_date);
-        return dueDate < monthStart;
-      });
-
-      const newProduction = filteredPayments.filter((p: any) => p.installment?.is_first);
-      const periodicCollection = filteredPayments.filter((p: any) => !p.installment?.is_first);
-
-      const totalTarget = Number(user?.target || 0);
-      const totalAchieved = newProduction.reduce((sum: number, p: any) => sum + Number(p.amount), 0) +
-        periodicCollection.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-      setStats({
-        totalCustomers: customersRes.count || 0,
-        totalPolicies: policies.length,
-        activePolicies,
-        suspendedPolicies,
-        cancelledPolicies,
-        newProduction: newProduction.reduce((sum: number, p: any) => sum + Number(p.amount), 0),
-        newProductionCount: newProduction.length,
-        periodicCollection: periodicCollection.reduce((sum: number, p: any) => sum + Number(p.amount), 0),
-        periodicCollectionCount: periodicCollection.length,
-        dueInstallments: dueInstallments.reduce((sum: number, i: any) => sum + Number(i.amount), 0),
-        dueInstallmentsCount: dueInstallments.length,
-        overdueInstallments: overdueInstallments.reduce((sum: number, i: any) => sum + Number(i.amount), 0),
-        overdueInstallmentsCount: overdueInstallments.length,
-        paidInstallments: filteredPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0),
-        paidInstallmentsCount: filteredPayments.length,
-        target: totalTarget,
-        achieved: totalAchieved,
-        remaining: Math.max(0, totalTarget - totalAchieved),
-        achievementRate: totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0
-      });
+      setStats(computeDashboardStats({
+        customersCount: customersRes.count || 0,
+        policies,
+        installmentsRaw: installmentsRes.data || [],
+        paymentsRaw: paymentsRes.data || [],
+        userIds,
+        monthStart,
+        monthEnd,
+        target: user?.target || 0,
+      }));
 
       await loadTeamPerformance(userIds);
       await loadChartData(userIds);
@@ -172,112 +81,20 @@ export function Dashboard() {
   };
 
   const loadTeamPerformance = async (userIds: string[]) => {
-    const now = new Date();
-    const monthStart = startOfMonth(now);
-    const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+    const monthStartStr = getCurrentMonthStartStr();
 
-    const { data: teamUsers } = await supabase
-      .from('users')
-      .select('id, name, role, target, manager_id, is_active')
-      .in('id', userIds);
+    const teamUsers = await fetchTeamUsers(userIds);
+    if (teamUsers.length === 0) return;
 
-    if (!teamUsers) return;
+    const payments = await fetchMonthPayments(monthStartStr);
 
-    const { data: payments } = await supabase
-      .from('payments')
-      .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-      .eq('payment_month', monthStartStr)
-      .eq('is_cancelled', false);
-
-    // Sum production directly owned by each user (policies registered under their own owner_id)
-    const directAchieved = new Map<string, number>();
-    (payments || []).forEach((p: any) => {
-      const ownerId = p.installment?.policy?.owner_id;
-      if (!ownerId) return;
-      directAchieved.set(ownerId, (directAchieved.get(ownerId) || 0) + Number(p.amount));
-    });
-
-    // Build a map of manager_id -> direct subordinate ids (within the currently visible subtree)
-    const childrenMap = new Map<string, string[]>();
-    teamUsers.forEach((u) => {
-      if (u.manager_id) {
-        const list = childrenMap.get(u.manager_id) || [];
-        list.push(u.id);
-        childrenMap.set(u.manager_id, list);
-      }
-    });
-
-    // A manager/supervisor's achievement = their own direct production + the rolled-up
-    // production of everyone below them in the hierarchy (so a supervisor sees credit
-    // for their team's work even if they don't personally own any policies).
-    const rolledUpCache = new Map<string, number>();
-    const getRolledUpAchieved = (userId: string): number => {
-      if (rolledUpCache.has(userId)) return rolledUpCache.get(userId)!;
-      let total = directAchieved.get(userId) || 0;
-      const children = childrenMap.get(userId) || [];
-      for (const childId of children) {
-        total += getRolledUpAchieved(childId);
-      }
-      rolledUpCache.set(userId, total);
-      return total;
-    };
-
-    // كل درجة وظيفية تعرض فقط الدرجتين اللي تحتها مباشرة في كارت "أداء الفريق":
-    // - مدير التطوير: المراقبين العموم + المراقبين
-    // - المراقب العام: المراقبين + رؤساء المجموعات
-    // - المراقب: رؤساء المجموعات + الوكلاء
-    // - رئيس المجموعة: الوكلاء (آخر درجتين في الهيكل، فتصبح درجة واحدة)
-    // - الوكيل: يرى أداءه فقط
-    // - Super Admin: بلا قيود، يرى الجميع كما كان الحال سابقاً
-    const VISIBLE_ROLES_BY_VIEWER: Partial<Record<UserRole, UserRole[]>> = {
-      development_manager: ['general_supervisor', 'supervisor'],
-      general_supervisor: ['supervisor', 'group_leader'],
-      supervisor: ['group_leader', 'agent', 'premium_agent'],
-      group_leader: ['agent', 'premium_agent'],
-      agent: ['agent'],
-      premium_agent: ['premium_agent']
-    };
-
-    const viewerRole = user?.role as UserRole | undefined;
-    const allowedRoles = viewerRole ? VISIBLE_ROLES_BY_VIEWER[viewerRole] ?? null : null;
-
-    const performance: TeamPerformance[] = teamUsers
-      .filter((u) => u.is_active)
-      .filter((u) => (allowedRoles ? allowedRoles.includes(u.role as UserRole) : true))
-      .map((u) => ({
-        id: u.id,
-        name: u.name,
-        role: u.role as UserRole,
-        achieved: getRolledUpAchieved(u.id),
-        target: u.target || 0
-      }));
-
-    setTeamPerformance(performance.sort((a, b) => b.achieved - a.achieved).slice(0, 5));
+    setTeamPerformance(computeTeamPerformance(teamUsers, payments, user?.role as UserRole | undefined));
   };
 
   const loadChartData = async (userIds: string[]) => {
-    const monthStart = startOfMonth(new Date());
-    const monthStartStr = format(monthStart, 'yyyy-MM-dd');
-
-    const { data: payments } = await supabase
-      .from('payments')
-      .select('amount, installment:installment_id(is_first, policy:policy_id(owner_id))')
-      .eq('payment_month', monthStartStr)
-      .eq('is_cancelled', false);
-
-    const filteredPayments = (payments || []).filter(
-      (p: any) => userIds.includes(p.installment?.policy?.owner_id)
-    );
-
-    const production = filteredPayments
-      .filter((p: any) => p.installment?.is_first)
-      .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-    const collection = filteredPayments
-      .filter((p: any) => !p.installment?.is_first)
-      .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-
-    setChartData({ production, collection });
+    const monthStartStr = getCurrentMonthStartStr();
+    const payments = await fetchMonthPaymentsWithFirstFlag(monthStartStr);
+    setChartData(computeChartData(payments, userIds));
   };
 
   const policyStatusData = stats

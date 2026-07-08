@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import {
-  supabase,
-  Installment,
-  Policy,
-  INSTALLMENT_STATUS_LABELS
-} from '../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import { type Policy, INSTALLMENT_STATUS_LABELS } from '../../lib/supabase';
 import {
   Search,
   CreditCard,
@@ -18,18 +13,16 @@ import {
   XCircle,
   AlertTriangle,
   X,
-  FileText        // ✅ إصلاح #1: كان ناقص من الـ imports → سبب الصفحة البيضاء
+  FileText
 } from 'lucide-react';
 import clsx from 'clsx';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
-type TabType = 'new_production' | 'periodic' | 'overdue' | 'paid_new' | 'paid_periodic';
-type InstallmentWithRelations = Installment & {
-  policy: Policy & { customer: { name: string }; owner: { name: string } };
-};
-
-const VALID_TABS: TabType[] = ['new_production', 'periodic', 'overdue', 'paid_new', 'paid_periodic'];
+import { VALID_TABS, type TabType, type InstallmentWithRelations } from './types';
+import {
+  fetchInstallments, fetchPolicyInstallments, processPayment, cancelPayment,
+} from './services/collectionService';
 
 export function Collection() {
   const { user } = useAuth();
@@ -53,7 +46,6 @@ export function Collection() {
   const [selectedPolicy, setSelectedPolicy]     = useState<Policy | null>(null);
   const [policyInstallments, setPolicyInstallments] = useState<InstallmentWithRelations[]>([]);
   const [loadingPolicyInstallments, setLoadingPolicyInstallments] = useState(false);
-  const pageSize = 10;
 
   useEffect(() => {
     if (tabFromUrl && VALID_TABS.includes(tabFromUrl) && tabFromUrl !== activeTab) {
@@ -77,95 +69,15 @@ export function Collection() {
     return () => clearTimeout(timer);
   }, [localSearch]);
 
-  // ===================================
-  // تحميل الأقساط — مُصحَّح
-  // ===================================
   const loadInstallments = async () => {
     setLoading(true);
     try {
-      const now        = new Date();
-      const monthStart = startOfMonth(now);
-      const monthEnd   = endOfMonth(now);
-      const monthStartStr = format(monthStart, 'yyyy-MM-dd');
-      const monthEndStr   = format(monthEnd,   'yyyy-MM-dd');
+      const { installments: results, totalCount: count, totalPages: pages } =
+        await fetchInstallments({ activeTab, page, searchQuery });
 
-      // ✅ إصلاح #2: إضافة { count: 'exact' } لجلب العدد الكلي للـ pagination
-      let query = supabase
-        .from('installments')
-        .select(
-          `*,
-           policy:policy_id(
-             *,
-             customer:customer_id(name),
-             owner:owner_id(name)
-           )`,
-          { count: 'exact' }
-        );
-
-      // فلتر كل تاب
-      switch (activeTab) {
-        case 'new_production':
-          query = query
-            .eq('is_first', true)
-            .eq('status', 'pending')
-            .gte('due_date', monthStartStr)
-            .lte('due_date', monthEndStr);
-          break;
-        case 'periodic':
-          query = query
-            .eq('is_first', false)
-            .eq('status', 'pending')
-            .gte('due_date', monthStartStr)
-            .lte('due_date', monthEndStr);
-          break;
-        case 'overdue':
-          query = query.eq('status', 'overdue');
-          break;
-        case 'paid_new':
-          query = query
-            .eq('is_first', true)
-            .eq('status', 'paid');
-          break;
-        case 'paid_periodic':
-          query = query
-            .eq('is_first', false)
-            .eq('status', 'paid');
-          break;
-      }
-
-      // ✅ إصلاح #3: البحث بـ policy_id -> policy_number بدل or على nested relation
-      // Supabase لا يدعم البحث المباشر على العلاقات بـ or()
-      // الحل: نجيب policy_ids المطابقة أولاً ثم نفلتر
-      if (searchQuery.trim()) {
-        const { data: matchedPolicies } = await supabase
-          .from('policies')
-          .select('id')
-          .ilike('policy_number', `%${searchQuery.trim()}%`);
-
-        const ids = (matchedPolicies || []).map((p) => p.id);
-        if (ids.length === 0) {
-          // لا يوجد وثائق مطابقة
-          setInstallments([]);
-          setTotalPages(1);
-          setTotalCount(0);
-          setLoading(false);
-          return;
-        }
-        query = query.in('policy_id', ids);
-      }
-
-      const from = (page - 1) * pageSize;
-      const to   = from + pageSize - 1;
-
-      const { data, error, count } = await query
-        .order('due_date', { ascending: true })
-        .range(from, to);
-
-      if (error) throw error;
-
-      setInstallments((data as InstallmentWithRelations[]) || []);
-      setTotalCount(count || 0);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
+      setInstallments(results);
+      setTotalCount(count);
+      setTotalPages(pages);
     } catch (error) {
       console.error('Error loading installments:', error);
     } finally {
@@ -173,27 +85,10 @@ export function Collection() {
     }
   };
 
-  // ===================================
-  // تحميل أقساط وثيقة معينة (مودال)
-  // ===================================
   const loadPolicyInstallments = async (policyId: string) => {
     setLoadingPolicyInstallments(true);
     try {
-      const { data, error } = await supabase
-        .from('installments')
-        .select(`
-          *,
-          policy:policy_id(
-            *,
-            customer:customer_id(name),
-            owner:owner_id(name)
-          )
-        `)
-        .eq('policy_id', policyId)
-        .order('installment_number', { ascending: true });
-
-      if (error) throw error;
-      setPolicyInstallments((data as InstallmentWithRelations[]) || []);
+      setPolicyInstallments(await fetchPolicyInstallments(policyId));
     } catch (error) {
       console.error('Error loading policy installments:', error);
       alert('حدث خطأ أثناء تحميل الأقساط');
@@ -220,24 +115,7 @@ export function Collection() {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
     try {
-      const paymentMonth = format(startOfMonth(new Date()), 'yyyy-MM-dd');
-
-      const { error } = await supabase
-        .from('payments')
-        .insert({
-          installment_id:   selectedInstallment.id,
-          amount:           selectedInstallment.amount,
-          paid_by_user_id:  user.id,
-          payment_month:    paymentMonth,
-        });
-
-      if (error) throw error;
-
-      await supabase.rpc('log_activity', {
-        p_action:      'payment_create',
-        p_entity_type: 'installment',
-        p_entity_id:   selectedInstallment.id,
-      });
+      await processPayment(selectedInstallment, user.id);
 
       setShowPaymentModal(false);
       setSelectedInstallment(null);
@@ -267,47 +145,12 @@ export function Collection() {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
     try {
-      const paidAt     = selectedInstallment.paid_at;
-      const monthStart = format(startOfMonth(new Date(paidAt || new Date())), 'yyyy-MM-dd');
+      const { error } = await cancelPayment(selectedInstallment, user.id, cancelReason);
 
-      // التحقق من الشهر المقفل
-      const { data: isClosed } = await supabase.rpc('is_month_closed', {
-        check_month: monthStart,
-      });
-      if (isClosed) {
-        alert('لا يمكن إلغاء السداد لشهر مقفل');
+      if (error) {
+        alert(error);
         return;
       }
-
-      const { data: payment } = await supabase
-        .from('payments')
-        .select('id')
-        .eq('installment_id', selectedInstallment.id)
-        .eq('is_cancelled', false)
-        .single();
-
-      if (!payment) {
-        alert('لم يتم العثور على السداد');
-        return;
-      }
-
-      const { error } = await supabase
-        .from('payments')
-        .update({
-          is_cancelled:           true,
-          cancelled_at:           new Date().toISOString(),
-          cancelled_by_user_id:   user.id,
-          cancel_reason:          cancelReason || 'إلغاء السداد',
-        })
-        .eq('id', payment.id);
-
-      if (error) throw error;
-
-      await supabase.rpc('log_activity', {
-        p_action:      'payment_cancel',
-        p_entity_type: 'installment',
-        p_entity_id:   selectedInstallment.id,
-      });
 
       setShowCancelModal(false);
       setSelectedInstallment(null);
