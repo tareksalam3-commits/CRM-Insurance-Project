@@ -31,11 +31,15 @@ export async function fetchInstallmentsByPolicyId(policyId: string): Promise<Ins
   return (data as InstallmentWithPayment[]) || [];
 }
 
-export async function payInstallment(installment: InstallmentWithPayment, userId: string): Promise<void> {
-  // payment_month = الشهر الفعلي للدفع (وليس تاريخ استحقاق القسط)
-  // هذا يدعم السداد المبكر تلقائياً
+export async function payInstallment(installment: InstallmentWithPayment, userId: string, paymentDate: Date): Promise<void> {
+  // payment_month = الشهر الفعلي للدفع (حسب التاريخ اللي تم اختياره)، مش
+  // بالضرورة الشهر الحالي — عشان يدخل تارجت الشهر الصحيح لو السداد اتسجل
+  // متأخر عن تاريخه الفعلي. paid_at بياخد نفس التاريخ المُختار (بتوقيت الآن
+  // في نفس اليوم) عشان يظهر صحيح في كل الشاشات.
   const now = new Date();
-  const paymentMonth = format(startOfMonth(now), 'yyyy-MM-dd');
+  const paidAt = new Date(paymentDate);
+  paidAt.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+  const paymentMonth = format(startOfMonth(paymentDate), 'yyyy-MM-dd');
 
   const { error } = await supabase
     .from('payments')
@@ -43,10 +47,14 @@ export async function payInstallment(installment: InstallmentWithPayment, userId
       installment_id: installment.id,
       amount: installment.amount,
       paid_by_user_id: userId,
+      paid_at: paidAt.toISOString(),
       payment_month: paymentMonth,
     });
 
-  if (error) throw error;
+  if (error) {
+    // رسالة "الشهر مقفل" جايه من الداتابيز مباشرة (trigger) وواضحة للمستخدم زي ما هي
+    throw new Error(error.message || 'حدث خطأ أثناء تسجيل السداد');
+  }
 
   // تسجيل في سجل النشاط
   await supabase.rpc('log_activity', {

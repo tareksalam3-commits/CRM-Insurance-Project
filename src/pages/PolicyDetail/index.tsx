@@ -46,6 +46,7 @@ export function PolicyDetail() {
   // سداد
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState<InstallmentWithPayment | null>(null);
+  const [paymentDateStr, setPaymentDateStr] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [processingPayment, setProcessingPayment] = useState(false);
 
   // ===================================
@@ -92,26 +93,27 @@ export function PolicyDetail() {
   // ===================================
   const handleOpenPayModal = (installment: InstallmentWithPayment) => {
     setSelectedInstallment(installment);
+    setPaymentDateStr(format(new Date(), 'yyyy-MM-dd'));
     setShowPayModal(true);
   };
 
   // ===================================
-  // تنفيذ السداد (يدعم السداد المبكر)
+  // تنفيذ السداد (يدعم السداد المبكر واختيار تاريخ السداد الفعلي)
   // ===================================
   const handleProcessPayment = async () => {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
 
     try {
-      await payInstallment(selectedInstallment, user.id);
+      await payInstallment(selectedInstallment, user.id, new Date(paymentDateStr));
 
       setShowPayModal(false);
       setSelectedInstallment(null);
       // إعادة تحميل الأقساط لتحديث الحالة
       await loadInstallments();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert('حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى');
+      alert(error?.message || 'حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى');
     } finally {
       setProcessingPayment(false);
     }
@@ -385,11 +387,27 @@ export function PolicyDetail() {
                       تاريخ استحقاق هذا القسط{' '}
                       {format(new Date(selectedInstallment.due_date), 'dd/MM/yyyy')} — سيُسجَّل
                       السداد في شهر{' '}
-                      {format(startOfMonth(new Date()), 'MMMM yyyy', { locale: ar })} الحالي.
+                      {format(startOfMonth(new Date(paymentDateStr)), 'MMMM yyyy', { locale: ar })}.
                     </p>
                   </div>
                 </div>
               )}
+
+              {/* تاريخ السداد الفعلي — يحدد شهر التارجت اللي هيتحسب عليه */}
+              <div className="form-group">
+                <label className="input-label">تاريخ السداد</label>
+                <input
+                  type="date"
+                  value={paymentDateStr}
+                  max={format(new Date(), 'yyyy-MM-dd')}
+                  onChange={(e) => setPaymentDateStr(e.target.value)}
+                  className="input-field"
+                />
+                <p className="text-xs text-secondary-400 mt-1">
+                  سيُحسب السداد ضمن تارجت شهر{' '}
+                  {format(startOfMonth(new Date(paymentDateStr)), 'MMMM yyyy', { locale: ar })}
+                </p>
+              </div>
 
               {/* تفاصيل السداد */}
               <div className="bg-secondary-50 rounded-xl p-4 space-y-3">

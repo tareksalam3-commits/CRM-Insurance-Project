@@ -150,8 +150,13 @@ export async function fetchPolicyInstallments(policyId: string): Promise<Install
 // ===================================
 // تسجيل السداد
 // ===================================
-export async function processPayment(installment: InstallmentWithRelations, userId: string): Promise<void> {
-  const paymentMonth = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+export async function processPayment(installment: InstallmentWithRelations, userId: string, paymentDate: Date): Promise<void> {
+  // paid_at وpayment_month كلاهما مبنيين على التاريخ اللي المستخدم اختاره
+  // (مش بالضرورة النهاردة)، عشان السداد يدخل تارجت الشهر الصحيح لو اتسجل متأخر
+  const now = new Date();
+  const paidAt = new Date(paymentDate);
+  paidAt.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+  const paymentMonth = format(startOfMonth(paymentDate), 'yyyy-MM-dd');
 
   const { error } = await supabase
     .from('payments')
@@ -159,10 +164,14 @@ export async function processPayment(installment: InstallmentWithRelations, user
       installment_id:   installment.id,
       amount:           installment.amount,
       paid_by_user_id:  userId,
+      paid_at:          paidAt.toISOString(),
       payment_month:    paymentMonth,
     });
 
-  if (error) throw error;
+  if (error) {
+    // رسالة "الشهر مقفل" جايه من الداتابيز مباشرة (trigger) وواضحة للمستخدم زي ما هي
+    throw new Error(error.message || 'حدث خطأ أثناء تسجيل السداد');
+  }
 
   await supabase.rpc('log_activity', {
     p_action:      'payment_create',

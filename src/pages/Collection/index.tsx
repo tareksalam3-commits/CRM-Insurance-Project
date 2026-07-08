@@ -40,6 +40,7 @@ export function Collection() {
   const [localSearch, setLocalSearch]           = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState<InstallmentWithRelations | null>(null);
+  const [paymentDateStr, setPaymentDateStr] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showCancelModal, setShowCancelModal]   = useState(false);
   const [cancelReason, setCancelReason]         = useState('');
@@ -116,6 +117,7 @@ export function Collection() {
 
   const handleOpenPayment = (installment: InstallmentWithRelations) => {
     setSelectedInstallment(installment);
+    setPaymentDateStr(format(new Date(), 'yyyy-MM-dd'));
     setShowPaymentModal(true);
   };
 
@@ -126,7 +128,7 @@ export function Collection() {
     if (!selectedInstallment || !user) return;
     setProcessingPayment(true);
     try {
-      await processPayment(selectedInstallment, user.id);
+      await processPayment(selectedInstallment, user.id, new Date(paymentDateStr));
 
       setShowPaymentModal(false);
       setSelectedInstallment(null);
@@ -136,9 +138,9 @@ export function Collection() {
       if (showPolicyModal && selectedPolicy) {
         loadPolicyInstallments(selectedPolicy.id);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert('حدث خطأ أثناء تسجيل السداد');
+      alert(error?.message || 'حدث خطأ أثناء تسجيل السداد');
     } finally {
       setProcessingPayment(false);
     }
@@ -403,6 +405,23 @@ export function Collection() {
                   </span>
                 </div>
               </div>
+
+              {/* تاريخ السداد الفعلي — يحدد شهر التارجت اللي هيتحسب عليه */}
+              <div className="form-group mb-4">
+                <label className="input-label">تاريخ السداد</label>
+                <input
+                  type="date"
+                  value={paymentDateStr}
+                  max={format(new Date(), 'yyyy-MM-dd')}
+                  onChange={(e) => setPaymentDateStr(e.target.value)}
+                  className="input-field"
+                />
+                <p className="text-xs text-secondary-400 mt-1">
+                  سيُحسب السداد ضمن تارجت شهر{' '}
+                  {format(new Date(paymentDateStr), 'MMMM yyyy', { locale: ar })}
+                </p>
+              </div>
+
               <div className="flex justify-end gap-3">
                 <button onClick={() => setShowPaymentModal(false)} className="btn btn-secondary">
                   إلغاء
