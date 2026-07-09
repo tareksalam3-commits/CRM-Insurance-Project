@@ -36,6 +36,17 @@ export async function fetchPoliciesPage({ page, searchQuery, statusFilter }: Fet
   };
 }
 
+export async function fetchPolicyById(id: string): Promise<Policy> {
+  const { data, error } = await supabase
+    .from('policies')
+    .select('*, customer:customer_id(*), owner:owner_id(id, name)')
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  return data as Policy;
+}
+
 export async function fetchCustomersForDropdown(): Promise<Customer[]> {
   const { data } = await supabase
     .from('customers')

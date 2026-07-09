@@ -18,13 +18,21 @@ import {
   X,
   User,
   DollarSign,
+  Edit2,
+  Pause,
+  RotateCcw,
+  XCircle,
+  Trash2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format, startOfMonth } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
 import type { InstallmentWithPayment, PolicyWithRelations } from './types';
-import { fetchPolicyById, fetchInstallmentsByPolicyId, payInstallment } from './services/policyDetailService';
+import {
+  fetchPolicyById, fetchInstallmentsByPolicyId, payInstallment,
+  changePolicyStatus, checkPolicyDeletable, deletePolicySafe,
+} from './services/policyDetailService';
 import {
   canPay, isEarlyPayment, computeInstallmentStats,
   getInstallmentBadgeClass, getPolicyStatusBadgeClass,
@@ -49,6 +57,12 @@ export function PolicyDetail() {
   const [paymentDateStr, setPaymentDateStr] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [processingPayment, setProcessingPayment] = useState(false);
 
+  // إجراءات الوثيقة (إيقاف/إعادة تفعيل/إلغاء/حذف) — نفس أزرار صفحة الوثائق
+  const [isDeletable, setIsDeletable] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+
   // ===================================
   // تحميل بيانات الوثيقة
   // ===================================
@@ -65,6 +79,7 @@ export function PolicyDetail() {
       const data = await fetchPolicyById(id);
       setPolicy(data);
       await loadInstallments();
+      setIsDeletable(await checkPolicyDeletable(id));
     } catch (error) {
       console.error('Error loading policy:', error);
       navigate('/policies');
@@ -120,6 +135,44 @@ export function PolicyDetail() {
   };
 
   // ===================================
+  // تغيير حالة الوثيقة (إيقاف / إعادة تفعيل / إلغاء)
+  // ===================================
+  const handleChangeStatus = async (newStatus: 'active' | 'suspended' | 'cancelled') => {
+    if (!policy) return;
+    setChangingStatus(true);
+    try {
+      await changePolicyStatus(policy, newStatus);
+      await loadPolicy();
+    } catch (error) {
+      console.error('Error changing policy status:', error);
+      alert('حدث خطأ أثناء تغيير الحالة');
+    } finally {
+      setChangingStatus(false);
+    }
+  };
+
+  // ===================================
+  // حذف الوثيقة
+  // ===================================
+  const handleDeletePolicy = async () => {
+    if (!policy) return;
+    setDeleting(true);
+    try {
+      const { error } = await deletePolicySafe(policy.id);
+      if (error) {
+        alert(error);
+        return;
+      }
+      navigate('/policies');
+    } catch (error) {
+      console.error('Error deleting policy:', error);
+      alert('حدث خطأ أثناء حذف الوثيقة');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // ===================================
   // أيقونة وألوان حالة القسط
   // ===================================
   const getInstallmentStatusIcon = (status: string) => {
@@ -158,21 +211,87 @@ export function PolicyDetail() {
     <div className="space-y-6 animate-fadeIn" dir="rtl">
 
       {/* ===== رأس الصفحة ===== */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('/policies')}
-          className="p-2 rounded-lg hover:bg-secondary-100 text-secondary-600"
-          title="رجوع"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
-        <div>
-          <h2 className="text-xl font-bold text-secondary-900">
-            تفاصيل الوثيقة — {policy.policy_number}
-          </h2>
-          <p className="text-sm text-secondary-500 mt-0.5">
-            عرض الأقساط وسداد الوثيقة
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/policies')}
+            className="p-2 rounded-lg hover:bg-secondary-100 text-secondary-600"
+            title="رجوع"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+          <div>
+            <h2 className="text-xl font-bold text-secondary-900">
+              تفاصيل الوثيقة — {policy.policy_number}
+            </h2>
+            <p className="text-sm text-secondary-500 mt-0.5">
+              عرض الأقساط وسداد الوثيقة
+            </p>
+          </div>
+        </div>
+
+        {/* ===== إجراءات الوثيقة — نفس أزرار صفحة الوثائق، متاحة هنا كمان ===== */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <button
+            onClick={() => navigate(`/policies?edit=${policy.id}`)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-secondary-100 text-secondary-600 hover:text-secondary-900"
+            title="تعديل"
+          >
+            <Edit2 className="w-4 h-4" />
+            <span className="text-xs whitespace-nowrap">تعديل</span>
+          </button>
+          {policy.status === 'active' && (
+            <button
+              onClick={() => handleChangeStatus('suspended')}
+              disabled={changingStatus}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-warning-50 text-warning-600 hover:text-warning-700 disabled:opacity-50"
+              title="إيقاف"
+            >
+              <Pause className="w-4 h-4" />
+              <span className="text-xs whitespace-nowrap">إيقاف</span>
+            </button>
+          )}
+          {(policy.status === 'suspended' || policy.status === 'cancelled') && (
+            <button
+              onClick={() => handleChangeStatus('active')}
+              disabled={changingStatus}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-success-50 text-success-600 hover:text-success-700 disabled:opacity-50"
+              title="إعادة تفعيل"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span className="text-xs whitespace-nowrap">إعادة تفعيل</span>
+            </button>
+          )}
+          {policy.status !== 'cancelled' && (
+            <button
+              onClick={() => handleChangeStatus('cancelled')}
+              disabled={changingStatus}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-error-50 text-error-600 hover:text-error-700 disabled:opacity-50"
+              title="إلغاء"
+            >
+              <XCircle className="w-4 h-4" />
+              <span className="text-xs whitespace-nowrap">إلغاء</span>
+            </button>
+          )}
+          {isDeletable ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-error-50 text-secondary-500 hover:text-error-600"
+              title="حذف الوثيقة"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="text-xs whitespace-nowrap">حذف</span>
+            </button>
+          ) : (
+            <button
+              disabled
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-secondary-200 cursor-not-allowed"
+              title="لا يمكن الحذف: توجد دفعات من شهور سابقة"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="text-xs whitespace-nowrap">حذف</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -460,6 +579,45 @@ export function PolicyDetail() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== مودال تأكيد حذف الوثيقة ===== */}
+      {showDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="modal-content max-w-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-error-100 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-error-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-secondary-900 mb-2">
+                تأكيد حذف الوثيقة
+              </h3>
+              <p className="text-secondary-600 mb-2">
+                هل أنت متأكد من حذف الوثيقة رقم{' '}
+                <span className="font-medium text-secondary-900">{policy.policy_number}</span>؟
+              </p>
+              <p className="text-sm text-warning-600 mb-6">
+                لا يمكن التراجع عن هذا الإجراء، وسيتم حذف كل الأقساط المرتبطة بها.
+              </p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="btn btn-secondary"
+                  disabled={deleting}
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleDeletePolicy}
+                  disabled={deleting}
+                  className="btn btn-error"
+                >
+                  {deleting ? 'جاري الحذف...' : 'حذف'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

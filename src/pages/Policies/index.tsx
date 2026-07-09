@@ -30,7 +30,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 
 import { policySchema, type PolicyFormData } from './types';
 import {
-  fetchPoliciesPage, fetchCustomersForDropdown, countPaidInstallments,
+  fetchPoliciesPage, fetchPolicyById, fetchCustomersForDropdown, countPaidInstallments,
   updatePolicy, createPolicy, computeDeletablePolicyIds, deletePolicySafe, changePolicyStatus,
 } from './services/policiesService';
 
@@ -83,6 +83,27 @@ export function Policies() {
     }, 300);
     return () => clearTimeout(timer);
   }, [localSearch]);
+
+  // فتح مودال التعديل تلقائياً لو الرابط جاي من صفحة تفاصيل الوثيقة بزرار
+  // "تعديل" (?edit=<policyId>) — بنجيب الوثيقة مباشرة لأنها ممكن ما تكونش
+  // ظاهرة في الصفحة الحالية من القائمة (فلترة/ترقيم صفحات مختلف)
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || !user) return;
+
+    (async () => {
+      try {
+        const policyToEdit = await fetchPolicyById(editId);
+        handleOpenModal(policyToEdit);
+      } catch (error) {
+        console.error('Error loading policy for edit:', error);
+      } finally {
+        const next = new URLSearchParams(searchParams);
+        next.delete('edit');
+        setSearchParams(next);
+      }
+    })();
+  }, [searchParams, user]);
 
   const loadPolicies = async () => {
     setLoading(true);
@@ -343,63 +364,70 @@ export function Policies() {
                       </td>
                       <td>{(policy as any).owner?.name || '-'}</td>
                       <td>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button
                             onClick={() => handleOpenModal(policy)}
-                            className="p-1.5 rounded-lg hover:bg-secondary-100 text-secondary-600 hover:text-secondary-900"
+                            className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-secondary-100 text-secondary-600 hover:text-secondary-900"
                             title="تعديل"
                           >
                             <Edit2 className="w-4 h-4" />
+                            <span className="text-xs whitespace-nowrap">تعديل</span>
                           </button>
                           {policy.status === 'active' && (
                             <button
                               onClick={() => handleStatusChange(policy, 'suspended')}
-                              className="p-1.5 rounded-lg hover:bg-warning-50 text-warning-600 hover:text-warning-700"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-warning-50 text-warning-600 hover:text-warning-700"
                               title="إيقاف"
                             >
                               <Pause className="w-4 h-4" />
+                              <span className="text-xs whitespace-nowrap">إيقاف</span>
                             </button>
                           )}
                           {(policy.status === 'suspended' || policy.status === 'cancelled') && (
                             <button
                               onClick={() => handleStatusChange(policy, 'active')}
-                              className="p-1.5 rounded-lg hover:bg-success-50 text-success-600 hover:text-success-700"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-success-50 text-success-600 hover:text-success-700"
                               title="إعادة تفعيل"
                             >
                               <RotateCcw className="w-4 h-4" />
+                              <span className="text-xs whitespace-nowrap">إعادة تفعيل</span>
                             </button>
                           )}
                           {policy.status !== 'cancelled' && (
                             <button
                               onClick={() => handleStatusChange(policy, 'cancelled')}
-                              className="p-1.5 rounded-lg hover:bg-error-50 text-error-600 hover:text-error-700"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-error-50 text-error-600 hover:text-error-700"
                               title="إلغاء"
                             >
                               <XCircle className="w-4 h-4" />
+                              <span className="text-xs whitespace-nowrap">إلغاء</span>
                             </button>
                           )}
                           <button
                             onClick={() => navigate(`/policies/${policy.id}`)}
-                            className="p-1.5 rounded-lg hover:bg-primary-50 text-primary-600 hover:text-primary-700"
+                            className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-primary-50 text-primary-600 hover:text-primary-700"
                             title="عرض التفاصيل"
                           >
                             <FileText className="w-4 h-4" />
+                            <span className="text-xs whitespace-nowrap">التفاصيل</span>
                           </button>
                           {deletableIds.has(policy.id) ? (
                             <button
                               onClick={() => setDeleteConfirm(policy)}
-                              className="p-1.5 rounded-lg hover:bg-error-50 text-secondary-400 hover:text-error-600"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-error-50 text-secondary-400 hover:text-error-600"
                               title="حذف الوثيقة"
                             >
                               <Trash2 className="w-4 h-4" />
+                              <span className="text-xs whitespace-nowrap">حذف</span>
                             </button>
                           ) : (
                             <button
                               disabled
-                              className="p-1.5 rounded-lg text-secondary-200 cursor-not-allowed"
+                              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-secondary-200 cursor-not-allowed"
                               title="لا يمكن الحذف: توجد دفعات من شهور سابقة"
                             >
                               <Trash2 className="w-4 h-4" />
+                              <span className="text-xs whitespace-nowrap">حذف</span>
                             </button>
                           )}
                         </div>

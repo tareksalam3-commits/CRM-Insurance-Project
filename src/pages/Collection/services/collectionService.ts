@@ -40,17 +40,27 @@ export async function fetchInstallments({ activeTab, page, searchQuery }: FetchI
   const overdueRangeStartStr = format(startOfMonth(subMonths(now, 2)), 'yyyy-MM-dd'); // بداية شهر -2 (أقصى مدة قبل الإلغاء)
   const overdueRangeEndExclusiveStr = format(startOfMonth(now), 'yyyy-MM-dd'); // بداية الشهر الحالي (أي قسط قبله يُعتبر "فاته شهر" على الأقل)
 
-  // !inner ضروري عشان نقدر نفلتر لاحقاً على policy.status (مسموح دايماً هنا
-  // لأن installments.policy_id مفتاح أجنبي إلزامي، فكل قسط له وثيقة مؤكد)
+  const needsPaymentsJoin = activeTab === 'paid_new' || activeTab === 'paid_periodic';
+
+  // !inner ضروري عشان نقدر نفلتر لاحقاً على policy.status أو payments.payment_month
+  // (مسموح دايماً هنا لأن installments.policy_id مفتاح أجنبي إلزامي، فكل قسط له وثيقة مؤكد)
   let query = supabase
     .from('installments')
     .select(
-      `*,
-       policy:policy_id!inner(
-         *,
-         customer:customer_id(name),
-         owner:owner_id(name)
-       )`,
+      needsPaymentsJoin
+        ? `*,
+           policy:policy_id(
+             *,
+             customer:customer_id(name),
+             owner:owner_id(name)
+           ),
+           payments!inner(payment_month, is_cancelled)`
+        : `*,
+           policy:policy_id!inner(
+             *,
+             customer:customer_id(name),
+             owner:owner_id(name)
+           )`,
       { count: 'exact' }
     );
 
@@ -82,14 +92,20 @@ export async function fetchInstallments({ activeTab, page, searchQuery }: FetchI
         .neq('policy.status', 'cancelled');
       break;
     case 'paid_new':
+      // مسدد فعلاً في الشهر الحالي تحديداً (حسب تاريخ السداد الفعلي payment_month
+      // مش تاريخ الاستحقاق) — مش كل سداد تاريخي من أول ما الوثيقة اتعملت
       query = query
         .eq('is_first', true)
-        .eq('status', 'paid');
+        .eq('status', 'paid')
+        .eq('payments.payment_month', monthStartStr)
+        .eq('payments.is_cancelled', false);
       break;
     case 'paid_periodic':
       query = query
         .eq('is_first', false)
-        .eq('status', 'paid');
+        .eq('status', 'paid')
+        .eq('payments.payment_month', monthStartStr)
+        .eq('payments.is_cancelled', false);
       break;
   }
 
