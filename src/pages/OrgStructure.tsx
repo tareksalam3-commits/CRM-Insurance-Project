@@ -24,7 +24,7 @@ interface OrgNode {
   isActive: boolean;
   avatarUrl: string | null;
   employeeCount: number;   // كل من تحته (غير مباشرين كذلك)
-  totalPaid: number;       // إجمالي المسدد لحد الآن (هو + كل من تحته)
+  totalPaid: number;       // إجمالي المسدد فى الشهر الحالي (هو + كل من تحته)
   children: OrgNode[];
 }
 
@@ -68,11 +68,15 @@ export function OrgStructure() {
 
       const usersMap = new Map<string, OrgUser>((usersData || []).map((u: any) => [u.id, u]));
 
-      // 2. إجمالي المسدد لكل شخص (كل الوقت، بدون فلترة شهر) — مدفوعات غير ملغاة فقط
+      // 2. إجمالي المسدد لكل شخص فى الشهر الحالي فقط — مدفوعات غير ملغاة فقط
+      const now = new Date();
+      const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
       const { data: paymentsRaw } = await supabase
         .from('payments')
         .select('amount, installment:installment_id(policy:policy_id(owner_id))')
-        .eq('is_cancelled', false);
+        .eq('is_cancelled', false)
+        .eq('payment_month', currentMonthStart);
 
       const directPaid = new Map<string, number>();
       (paymentsRaw || []).forEach((p: any) => {
@@ -141,7 +145,7 @@ export function OrgStructure() {
             الهيكل الوظيفي
           </h2>
           <p className="text-sm text-secondary-500 mt-1">
-            شجرة الفريق حسب صلاحياتك — عدد الموظفين وإجمالي المسدد لحد الآن أمام كل اسم
+            شجرة الفريق حسب صلاحياتك — عدد الموظفين وإجمالي المسدد للشهر الحالي أمام كل اسم
           </p>
         </div>
         <div className="flex gap-2">
@@ -256,7 +260,7 @@ function OrgNodeView({
             <Users className="w-3.5 h-3.5 text-secondary-400" />
             <span className="text-xs text-secondary-600">{node.employeeCount}</span>
           </div>
-          <div className="text-left flex items-center gap-1.5">
+          <div className="text-left flex items-center gap-1.5" title="إجمالي المسدد للشهر الحالي">
             <Wallet className="w-3.5 h-3.5 text-success-500" />
             <span className="text-xs sm:text-sm font-semibold text-success-700">{fmt(node.totalPaid)}</span>
           </div>
