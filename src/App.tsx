@@ -25,6 +25,7 @@ const Customers    = lazy(() => import('./pages/Customers').then(m => ({ default
 const Policies     = lazy(() => import('./pages/Policies').then(m => ({ default: m.Policies })));
 const PolicyDetail = lazy(() => import('./pages/PolicyDetail').then(m => ({ default: m.PolicyDetail })));
 const Collection   = lazy(() => import('./pages/Collection').then(m => ({ default: m.Collection })));
+const Commissions  = lazy(() => import('./pages/Commissions').then(m => ({ default: m.Commissions })));
 const Users        = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
 const Reports      = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })));
 const MonthlyClosing = lazy(() => import('./pages/MonthlyClosing').then(m => ({ default: m.MonthlyClosing })));
@@ -78,6 +79,7 @@ function AppLayout() {
               <Route path="/policies"        element={<Policies />} />
               <Route path="/policies/:id"    element={<PolicyDetail />} />
               <Route path="/collection"      element={<Collection />} />
+              <Route path="/commissions"     element={<Commissions />} />
               <Route path="/users"           element={<Users />} />
               <Route path="/reports"         element={<Reports />} />
               <Route path="/monthly-closing" element={<MonthlyClosing />} />
