@@ -80,10 +80,11 @@ export async function countPaidInstallments(policyId: string): Promise<number> {
 }
 
 export async function updatePolicy(policyId: string, data: PolicyFormData, oldData: Policy): Promise<void> {
+  const { isEditingPolicy, ...policyData } = data;
   const { error } = await supabase
     .from('policies')
     .update({
-      ...data,
+      ...policyData,
       updated_at: new Date().toISOString()
     })
     .eq('id', policyId);
@@ -100,10 +101,11 @@ export async function updatePolicy(policyId: string, data: PolicyFormData, oldDa
 }
 
 export async function createPolicy(data: PolicyFormData, ownerId: string): Promise<void> {
+  const { isEditingPolicy, ...policyData } = data;
   const { data: newPolicy, error } = await supabase
     .from('policies')
     .insert({
-      ...data,
+      ...policyData,
       owner_id: ownerId
     })
     .select()

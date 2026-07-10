@@ -349,6 +349,20 @@ export function PolicyDetail() {
               }).format(policy.premium_amount)}
             </p>
           </div>
+          <div>
+            <p className="text-secondary-500 mb-1 flex items-center gap-1">
+              <DollarSign className="w-3.5 h-3.5" /> مبلغ التأمين
+            </p>
+            <p className="font-medium text-secondary-900">
+              {policy.sum_assured != null
+                ? new Intl.NumberFormat('ar-EG', {
+                    style: 'currency',
+                    currency: 'EGP',
+                    minimumFractionDigits: 0,
+                  }).format(policy.sum_assured)
+                : '—'}
+            </p>
+          </div>
         </div>
       </div>
 

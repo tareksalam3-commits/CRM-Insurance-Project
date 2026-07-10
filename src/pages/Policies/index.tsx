@@ -135,7 +135,9 @@ export function Policies() {
         start_date: policy.start_date,
         payment_method: policy.payment_method as PaymentMethod,
         premium_amount: policy.premium_amount,
-        notes: policy.notes || ''
+        sum_assured: policy.sum_assured ?? ('' as any),
+        notes: policy.notes || '',
+        isEditingPolicy: true
       });
     } else {
       setEditingPolicy(null);
@@ -146,7 +148,9 @@ export function Policies() {
         start_date: format(new Date(), 'yyyy-MM-dd'),
         payment_method: 'monthly',
         premium_amount: '' as any,
-        notes: ''
+        sum_assured: '' as any,
+        notes: '',
+        isEditingPolicy: false
       });
     }
     setShowModal(true);
@@ -573,6 +577,27 @@ export function Policies() {
                     <p className="text-sm text-error-600 mt-1">{errors.premium_amount.message}</p>
                   )}
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="input-label">
+                  مبلغ التأمين {!editingPolicy && '*'}
+                </label>
+                <div className="relative">
+                  <input
+                    {...register('sum_assured', { valueAsNumber: true })}
+                    type="number"
+                    min="0"
+                    className={clsx('input-field pl-16', errors.sum_assured && 'border-error-500')}
+                    placeholder="أدخل مبلغ التأمين"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
+                    جنيه
+                  </span>
+                </div>
+                {errors.sum_assured && (
+                  <p className="text-sm text-error-600 mt-1">{errors.sum_assured.message}</p>
+                )}
               </div>
 
               <div className="form-group">

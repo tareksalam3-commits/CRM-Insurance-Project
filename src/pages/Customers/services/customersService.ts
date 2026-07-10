@@ -67,6 +67,10 @@ export async function updateCustomer(customerId: string, data: CustomerFormData,
     .from('customers')
     .update({
       ...customerData,
+      // الرقم القومي اختياري: لو اتسيب فاضي بنحفظه NULL بدل '' عشان قيد
+      // UNIQUE في قاعدة البيانات يمنع التكرار للقيم الفعلية فقط، ومايمنعش
+      // حفظ أكتر من عميل بدون رقم قومي.
+      national_id: customerData.national_id?.trim() ? customerData.national_id.trim() : null,
       owner_id: finalOwnerId || oldData.owner_id,
       updated_at: new Date().toISOString()
     })
@@ -89,6 +93,7 @@ export async function createCustomer(data: CustomerFormData, finalOwnerId: strin
     .from('customers')
     .insert({
       ...customerData,
+      national_id: customerData.national_id?.trim() ? customerData.national_id.trim() : null,
       owner_id: finalOwnerId
     });
 

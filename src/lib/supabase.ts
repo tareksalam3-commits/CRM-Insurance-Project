@@ -72,6 +72,7 @@ export type Policy = {
   start_date: string;
   payment_method: PaymentMethod;
   premium_amount: number;
+  sum_assured?: number;
   status: PolicyStatus;
   notes?: string;
   suspended_at?: string;
