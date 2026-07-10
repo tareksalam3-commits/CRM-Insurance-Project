@@ -48,7 +48,9 @@ const ACTION_CONFIG: Record<ActionType, { label: string; icon: any; color: strin
   month_open: { label: 'فتح شهر', icon: Unlock, color: 'text-warning-600 bg-warning-100' },
   settings_update: { label: 'تعديل إعدادات', icon: Settings, color: 'text-warning-600 bg-warning-100' },
   role_update: { label: 'تعديل صلاحية', icon: Shield, color: 'text-warning-600 bg-warning-100' },
-  target_update: { label: 'تعديل تارجت', icon: DollarSign, color: 'text-warning-600 bg-warning-100' }
+  target_update: { label: 'تعديل تارجت', icon: DollarSign, color: 'text-warning-600 bg-warning-100' },
+  year2_payment_create: { label: 'تحصيل سنة ثانية', icon: DollarSign, color: 'text-success-600 bg-success-100' },
+  year2_payment_cancel: { label: 'إلغاء تحصيل سنة ثانية', icon: XCircle, color: 'text-error-600 bg-error-100' }
 };
 
 export function ActivityLog() {
@@ -58,6 +60,7 @@ export function ActivityLog() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [localSearch, setLocalSearch] = useState('');
   const [actionFilter, setActionFilter] = useState<ActionType | 'all'>('all');
   const pageSize = 20;
 
@@ -66,6 +69,17 @@ export function ActivityLog() {
       loadLogs();
     }
   }, [user, page, searchQuery, actionFilter]);
+
+  // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== searchQuery) {
+        setSearchQuery(localSearch);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearch]);
 
   const loadLogs = async () => {
     setLoading(true);
@@ -79,6 +93,29 @@ export function ActivityLog() {
         query = query.eq('action_type', actionFilter);
       }
 
+      // ملحوظة: Supabase/PostgREST لا يدعم فلترة .or() على أعمدة من علاقة
+      // متداخلة (user.name/email). سابقاً كان الكود يجيب صفحة واحدة بس
+      // (range) ثم يفلترها محلياً بعد كده — وده غلط لأنه يفوّت أي نتيجة
+      // في صفحات تانية وكمان عدد الصفحات (totalPages) بيفضل غير صحيح.
+      // الحل: نجيب أولاً آي-ديهات المستخدمين المطابقين للاسم/الإيميل، ثم
+      // نفلتر السجلات بيهم على مستوى الداتابيز قبل الترقيم.
+      if (searchQuery.trim()) {
+        const term = searchQuery.trim();
+        const { data: matchedUsers } = await supabase
+          .from('users')
+          .select('id')
+          .or(`name.ilike.%${term}%,email.ilike.%${term}%`);
+
+        const userIds = (matchedUsers || []).map((u) => u.id);
+        if (userIds.length === 0) {
+          setLogs([]);
+          setTotalPages(1);
+          setLoading(false);
+          return;
+        }
+        query = query.in('user_id', userIds);
+      }
+
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
@@ -86,16 +123,7 @@ export function ActivityLog() {
 
       if (error) throw error;
 
-      let filteredData = data as ActivityLogEntry[];
-      if (searchQuery) {
-        filteredData = filteredData.filter(
-          (log) =>
-            (log as any).user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (log as any).user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-      }
-
-      setLogs(filteredData);
+      setLogs((data as ActivityLogEntry[]) || []);
       setTotalPages(Math.ceil((count || 0) / pageSize));
     } catch (error) {
       console.error('Error loading logs:', error);
@@ -126,11 +154,8 @@ export function ActivityLog() {
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setPage(1);
-                }}
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
                 placeholder="بحث باسم المستخدم..."
                 className="input-field pr-10"
               />
@@ -165,6 +190,10 @@ export function ActivityLog() {
             <optgroup label="السداد">
               <option value="payment_create">تسجيل سداد</option>
               <option value="payment_cancel">إلغاء سداد</option>
+            </optgroup>
+            <optgroup label="تحصيل السنة الثانية">
+              <option value="year2_payment_create">تحصيل سنة ثانية</option>
+              <option value="year2_payment_cancel">إلغاء تحصيل سنة ثانية</option>
             </optgroup>
             <optgroup label="التقفيل">
               <option value="month_close">تقفيل شهر</option>

@@ -181,7 +181,9 @@ export type ActionType =
   | 'month_open'
   | 'settings_update'
   | 'role_update'
-  | 'target_update';
+  | 'target_update'
+  | 'year2_payment_create'
+  | 'year2_payment_cancel';
 
 export type MonthlyClosing = {
   id: string;

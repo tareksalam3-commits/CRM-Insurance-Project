@@ -16,8 +16,23 @@ export async function fetchPoliciesPage({ page, searchQuery, statusFilter }: Fet
     .select('*, customer:customer_id(*), owner:owner_id(id, name)', { count: 'exact' })
     .order('created_at', { ascending: false });
 
-  if (searchQuery) {
-    query = query.or(`policy_number.ilike.%${searchQuery}%,customer.name.ilike.%${searchQuery}%`);
+  if (searchQuery.trim()) {
+    // ملحوظة: Supabase/PostgREST لا يدعم الفلترة بـ or() مباشرة على عمود
+    // من علاقة متداخلة (customer.name) — كان بيتم تجاهله بصمت فلا يطابق
+    // شيء أبداً. الحل: نجيب أولاً أرقام العملاء المطابقين بالاسم، ثم نبحث
+    // بالـ or() بين رقم الوثيقة أو أحد أرقام العملاء دول.
+    const term = searchQuery.trim();
+    const { data: matchedCustomers } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('name', `%${term}%`);
+
+    const customerIds = (matchedCustomers || []).map((c) => c.id);
+    const orParts = [`policy_number.ilike.%${term}%`];
+    if (customerIds.length > 0) {
+      orParts.push(`customer_id.in.(${customerIds.join(',')})`);
+    }
+    query = query.or(orParts.join(','));
   }
 
   if (statusFilter !== 'all') {

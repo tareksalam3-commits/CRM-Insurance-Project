@@ -13,7 +13,8 @@ import {
   XCircle,
   AlertTriangle,
   X,
-  FileText
+  FileText,
+  Layers,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format } from 'date-fns';
@@ -24,12 +25,19 @@ import {
   fetchInstallments, fetchPolicyInstallments, processPayment, cancelPayment,
   cancelSeverelyOverduePolicies,
 } from './services/collectionService';
+import { Year2Collection } from './year2/Year2Collection';
+
+// نوع السنة المطلوب عرضها: لازم المستخدم يختار قبل ما يشوف أي بيانات.
+// السنة الأولى = النظام الحالي بالكامل (تارجت/محقق..إلخ) بدون أي تغيير.
+// السنة الثانية = شاشة منفصلة تماماً لمتابعة التحصيل فقط.
+type YearMode = 'year1' | 'year2';
 
 export function Collection() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
   const initialTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'new_production';
+  const [yearMode, setYearMode] = useState<YearMode | null>(tabFromUrl ? 'year1' : null);
   const [activeTab, setActiveTab]               = useState<TabType>(initialTab);
   const [installments, setInstallments]         = useState<InstallmentWithRelations[]>([]);
   const [loading, setLoading]                   = useState(true);
@@ -57,8 +65,8 @@ export function Collection() {
   }, [tabFromUrl]);
 
   useEffect(() => {
-    if (user) loadInstallments();
-  }, [user, activeTab, page, searchQuery]);
+    if (user && yearMode === 'year1') loadInstallments();
+  }, [user, yearMode, activeTab, page, searchQuery]);
 
   // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
   useEffect(() => {
@@ -196,7 +204,56 @@ export function Collection() {
   ];
 
   // ===================================
-  // الواجهة
+  // شاشة اختيار السنة — تظهر أول ما تُفتح الصفحة، ولا يُعرض أي بيانات
+  // (لا سنة أولى ولا سنة ثانية) قبل ما المستخدم يختار
+  // ===================================
+  if (yearMode === null) {
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div>
+          <h2 className="text-xl font-bold text-secondary-900">التحصيل والسداد</h2>
+          <p className="text-sm text-secondary-500 mt-1">اختر نوع التحصيل الذي تريد متابعته</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+          <button
+            onClick={() => setYearMode('year1')}
+            className="card text-right hover:border-primary-400 hover:shadow-md transition-all p-6"
+          >
+            <DollarSign className="w-8 h-8 text-primary-600 mb-3" />
+            <h3 className="text-lg font-bold text-secondary-900 mb-1">تحصيلات السنة الأولى</h3>
+            <p className="text-sm text-secondary-500">
+              الإنتاج الجديد، التحصيل الدوري، المتأخر، والمسدد — وتدخل ضمن التارجت والمحقق
+            </p>
+          </button>
+          <button
+            onClick={() => setYearMode('year2')}
+            className="card text-right hover:border-primary-400 hover:shadow-md transition-all p-6"
+          >
+            <Layers className="w-8 h-8 text-primary-600 mb-3" />
+            <h3 className="text-lg font-bold text-secondary-900 mb-1">تحصيلات السنة الثانية</h3>
+            <p className="text-sm text-secondary-500">
+              متابعة وتسديد فقط للوثائق التي دخلت سنتها الثانية — لا تدخل في أي إحصائية
+            </p>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (yearMode === 'year2') {
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <button onClick={() => setYearMode(null)} className="btn btn-ghost print:hidden">
+          <Layers className="w-4 h-4" />
+          <span>تغيير نوع التحصيل</span>
+        </button>
+        <Year2Collection />
+      </div>
+    );
+  }
+
+  // ===================================
+  // الواجهة — تحصيلات السنة الأولى (النظام الحالي بدون أي تغيير)
   // ===================================
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -204,7 +261,11 @@ export function Collection() {
       {/* رأس الصفحة */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-secondary-900">التحصيل والسداد</h2>
+          <button onClick={() => setYearMode(null)} className="btn btn-ghost btn-sm mb-2">
+            <Layers className="w-4 h-4" />
+            <span>تغيير نوع التحصيل</span>
+          </button>
+          <h2 className="text-xl font-bold text-secondary-900">التحصيل والسداد — السنة الأولى</h2>
           <p className="text-sm text-secondary-500 mt-1">
             إدارة السداد للأقساط — {format(new Date(), 'MMMM yyyy', { locale: ar })}
           </p>
