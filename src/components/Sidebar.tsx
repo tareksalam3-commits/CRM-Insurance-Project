@@ -44,6 +44,7 @@ const bottomNavItemsBase = [
   { path: '/customers',  icon: Users,            label: 'العملاء',     management: false },
   { path: '/policies',   icon: FileText,         label: 'الوثائق',     management: false },
   { path: '/collection', icon: CreditCard,       label: 'التحصيل',     management: false },
+  { path: '/commissions',icon: Percent,          label: 'العمولات',    management: false },
   { path: '/users',      icon: UsersIcon,        label: 'المستخدمون',  management: true  },
   { path: '/profile',    icon: User,             label: 'حسابي',       management: false },
 ];
