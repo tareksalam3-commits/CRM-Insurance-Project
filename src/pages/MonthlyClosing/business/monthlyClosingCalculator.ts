@@ -86,12 +86,14 @@ export function buildMonthlyClosingSummary(
     const leader = usersMap.get(leaderId)!;
     const agents = getAgentsUnder(leaderId);
     // لو رئيس المجموعة نفسه مالك وثائق (باع/حصّل بنفسه)، بياناته الشخصية
-    // موجودة بالفعل في agentMap لكنها كانت بتتفقد لأن getAgentsUnder بتجيب
-    // مرؤوسيه فقط دون بياناته هو — فبنضيفها هنا يدويًا.
+    // موجودة في agentMap. بنضيفها لإجمالي صفه هو مباشرة (من غير ما تتحط في
+    // قائمة "الوكلاء" اللي بتظهر لما توسّع الصف، عشان ميبقاش فيه سطر مكرر
+    // باسمه هو تحت نفسه).
     const ownEntry = agentMap.get(leaderId);
-    if (ownEntry) agents.unshift(ownEntry);
-    const prod = agents.reduce((s, a) => s + a.production, 0);
-    const coll = agents.reduce((s, a) => s + a.collection, 0);
+    const ownProd = ownEntry?.production ?? 0;
+    const ownColl = ownEntry?.collection ?? 0;
+    const prod = agents.reduce((s, a) => s + a.production, 0) + ownProd;
+    const coll = agents.reduce((s, a) => s + a.collection, 0) + ownColl;
     return { leaderId, leaderName: leader.name, leaderRole: leader.role, production: prod, collection: coll, total: prod + coll, agents };
   };
 
@@ -120,11 +122,6 @@ export function buildMonthlyClosingSummary(
       }
     }
 
-    // لو المراقب نفسه مالك وثائق (باع/حصّل بنفسه)، بياناته الشخصية موجودة في
-    // agentMap لكنها كانت بتتفقد لأن الحلقة فوق بتمر على المرؤوسين فقط.
-    const supOwn = agentMap.get(supId);
-    if (supOwn) directA.unshift(supOwn);
-
     if (directA.length > 0) {
       groups.push({
         leaderId: supId + '_direct', leaderName: 'وكلاء مباشرون',
@@ -136,8 +133,15 @@ export function buildMonthlyClosingSummary(
       });
     }
 
-    const prod = groups.reduce((s, g) => s + g.production, 0);
-    const coll = groups.reduce((s, g) => s + g.collection, 0);
+    // لو المراقب نفسه مالك وثائق (باع/حصّل بنفسه)، بياناته الشخصية موجودة في
+    // agentMap. بنضيفها لإجمالي صفه هو مباشرة، من غير ما تتحط تحت بند "وكلاء
+    // مباشرون" عشان ميبقاش فيه لخبطة بين رقمه الشخصي وأرقام مرؤوسيه.
+    const supOwn = agentMap.get(supId);
+    const ownProd = supOwn?.production ?? 0;
+    const ownColl = supOwn?.collection ?? 0;
+
+    const prod = groups.reduce((s, g) => s + g.production, 0) + ownProd;
+    const coll = groups.reduce((s, g) => s + g.collection, 0) + ownColl;
     return { supervisorId: supId, supervisorName: sup.name, supervisorRole: sup.role, production: prod, collection: coll, total: prod + coll, groups };
   };
 
@@ -158,30 +162,20 @@ export function buildMonthlyClosingSummary(
   }
 
   // لو المستخدم الحالي (لما يفتح هو نفسه صفحة إقفال الشهر، مش حد فوقه بيشوف
-  // فريقه) عنده وثائق باعها/حصّلها بنفسه، بياناته الشخصية موجودة في agentMap
-  // لكن المسار ده (myDirectGroups) كان بيتجاهلها بالكامل — نفس الخلل اللي كان
-  // في buildSupervisor بالظبط، بس في المسار المنفصل ده.
+  // فريقه) عنده وثائق باعها/حصّلها بنفسه، بياناته الشخصية موجودة في agentMap.
+  // بنضيفها لإجمالي صفه هو مباشرة، من غير ما تتحط كبند "وكلاء مباشرون" منفصل.
   const myOwn = agentMap.get(user.id);
-  if (myOwn) {
-    myDirectGroups.push({
-      leaderId: user.id + '_direct',
-      leaderName: 'وكلاء مباشرون',
-      leaderRole: 'agent' as UserRole,
-      production: myOwn.production,
-      collection: myOwn.collection,
-      total: myOwn.total,
-      agents: [myOwn],
-    });
-  }
+  const myOwnProd = myOwn?.production ?? 0;
+  const myOwnColl = myOwn?.collection ?? 0;
 
-  if (myDirectGroups.length > 0) {
+  if (myDirectGroups.length > 0 || myOwn) {
     supervisorList.unshift({
       supervisorId: user.id,
       supervisorName: user.name,
       supervisorRole: user.role,
-      production: myDirectGroups.reduce((s, g) => s + g.production, 0),
-      collection: myDirectGroups.reduce((s, g) => s + g.collection, 0),
-      total: myDirectGroups.reduce((s, g) => s + g.total, 0),
+      production: myDirectGroups.reduce((s, g) => s + g.production, 0) + myOwnProd,
+      collection: myDirectGroups.reduce((s, g) => s + g.collection, 0) + myOwnColl,
+      total: myDirectGroups.reduce((s, g) => s + g.total, 0) + myOwnProd + myOwnColl,
       groups: myDirectGroups,
     });
   }
@@ -243,16 +237,18 @@ export function buildMonthlyClosingSummary(
         groupLeaders.push(...nested.groupLeaders);
       }
     }
-    if (agentMap.has(supId)) directAgentIds.push(supId); // بيانات المراقب الشخصية لو باع/حصّل بنفسه
-
     if (directAgentIds.length > 0) {
       groupLeaders.push({ id: supId + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
     }
+
+    // بيانات المراقب الشخصية لو باع/حصّل بنفسه — بتتضاف لإجمالي صفه هو مباشرة
+    // بدل ما تتحط تحت بند "وكلاء مباشرون" عشان ميبقاش فيه لخبطة.
+    const supOwn = agentMap.get(supId);
     const totals = groupLeaders.reduce((acc, g) => ({
       production: acc.production + g.production,
       collection: acc.collection + g.collection,
       total: acc.total + g.total,
-    }), { production: 0, collection: 0, total: 0 });
+    }), { production: supOwn?.production ?? 0, collection: supOwn?.collection ?? 0, total: supOwn?.total ?? 0 });
 
     return { id: supId, name: nameOverride ?? sup?.name ?? '', groupLeaders, ...totals };
   };
@@ -282,18 +278,19 @@ export function buildMonthlyClosingSummary(
       }
     }
 
-    if (agentMap.has(user.id)) directAgentIds.push(user.id); // بيانات المستخدم الحالي الشخصية لو باع/حصّل بنفسه
-
-    if (directGroupLeaderIds.length > 0 || directAgentIds.length > 0) {
+    if (directGroupLeaderIds.length > 0 || directAgentIds.length > 0 || agentMap.has(user.id)) {
       const groupLeaders: GroupLeaderAgg[] = directGroupLeaderIds.map(buildGroupLeaderAgg);
       if (directAgentIds.length > 0) {
         groupLeaders.push({ id: user.id + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
       }
+      // بيانات المستخدم الحالي الشخصية لو باع/حصّل بنفسه — بتتضاف لإجمالي صفه
+      // هو مباشرة بدل بند "وكلاء مباشرون".
+      const myOwn = agentMap.get(user.id);
       const totals = groupLeaders.reduce((acc, g) => ({
         production: acc.production + g.production,
         collection: acc.collection + g.collection,
         total: acc.total + g.total,
-      }), { production: 0, collection: 0, total: 0 });
+      }), { production: myOwn?.production ?? 0, collection: myOwn?.collection ?? 0, total: myOwn?.total ?? 0 });
       printSupervisorList.push({ id: user.id, name: user.name, groupLeaders, ...totals });
     }
   }
