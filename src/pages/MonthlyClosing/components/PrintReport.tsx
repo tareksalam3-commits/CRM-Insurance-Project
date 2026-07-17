@@ -36,7 +36,7 @@ export function PrintReport({
         }
         .print-report .pr-page-break { page-break-before: always; break-before: page; }
 
-        .print-report table { width: 100%; border-collapse: collapse; }
+        .print-report table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .print-report th, .print-report td { border: 1px solid #d8dce1; padding: 6px 8px; text-align: center; }
         .print-report th {
           background: #15803d;
@@ -58,8 +58,11 @@ export function PrintReport({
           display: flex; justify-content: space-between; font-size: 11.5px;
           margin-bottom: 12px; padding: 8px 12px; background: #f0fdf4;
           border: 1px solid #bbf7d0; border-radius: 6px;
+          width: 100%; box-sizing: border-box;
         }
         .print-report .pr-meta b { color: #166534; }
+        .print-report .pr-detail-title-row th,
+        .print-report .pr-detail-meta-row th { width: auto; }
 
         .print-report .pr-sup-name {
           font-weight: 800; font-size: 12.5px; color: #14532d;
@@ -87,11 +90,16 @@ export function PrintReport({
         .print-report .pr-detail-meta-row th { background: #fff; border: none; padding: 0 0 10px; }
         .print-report .pr-detail-meta-row .pr-meta { margin-bottom: 0; }
 
-        /* تذييل يتكرر أسفل كل صفحة مطبوعة */
+        /* تذييل يتكرر أسفل كل صفحة مطبوعة، ويحمل رقم الصفحة */
+        .print-report { counter-reset: pr-page; }
         .print-report .pr-footer {
           position: fixed; bottom: -10mm; left: 0; right: 0;
           text-align: center; font-size: 9.5px; color: #9ca3af;
           border-top: 1px solid #e5e7eb; padding-top: 4px;
+          counter-increment: pr-page;
+        }
+        .print-report .pr-footer .pr-page-num::before {
+          content: "صفحة " counter(pr-page);
         }
       `}</style>
 
@@ -216,7 +224,7 @@ export function PrintReport({
       </div>
 
       <div className="pr-footer">
-        {branding.company_name} · تقرير تقفيل الشهر — {monthLabel}
+        {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · <span className="pr-page-num" />
       </div>
     </div>
   );
