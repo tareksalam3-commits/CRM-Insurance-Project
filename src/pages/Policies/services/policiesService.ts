@@ -1,6 +1,8 @@
 import { supabase, type Policy, type Customer } from '../../../lib/supabase';
 import { format } from 'date-fns';
 import type { PolicyFormData } from '../types';
+import { withOfflineQueue } from '../../../lib/offlineQueue';
+import { dalRead } from '../../../lib/dataAccessLayer';
 
 const PAGE_SIZE = 10;
 
@@ -8,47 +10,135 @@ export interface FetchPoliciesParams {
   page: number;
   searchQuery: string;
   statusFilter: string;
+  // نوع الوثيقة — 'all' يعني بدون فلترة (نفس منطق statusFilter تماماً)
+  typeFilter?: string;
+  // الشهر بصيغة yyyy-MM — يُطبَّق على تاريخ بداية الوثيقة (start_date)، 'all' يعني بدون فلترة
+  monthFilter?: string;
 }
 
-export async function fetchPoliciesPage({ page, searchQuery, statusFilter }: FetchPoliciesParams) {
-  let query = supabase
-    .from('policies')
-    .select('*, customer:customer_id(*), owner:owner_id(id, name)', { count: 'exact' })
-    .order('created_at', { ascending: false });
+interface PoliciesPageResult {
+  policies: Policy[];
+  totalPages: number;
+  totalCount: number;
+}
 
-  if (searchQuery.trim()) {
-    // ملحوظة: Supabase/PostgREST لا يدعم الفلترة بـ or() مباشرة على عمود
-    // من علاقة متداخلة (customer.name) — كان بيتم تجاهله بصمت فلا يطابق
-    // شيء أبداً. الحل: نجيب أولاً أرقام العملاء المطابقين بالاسم، ثم نبحث
-    // بالـ or() بين رقم الوثيقة أو أحد أرقام العملاء دول.
-    const term = searchQuery.trim();
-    const { data: matchedCustomers } = await supabase
-      .from('customers')
-      .select('id')
-      .ilike('name', `%${term}%`);
+const EMPTY_POLICIES_PAGE: PoliciesPageResult = { policies: [], totalPages: 1, totalCount: 0 };
 
-    const customerIds = (matchedCustomers || []).map((c) => c.id);
-    const orParts = [`policy_number.ilike.%${term}%`];
-    if (customerIds.length > 0) {
-      orParts.push(`customer_id.in.(${customerIds.join(',')})`);
-    }
-    query = query.or(orParts.join(','));
-  }
+export async function fetchPoliciesPage({
+  page,
+  searchQuery,
+  statusFilter,
+  typeFilter = 'all',
+  monthFilter = 'all'
+}: FetchPoliciesParams): Promise<PoliciesPageResult> {
+  const cacheKey = `policies:page:${page}:${searchQuery.trim()}:${statusFilter}:${typeFilter}:${monthFilter}`;
 
-  if (statusFilter !== 'all') {
-    query = query.eq('status', statusFilter);
-  }
+  const result = await dalRead(
+    cacheKey,
+    async () => {
+      let query = supabase
+        .from('policies')
+        .select('*, customer:customer_id(*), owner:owner_id(id, name)', { count: 'exact' })
+        .order('created_at', { ascending: false });
 
-  const from = (page - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
+      if (searchQuery.trim()) {
+        // ملحوظة: Supabase/PostgREST لا يدعم الفلترة بـ or() مباشرة على عمود
+        // من علاقة متداخلة (customer.name) — كان بيتم تجاهله بصمت فلا يطابق
+        // شيء أبداً. الحل: نجيب أولاً أرقام العملاء المطابقين بالاسم أو الرقم
+        // القومي أو رقم الهاتف، ثم نبحث بالـ or() بين رقم الوثيقة (مطابقة جزئية
+        // تشمل تلقائياً آخر 6 أرقام لأنها بحث ضمن أي جزء من النص) أو أحد أرقام
+        // العملاء دول.
+        const term = searchQuery.trim();
+        const { data: matchedCustomers } = await supabase
+          .from('customers')
+          .select('id')
+          .or(`name.ilike.%${term}%,national_id.ilike.%${term}%,phone.ilike.%${term}%`);
 
-  const { data, error, count } = await query.range(from, to);
-  if (error) throw error;
+        const customerIds = (matchedCustomers || []).map((c) => c.id);
+        const orParts = [`policy_number.ilike.%${term}%`];
+        if (customerIds.length > 0) {
+          orParts.push(`customer_id.in.(${customerIds.join(',')})`);
+        }
+        query = query.or(orParts.join(','));
+      }
 
-  return {
-    policies: data as Policy[],
-    totalPages: Math.ceil((count || 0) / PAGE_SIZE),
-  };
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+
+      if (typeFilter !== 'all') {
+        query = query.eq('policy_type', typeFilter);
+      }
+
+      if (monthFilter !== 'all') {
+        const [y, m] = monthFilter.split('-').map(Number);
+        const monthStart = format(new Date(y, m - 1, 1), 'yyyy-MM-dd');
+        const monthEnd = format(new Date(y, m, 1), 'yyyy-MM-dd');
+        query = query.gte('start_date', monthStart).lt('start_date', monthEnd);
+      }
+
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data, error, count } = await query.range(from, to);
+      if (error) throw error;
+
+      return {
+        policies: data as Policy[],
+        totalPages: Math.ceil((count || 0) / PAGE_SIZE),
+        totalCount: count || 0,
+      };
+    },
+    { emptyValue: EMPTY_POLICIES_PAGE },
+  );
+  return result.data;
+}
+
+export interface PolicyStats {
+  total: number;
+  active: number;
+  cancelled: number;
+  issuedThisMonth: number;
+}
+
+// إحصائيات لحظية لأعلى الصفحة — كل رقم بيتحسب بمعزل عن أي فلاتر مطبقة على
+// القائمة، ومقيّد تلقائياً بنفس صلاحيات RLS المطبقة على جدول policies
+const EMPTY_POLICY_STATS: PolicyStats = { total: 0, active: 0, cancelled: 0, issuedThisMonth: 0 };
+
+export async function fetchPolicyStats(): Promise<PolicyStats> {
+  const now = new Date();
+  const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
+  const monthEnd = format(new Date(now.getFullYear(), now.getMonth() + 1, 1), 'yyyy-MM-dd');
+
+  const result = await dalRead(
+    `policies:stats:${monthStart}`,
+    async () => {
+      const [totalRes, activeRes, cancelledRes, issuedRes] = await Promise.all([
+        supabase.from('policies').select('id', { count: 'exact', head: true }),
+        supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+        supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'cancelled'),
+        supabase
+          .from('policies')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', monthStart)
+          .lt('created_at', monthEnd),
+      ]);
+
+      if (totalRes.error) throw totalRes.error;
+      if (activeRes.error) throw activeRes.error;
+      if (cancelledRes.error) throw cancelledRes.error;
+      if (issuedRes.error) throw issuedRes.error;
+
+      return {
+        total: totalRes.count || 0,
+        active: activeRes.count || 0,
+        cancelled: cancelledRes.count || 0,
+        issuedThisMonth: issuedRes.count || 0,
+      };
+    },
+    { emptyValue: EMPTY_POLICY_STATS },
+  );
+  return result.data;
 }
 
 export async function fetchPolicyById(id: string): Promise<Policy> {
@@ -62,12 +152,124 @@ export async function fetchPolicyById(id: string): Promise<Policy> {
   return data as Policy;
 }
 
-export async function fetchCustomersForDropdown(): Promise<Customer[]> {
-  const { data } = await supabase
+// ملحوظة: العميل ممكن يكون له أكتر من وثيقة فى نفس الوقت، فالقائمة بترجع كل
+// العملاء (فى حدود صلاحيات RLS) بدون استبعاد اللى عندهم وثيقة بالفعل.
+// includeCustomerId اتسابت فى التوقيع لتوافق نداءات الصفحة الحالية، وبقت
+// بدون تأثير عملي بعد إلغاء الاستبعاد.
+export async function fetchCustomersForDropdown(_includeCustomerId?: string): Promise<Customer[]> {
+  const result = await dalRead(
+    'policies:customersDropdown',
+    async () => {
+      const { data: customersData, error: customersError } = await supabase
+        .from('customers')
+        .select('id, name, owner_id')
+        .order('name');
+      if (customersError) throw customersError;
+
+      return (customersData as Customer[]) || [];
+    },
+    { emptyValue: [] as Customer[] },
+  );
+  return result.data;
+}
+
+// شكل بيانات العميل المستخدم فى نافذة اختيار العميل داخل نموذج إصدار الوثيقة
+export interface CustomerPickerItem {
+  id: string;
+  name: string;
+  phone?: string;
+  national_id?: string;
+  owner_id: string;
+  owner_name?: string;
+  created_at: string;
+  // رقم أحدث وثيقة للعميل (إن وجدت) — لعرضها فقط، بدون أي تأثير على منطق الإصدار
+  current_policy_number?: string;
+}
+
+const CUSTOMER_PICKER_RESULT_LIMIT = 30;
+
+// يجيب أحدث وثيقة لكل عميل من مجموعة أرقام عملاء — يُستخدم فقط لعرض "رقم
+// الوثيقة الحالية" فى نافذة اختيار العميل، ومفيهوش أي تأثير على منطق الإصدار
+async function fetchLatestPolicyNumbersByCustomer(customerIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (customerIds.length === 0) return result;
+
+  const { data, error } = await supabase
+    .from('policies')
+    .select('customer_id, policy_number, created_at')
+    .in('customer_id', customerIds)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  for (const row of (data as any[]) || []) {
+    if (!result.has(row.customer_id)) {
+      result.set(row.customer_id, row.policy_number);
+    }
+  }
+  return result;
+}
+
+// بحث لحظي عن العملاء لنافذة اختيار العميل داخل نموذج إصدار الوثيقة — يبحث فى
+// الاسم/الهاتف/الرقم القومي، ومرتّب دائماً من الأحدث إضافةً للأقدم، ومحدود
+// بعدد نتائج معقول (بدل تحميل آلاف العملاء دفعة واحدة) للحفاظ على الأداء
+export async function searchCustomersForPicker(searchTerm: string): Promise<CustomerPickerItem[]> {
+  let query = supabase
     .from('customers')
-    .select('id, name, owner_id')
-    .order('name');
-  return data as Customer[];
+    .select('id, name, phone, national_id, owner_id, created_at, owner:owner_id(name)')
+    .order('created_at', { ascending: false })
+    .limit(CUSTOMER_PICKER_RESULT_LIMIT);
+
+  const term = searchTerm.trim();
+  if (term) {
+    query = query.or(
+      `name.ilike.%${term}%,phone.ilike.%${term}%,national_id.ilike.%${term}%`
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const customersData = (data as any[]) || [];
+  const customerIds = customersData.map((c) => c.id);
+  const latestPolicyByCustomer = await fetchLatestPolicyNumbersByCustomer(customerIds);
+
+  return customersData.map((c) => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone || undefined,
+    national_id: c.national_id || undefined,
+    owner_id: c.owner_id,
+    owner_name: c.owner?.name,
+    created_at: c.created_at,
+    current_policy_number: latestPolicyByCustomer.get(c.id)
+  }));
+}
+
+// بيانات عميل واحد بنفس شكل نافذة اختيار العميل — تُستخدم لعرض العميل
+// المُثبَّت مسبقاً (تعديل وثيقة، أو دخول من صفحة العميل) بدون تحميل القائمة كاملة
+export async function fetchCustomerForPicker(customerId: string): Promise<CustomerPickerItem | null> {
+  const { data, error } = await supabase
+    .from('customers')
+    .select('id, name, phone, national_id, owner_id, created_at, owner:owner_id(name)')
+    .eq('id', customerId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const latestPolicyByCustomer = await fetchLatestPolicyNumbersByCustomer([data.id]);
+
+  return {
+    id: data.id,
+    name: data.name,
+    phone: (data as any).phone || undefined,
+    national_id: (data as any).national_id || undefined,
+    owner_id: (data as any).owner_id,
+    owner_name: (data as any).owner?.name,
+    created_at: (data as any).created_at,
+    current_policy_number: latestPolicyByCustomer.get(data.id)
+  };
 }
 
 export async function countPaidInstallments(policyId: string): Promise<number> {
@@ -79,53 +281,80 @@ export async function countPaidInstallments(policyId: string): Promise<number> {
   return count || 0;
 }
 
+// نستخدم دالة update_policy_op الموجودة بالفعل: بتعمل التحديث وتسجيل النشاط
+// جوه معاملة واحدة، ومحمية بمفتاح idempotency. بنمرر p_expected_updated_at
+// كـ NULL عمداً للحفاظ على نفس السلوك الحالي بالضبط (بدون فحص تعارض تعديل
+// متزامن لم يكن موجوداً من قبل).
 export async function updatePolicy(policyId: string, data: PolicyFormData, oldData: Policy): Promise<void> {
   const { isEditingPolicy, ...policyData } = data;
-  const { error } = await supabase
-    .from('policies')
-    .update({
-      ...policyData,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', policyId);
+  const { data: result, error } = await supabase.rpc('update_policy_op', {
+    p_operation_id: crypto.randomUUID(),
+    p_policy_id: policyId,
+    p_expected_updated_at: null,
+    p_policy_number: policyData.policy_number,
+    p_customer_id: policyData.customer_id,
+    p_policy_type: policyData.policy_type,
+    p_start_date: policyData.start_date,
+    p_payment_method: policyData.payment_method,
+    p_premium_amount: policyData.premium_amount,
+    p_sum_assured: policyData.sum_assured ?? null,
+    p_notes: policyData.notes || null,
+  });
 
   if (error) throw error;
 
-  await supabase.rpc('log_activity', {
-    p_action: 'policy_update',
-    p_entity_type: 'policy',
-    p_entity_id: policyId,
-    p_old_values: oldData,
-    p_new_values: data
-  });
+  const res = result as { error?: string } | null;
+  if (res?.error) throw new Error(res.error);
 }
 
-export async function createPolicy(data: PolicyFormData, ownerId: string): Promise<void> {
+// ownerId هنا هو مالك الوثيقة بمنطق العمل الحالي كما هو (نفس الوكيل صاحب
+// العميل). createdByUserId هو المستخدم المسجل دخوله فعلياً الآن (قد يكون
+// مديره فى حالة الإنشاء نيابة عنه) وتُستخدم فقط لربط عنصر طابور الأوفلاين
+// بصاحبه الحقيقي - راجع نفس الملاحظة فى createCustomer.
+export async function createPolicy(data: PolicyFormData, ownerId: string, createdByUserId: string): Promise<void> {
+  const operationId = crypto.randomUUID();
+  return withOfflineQueue(
+    operationId,
+    'add_policy',
+    { data, ownerId },
+    createdByUserId,
+    (opId) => createPolicyOnline(data, ownerId, opId),
+    undefined,
+  );
+}
+
+// نستخدم دالة create_policy_op الموجودة بالفعل: بتعمل إنشاء الوثيقة، وتوليد
+// الأقساط (generate_installments)، وتحديد الأقساط التاريخية كمسددة
+// (mark_historical_installments_paid)، وتسجيل النشاط، كل ده جوه معاملة واحدة
+// بدل ٣ نداءات منفصلة من الفرونت إند، ومحمية بمفتاح idempotency.
+export async function createPolicyOnline(
+  data: PolicyFormData,
+  ownerId: string,
+  operationId: string = crypto.randomUUID(),
+): Promise<void> {
   const { isEditingPolicy, ...policyData } = data;
-  const { data: newPolicy, error } = await supabase
-    .from('policies')
-    .insert({
-      ...policyData,
-      owner_id: ownerId
-    })
-    .select()
-    .single();
+  const { data: result, error } = await supabase.rpc('create_policy_op', {
+    p_operation_id: operationId,
+    p_policy_number: policyData.policy_number,
+    p_customer_id: policyData.customer_id,
+    p_policy_type: policyData.policy_type,
+    p_start_date: policyData.start_date,
+    p_payment_method: policyData.payment_method,
+    p_premium_amount: policyData.premium_amount,
+    p_sum_assured: policyData.sum_assured ?? null,
+    p_notes: policyData.notes || null,
+    p_owner_id: ownerId,
+  });
 
   if (error) throw error;
 
-  if (newPolicy) {
-    await supabase.rpc('generate_installments', {
-      p_policy_id: newPolicy.id,
-      p_start_date: data.start_date,
-      p_payment_method: data.payment_method,
-      p_premium_amount: data.premium_amount
-    });
-
-    await supabase.rpc('log_activity', {
-      p_action: 'policy_create',
-      p_entity_type: 'policy',
-      p_entity_id: newPolicy.id
-    });
+  const res = result as { error?: string; conflict?: boolean } | null;
+  if (res?.error) {
+    // نفس آلية اكتشاف "رقم الوثيقة مكرر" المستخدمة فى offlineSync
+    // (isUniqueViolation بيفحص error.code === '23505')
+    const err = new Error(res.error) as Error & { code?: string };
+    if (res.conflict) err.code = '23505';
+    throw err;
   }
 }
 
@@ -189,18 +418,25 @@ export async function deletePolicySafe(policyId: string, oldData: Policy): Promi
   return {};
 }
 
-export async function changePolicyStatus(policy: Policy, newStatus: 'active' | 'suspended' | 'cancelled'): Promise<void> {
+export async function changePolicyStatus(policy: Policy, newStatus: 'active' | 'cancelled'): Promise<void> {
   const updateData: any = {
     status: newStatus,
     updated_at: new Date().toISOString()
   };
 
-  if (newStatus === 'suspended') {
-    updateData.suspended_at = new Date().toISOString();
-    updateData.suspended_reason = 'إيقاف يدوي';
-  } else if (newStatus === 'active' && policy.status === 'suspended') {
+  // لو الوثيقة كانت من سجلات قديمة بحالة "موقوف" (قبل إلغاء الميزة)، بنتأكد
+  // من مسح أثر ذلك عند أي تغيير حالة جديد عليها
+  if (newStatus === 'active') {
     updateData.suspended_at = null;
     updateData.suspended_reason = null;
+  }
+
+  // تسجيل تاريخ الإلغاء الفعلي — يُستخدم في حساب مؤشر "نسبة الإلغاءات"
+  // (لا يؤثر على أي منطق آخر، مجرد ختم زمني إضافي)
+  if (newStatus === 'cancelled') {
+    updateData.cancelled_at = new Date().toISOString();
+  } else if (newStatus === 'active' && policy.status === 'cancelled') {
+    updateData.cancelled_at = null;
   }
 
   const { error } = await supabase
@@ -210,9 +446,7 @@ export async function changePolicyStatus(policy: Policy, newStatus: 'active' | '
 
   if (error) throw error;
 
-  const action = newStatus === 'suspended' ? 'policy_suspend' :
-                 newStatus === 'cancelled' ? 'policy_cancel' :
-                 'policy_reactivate';
+  const action = newStatus === 'cancelled' ? 'policy_cancel' : 'policy_reactivate';
 
   await supabase.rpc('log_activity', {
     p_action: action,

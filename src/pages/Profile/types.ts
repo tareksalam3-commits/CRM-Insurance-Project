@@ -22,3 +22,12 @@ export interface StatusMessage {
   type: 'success' | 'error';
   text: string;
 }
+
+// كل الحقول هنا أرقام محسوبة لحظيًا من قاعدة البيانات، لا تُخزَّن في أي جدول
+export interface ProfilePerformanceStats {
+  yearTotalPaid: number;
+  monthTotalPaid: number;
+  policiesThisYearCount: number;
+  activeCustomersCount: number;
+  commissionsThisMonth: number;
+}

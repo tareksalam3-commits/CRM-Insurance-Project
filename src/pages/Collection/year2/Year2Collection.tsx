@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import {
-  Search, ChevronLeft, ChevronRight, X, CheckCircle, XCircle,
+  Search, X, CheckCircle, XCircle,
   History, Printer, Info,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { Pagination } from '../../../components/ui/Pagination';
 
 import type { Year2EligiblePolicy, Year2Payment, Year2ReportRow, PrintPeriodType } from './types';
 import {
@@ -243,19 +244,12 @@ export function Year2Collection() {
               </table>
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-secondary-200">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn btn-ghost disabled:opacity-50">
-                  <ChevronRight className="w-5 h-5" />
-                  <span>السابق</span>
-                </button>
-                <span className="text-sm text-secondary-600">صفحة {page} من {totalPages}</span>
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="btn btn-ghost disabled:opacity-50">
-                  <span>التالي</span>
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              className="mt-4 pt-4 border-t border-secondary-200"
+            />
           </>
         )}
       </div>

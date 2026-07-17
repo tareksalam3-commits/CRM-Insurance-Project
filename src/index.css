@@ -206,6 +206,31 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+
+  /* تأثير ضغط خفيف (Ripple/Press) للعناصر القابلة للنقر مثل بطاقة المستخدم */
+  .pressable {
+    position: relative;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.12s ease;
+  }
+  .pressable::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .pressable:active::after {
+    opacity: 0.08;
+    transition: opacity 0.05s ease;
+  }
+  .pressable:active {
+    transform: scale(0.98);
+  }
 }
 
 /* ===== ANIMATIONS ===== */

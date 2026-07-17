@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase, isPasskeySupported } from '../lib/supabase';
+import { useSettings } from '../hooks/useSettings';
 import { Shield, Mail, Phone, Lock, Eye, EyeOff, Loader2, Fingerprint } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -45,6 +46,7 @@ export function Login() {
   const [googleReady, setGoogleReady] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const { signIn, signInWithPasskey } = useAuth();
+  const { branding } = useSettings();
   const navigate = useNavigate();
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const googleNonceRef = useRef<string>('');
@@ -210,11 +212,13 @@ export function Login() {
       <div className="w-full max-w-md">
         <div className="card p-8 animate-fadeIn">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Shield className="w-8 h-8 text-primary-600" />
+            <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden">
+              {branding.company_logo_url
+                ? <img src={branding.company_logo_url} alt={branding.company_name} className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                : <Shield className="w-8 h-8 text-primary-600" />}
             </div>
             <h1 className="text-2xl font-bold text-secondary-900 mb-1">
-              نظام CRM التأمينات
+              {branding.company_name}
             </h1>
             <p className="text-secondary-500">سجل دخولك للوصول إلى النظام</p>
           </div>

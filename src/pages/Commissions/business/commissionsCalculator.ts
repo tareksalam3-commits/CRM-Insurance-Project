@@ -4,8 +4,11 @@ import type { CommissionRow, CommissionsSummary } from '../types';
 
 // عمولة السنة الأولى = 2.4% من مبلغ التأمين، موزعة على عدد الأقساط
 const YEAR1_RATE = 0.024;
-// عمولة التجديد (من السنة الثانية فأكثر) = 10% من قيمة القسط المسدد
-const RENEWAL_RATE = 0.10;
+// عمولة التجديد (من السنة الثانية فأكثر) = 4 لكل 1000 من مبلغ التأمين
+// (0.004 من مبلغ التأمين)، موزعة على عدد الأقساط بنفس طريقة السداد —
+// لو السداد سنوي فالعمولة كاملة مرة واحدة، ولو غير سنوي (شهري/ربع سنوي/
+// نصف سنوي) توزّع بالتساوي على عدد الأقساط زي عمولة السنة الأولى بالظبط
+const RENEWAL_RATE_PER_THOUSAND = 4 / 1000;
 
 // قاعدة استحقاق العمولة:
 // - سداد من يوم 1 إلى يوم 15 -> تستحق يوم 20 من نفس الشهر
@@ -29,24 +32,36 @@ function parseDateOnly(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
+export interface CommissionComputeResult {
+  rows: CommissionRow[];
+  missingSumAssuredCount: number;
+}
+
 export function computeCommissionRows(
   year1Payments: RawYear1Payment[],
   year2Payments: RawYear2Payment[],
   targetMonth: string // 'yyyy-MM'
-): CommissionRow[] {
+): CommissionComputeResult {
   const rows: CommissionRow[] = [];
+  let missingSumAssuredCount = 0;
 
   for (const payment of year1Payments) {
     const policy = payment.installment?.policy;
-    // لا يمكن احتساب عمولة السنة الأولى بدون مبلغ التأمين (وثائق قديمة قد
-    // لا يكون هذا الحقل مُدخلاً لها بعد)
-    if (!policy || !policy.sum_assured) continue;
+    if (!policy) continue;
 
     const installmentsCount = INSTALLMENTS_PER_METHOD[policy.payment_method];
     if (!installmentsCount) continue;
 
     const { dueDay, dueMonth } = getCommissionDueDate(new Date(payment.paid_at));
     if (dueMonth !== targetMonth) continue;
+
+    // لا يمكن احتساب عمولة السنة الأولى بدون مبلغ التأمين (وثائق قديمة قد
+    // لا يكون هذا الحقل مُدخلاً لها بعد) — نحتسبها كـ "غير محددة" بدل إخفائها
+    // بصمت، عشان المستخدم يعرف إنه محتاج يكمّل بيانات الوثيقة
+    if (!policy.sum_assured) {
+      missingSumAssuredCount += 1;
+      continue;
+    }
 
     const commissionAmount = (Number(policy.sum_assured) * YEAR1_RATE) / installmentsCount;
 
@@ -69,7 +84,16 @@ export function computeCommissionRows(
     const { dueDay, dueMonth } = getCommissionDueDate(paidDate);
     if (dueMonth !== targetMonth) continue;
 
-    const commissionAmount = Number(payment.amount) * RENEWAL_RATE;
+    const installmentsCount = INSTALLMENTS_PER_METHOD[policy.payment_method];
+    if (!installmentsCount) continue;
+
+    // نفس منطق عمولة السنة الأولى: لا يمكن الاحتساب بدون مبلغ التأمين
+    if (!policy.sum_assured) {
+      missingSumAssuredCount += 1;
+      continue;
+    }
+
+    const commissionAmount = (Number(policy.sum_assured) * RENEWAL_RATE_PER_THOUSAND) / installmentsCount;
 
     rows.push({
       id: `y2-${payment.id}`,
@@ -82,7 +106,7 @@ export function computeCommissionRows(
     });
   }
 
-  return rows;
+  return { rows, missingSumAssuredCount };
 }
 
 export function computeSummary(rows: CommissionRow[]): CommissionsSummary {

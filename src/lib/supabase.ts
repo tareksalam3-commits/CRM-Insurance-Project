@@ -36,6 +36,7 @@ export type User = {
   last_login?: string;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 };
 
 export type UserRole =
@@ -77,6 +78,7 @@ export type Policy = {
   notes?: string;
   suspended_at?: string;
   suspended_reason?: string;
+  cancelled_at?: string;
   created_at: string;
   updated_at: string;
   customer?: Customer;
@@ -92,7 +94,11 @@ export type PolicyType =
 
 export type PaymentMethod = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 
-export type PolicyStatus = 'active' | 'suspended' | 'cancelled';
+// حالة "موقوف" اتشالت من النظام بالكامل (الوثيقة بقت إما نشطة أو ملغاة فقط).
+// لو فيه سجلات قديمة فى قاعدة البيانات لسه بالحالة دي (نادر، بيتم تحويلها
+// تلقائياً لـ "نشطة" فى الهجرة 20260713000000)، فبيتعامل معاها العرض بنفس
+// شكل "نشط" افتراضياً لأن مفيش أي مسار جديد هيُنتج الحالة دي تانى.
+export type PolicyStatus = 'active' | 'cancelled';
 
 export type Installment = {
   id: string;
@@ -103,6 +109,11 @@ export type Installment = {
   status: InstallmentStatus;
   paid_at?: string;
   is_first: boolean;
+  // true للأقساط المستوردة/القديمة التي اعتُبرت مسددة تلقائياً عند
+  // الاستيراد أو الإضافة، دون إنشاء سجل سداد (payments) فعلي — راجع
+  // معالجة إلغاء السداد الخاصة بها في
+  // features/installments/installmentsService.cancelInstallmentPayment
+  is_historical?: boolean;
   created_at: string;
   updated_at: string;
   policy?: Policy;
@@ -144,7 +155,21 @@ export type NotificationType =
   | 'policy_suspended'
   | 'policy_reactivated'
   | 'payment_received'
-  | 'payment_cancelled';
+  | 'payment_cancelled'
+  | 'subscription_approved'
+  | 'subscription_rejected'
+  | 'subscription_expiring_soon'
+  | 'subscription_expired'
+  | 'user_created'
+  | 'user_updated'
+  | 'user_disabled'
+  | 'user_enabled'
+  | 'user_deleted'
+  | 'customer_created'
+  | 'policy_created'
+  | 'policy_cancelled'
+  | 'month_closing_upcoming'
+  | 'month_closing_completed';
 
 export type ActivityLog = {
   id: string;
@@ -235,7 +260,6 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 export const POLICY_STATUS_LABELS: Record<PolicyStatus, string> = {
   active: 'نشط',
-  suspended: 'موقوف',
   cancelled: 'ملغى'
 };
 
@@ -265,8 +289,24 @@ export function getRoleLevel(role: UserRole): number {
   return levels[role];
 }
 
+// صفحة المستخدمين متاحة الآن لكل درجة إدارية (Group Leader فما فوق) بنظام
+// هرمي: كل مدير يرى ويدير فقط من هم داخل نطاقه الإداري (get_user_subtree).
+// Agent / Premium Agent (المستوى 6) لا تظهر لهم الصفحة إطلاقاً.
 export function canManageUsers(currentRole: UserRole): boolean {
-  return currentRole === 'super_admin' || currentRole === 'development_manager';
+  return getRoleLevel(currentRole) <= 5;
+}
+
+// إعادة تعيين كلمة مرور مستخدم آخر: Super Admin فقط.
+export function canResetOtherUserPassword(currentRole: UserRole): boolean {
+  return currentRole === 'super_admin';
+}
+
+// عرض صفحة تقفيل الشهر متاح لأي درجة إدارية (Group Leader فما فوق) بنظام
+// هرمي — كل واحد يشوف بس بيانات نطاقه الإداري. أما تنفيذ تقفيل/فتح الشهر
+// نفسه (عملية تخص النظام كله دفعة واحدة) فتفضل مقصورة على Supervisor فما فوق
+// (canCloseMonth تحتها).
+export function canViewMonthlyClosing(role: UserRole): boolean {
+  return getRoleLevel(role) <= 5;
 }
 
 export function canCloseMonth(role: UserRole): boolean {

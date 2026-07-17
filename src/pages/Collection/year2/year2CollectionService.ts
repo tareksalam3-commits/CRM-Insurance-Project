@@ -4,6 +4,7 @@ import {
   startOfQuarter, endOfQuarter, startOfYear, endOfYear,
 } from 'date-fns';
 import type { Year2Payment, Year2EligiblePolicy, Year2ReportRow, PrintPeriodType } from './types';
+import { dalRead } from '../../../lib/dataAccessLayer';
 
 const PAGE_SIZE = 10;
 
@@ -24,6 +25,8 @@ export interface FetchYear2PoliciesResult {
   totalPages: number;
 }
 
+const EMPTY_YEAR2_POLICIES: FetchYear2PoliciesResult = { policies: [], totalCount: 0, totalPages: 1 };
+
 // وثيقة تعتبر "دخلت السنة الثانية" فقط لو مر عليها سنة كاملة من start_date.
 // أي وثيقة لسه في السنة الأولى (أقل من سنة) لا تظهر هنا إطلاقاً.
 export async function fetchYear2EligiblePolicies(
@@ -31,64 +34,78 @@ export async function fetchYear2EligiblePolicies(
 ): Promise<FetchYear2PoliciesResult> {
   const oneYearAgoStr = format(subYears(new Date(), 1), 'yyyy-MM-dd');
 
-  let query = supabase
-    .from('policies')
-    .select('*, customer:customer_id(name), owner:owner_id(name)', { count: 'exact' })
-    .lte('start_date', oneYearAgoStr);
+  const result = await dalRead(
+    `year2:eligiblePolicies:${page}:${searchQuery.trim()}:${oneYearAgoStr}`,
+    async () => {
+      let query = supabase
+        .from('policies')
+        .select('*, customer:customer_id(name), owner:owner_id(name)', { count: 'exact' })
+        .lte('start_date', oneYearAgoStr);
 
-  if (searchQuery.trim()) {
-    query = query.ilike('policy_number', `%${searchQuery.trim()}%`);
-  }
+      if (searchQuery.trim()) {
+        query = query.ilike('policy_number', `%${searchQuery.trim()}%`);
+      }
 
-  const from = (page - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
 
-  const { data, error, count } = await query
-    .order('start_date', { ascending: false })
-    .range(from, to);
+      const { data, error, count } = await query
+        .order('start_date', { ascending: false })
+        .range(from, to);
 
-  if (error) throw error;
+      if (error) throw error;
 
-  const policies = (data || []) as Year2EligiblePolicy[];
+      const policies = (data || []) as Year2EligiblePolicy[];
 
-  // إجمالي المحصل لكل وثيقة في السنة الثانية (استعلام واحد على الوثائق
-  // المعروضة بالصفحة الحالية فقط)
-  if (policies.length > 0) {
-    const ids = policies.map((p) => p.id);
-    const { data: paymentsData, error: paymentsError } = await supabase
-      .from('year2_payments')
-      .select('policy_id, amount')
-      .in('policy_id', ids)
-      .eq('is_cancelled', false);
+      // إجمالي المحصل لكل وثيقة في السنة الثانية (استعلام واحد على الوثائق
+      // المعروضة بالصفحة الحالية فقط)
+      if (policies.length > 0) {
+        const ids = policies.map((p) => p.id);
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('year2_payments')
+          .select('policy_id, amount')
+          .in('policy_id', ids)
+          .eq('is_cancelled', false);
 
-    if (paymentsError) throw paymentsError;
+        if (paymentsError) throw paymentsError;
 
-    const totals = new Map<string, number>();
-    for (const p of paymentsData || []) {
-      totals.set(p.policy_id, (totals.get(p.policy_id) || 0) + Number(p.amount));
-    }
-    for (const policy of policies) {
-      policy.year2_total_paid = totals.get(policy.id) || 0;
-    }
-  }
+        const totals = new Map<string, number>();
+        for (const p of paymentsData || []) {
+          totals.set(p.policy_id, (totals.get(p.policy_id) || 0) + Number(p.amount));
+        }
+        for (const policy of policies) {
+          policy.year2_total_paid = totals.get(policy.id) || 0;
+        }
+      }
 
-  return {
-    policies,
-    totalCount: count || 0,
-    totalPages: Math.ceil((count || 0) / PAGE_SIZE),
-  };
+      return {
+        policies,
+        totalCount: count || 0,
+        totalPages: Math.ceil((count || 0) / PAGE_SIZE),
+      };
+    },
+    { emptyValue: EMPTY_YEAR2_POLICIES },
+  );
+  return result.data;
 }
 
 // سجل تحصيلات السنة الثانية لوثيقة معينة
 export async function fetchYear2Payments(policyId: string): Promise<Year2Payment[]> {
-  const { data, error } = await supabase
-    .from('year2_payments')
-    .select('*, paid_by:paid_by_user_id(name)')
-    .eq('policy_id', policyId)
-    .order('payment_date', { ascending: false });
+  const result = await dalRead(
+    `year2:payments:${policyId}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('year2_payments')
+        .select('*, paid_by:paid_by_user_id(name)')
+        .eq('policy_id', policyId)
+        .order('payment_date', { ascending: false });
 
-  if (error) throw error;
-  return (data as Year2Payment[]) || [];
+      if (error) throw error;
+      return (data as Year2Payment[]) || [];
+    },
+    { emptyValue: [] as Year2Payment[] },
+  );
+  return result.data;
 }
 
 // تسجيل تحصيل سنة ثانية جديد
@@ -183,21 +200,28 @@ export function getPrintRange(periodType: PrintPeriodType, referenceDate: Date):
 export async function fetchYear2Report(periodType: PrintPeriodType, referenceDate: Date): Promise<Year2ReportRow[]> {
   const { start, end } = getPrintRange(periodType, referenceDate);
 
-  const { data, error } = await supabase
-    .from('year2_payments')
-    .select(`
-      *,
-      policy:policy_id(
-        *,
-        customer:customer_id(name),
-        owner:owner_id(name)
-      )
-    `)
-    .eq('is_cancelled', false)
-    .gte('payment_date', start)
-    .lte('payment_date', end)
-    .order('payment_date', { ascending: true });
+  const result = await dalRead(
+    `year2:report:${periodType}:${start}:${end}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('year2_payments')
+        .select(`
+          *,
+          policy:policy_id(
+            *,
+            customer:customer_id(name),
+            owner:owner_id(name)
+          )
+        `)
+        .eq('is_cancelled', false)
+        .gte('payment_date', start)
+        .lte('payment_date', end)
+        .order('payment_date', { ascending: true });
 
-  if (error) throw error;
-  return (data as Year2ReportRow[]) || [];
+      if (error) throw error;
+      return (data as Year2ReportRow[]) || [];
+    },
+    { emptyValue: [] as Year2ReportRow[] },
+  );
+  return result.data;
 }

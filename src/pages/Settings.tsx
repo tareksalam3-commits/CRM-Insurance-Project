@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase, Settings as SettingsType } from '../lib/supabase';
 import { canViewSettings } from '../lib/supabase';
+import { runDatabaseBackup } from './Settings/backupExport';
 import {
   Shield,
   Building2,
   Bell,
   Save,
-  Loader2
+  Loader2,
+  DatabaseBackup,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -17,8 +21,7 @@ import { z } from 'zod';
 const settingsSchema = z.object({
   company_name: z.string().min(1, 'اسم الشركة مطلوب'),
   company_logo_url: z.string().url('الرابط غير صحيح').optional().or(z.literal('')),
-  notification_days_before: z.number().min(1).max(30),
-  overdue_months_to_suspend: z.number().min(1).max(6)
+  notification_days_before: z.number().min(1).max(30)
 });
 
 type SettingsFormData = z.infer<typeof settingsSchema>;
@@ -29,6 +32,9 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<{ table: string; done: number; total: number } | null>(null);
+  const [backupResult, setBackupResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const canAccess = user ? canViewSettings(user.role) : false;
 
@@ -60,8 +66,7 @@ export function Settings() {
         reset({
           company_name: data.company_name || '',
           company_logo_url: data.company_logo_url || '',
-          notification_days_before: data.notification_days_before || 7,
-          overdue_months_to_suspend: data.overdue_months_to_suspend || 2
+          notification_days_before: data.notification_days_before || 7
         });
       }
     } catch (error) {
@@ -83,7 +88,6 @@ export function Settings() {
           company_name: data.company_name,
           company_logo_url: data.company_logo_url || null,
           notification_days_before: data.notification_days_before,
-          overdue_months_to_suspend: data.overdue_months_to_suspend,
           updated_at: new Date().toISOString()
         })
         .eq('id', settings.id);
@@ -104,6 +108,29 @@ export function Settings() {
     }
   };
 
+  const handleBackup = async () => {
+    setBackingUp(true);
+    setBackupResult(null);
+    setBackupProgress({ table: '', done: 0, total: 7 });
+
+    try {
+      const { fileName, totalRows } = await runDatabaseBackup((p) => setBackupProgress(p));
+
+      await supabase.rpc('log_activity', {
+        p_action: 'backup_export',
+        p_entity_type: 'settings'
+      });
+
+      setBackupResult({ type: 'success', text: `تم تنزيل الملف "${fileName}" بنجاح (${totalRows} صف).` });
+    } catch (error: any) {
+      console.error('Error creating backup:', error);
+      setBackupResult({ type: 'error', text: error?.message || 'حدث خطأ أثناء إنشاء النسخة الاحتياطية' });
+    } finally {
+      setBackingUp(false);
+      setBackupProgress(null);
+    }
+  };
+
   if (!canAccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
@@ -117,8 +144,8 @@ export function Settings() {
     <div className="space-y-6 animate-fadeIn">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-secondary-900">الإعدادات</h2>
-          <p className="text-sm text-secondary-500 mt-1">
+          <h2 className="text-xl md:text-2xl font-bold text-secondary-900">إعدادات النظام</h2>
+          <p className="text-sm text-secondary-500 mt-0.5">
             إعدادات النظام والتطبيق
           </p>
         </div>
@@ -190,21 +217,62 @@ export function Settings() {
                   عدد الأيام قبل تاريخ الاستحقاق لإرسال الإشعار
                 </p>
               </div>
+            </div>
+          </div>
 
-              <div className="form-group">
-                <label className="input-label">أشهر التأخير للإيقاف</label>
-                <input
-                  {...register('overdue_months_to_suspend', { valueAsNumber: true })}
-                  type="number"
-                  min="1"
-                  max="6"
-                  className="input-field"
-                />
-                <p className="text-xs text-secondary-400 mt-1">
-                  عدد أشهر التأخير قبل إيقاف الوثيقة تلقائياً
-                </p>
+          <div className="card">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-lg bg-secondary-100 flex items-center justify-center">
+                <DatabaseBackup className="w-5 h-5 text-secondary-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-secondary-900">نسخة احتياطية</h3>
+                <p className="text-sm text-secondary-500">تصدير كل بيانات النظام كملف Excel يمكن حفظه أو استخدامه لاسترجاع البيانات</p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleBackup}
+              disabled={backingUp}
+              className="btn btn-secondary"
+            >
+              {backingUp ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>
+                    {backupProgress?.table
+                      ? `جاري تصدير: ${backupProgress.table}...`
+                      : 'جاري تجهيز النسخة الاحتياطية...'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <DatabaseBackup className="w-5 h-5" />
+                  <span>تنزيل نسخة احتياطية الآن</span>
+                </>
+              )}
+            </button>
+
+            {backupResult && (
+              <div
+                className={clsx(
+                  'flex items-start gap-2 p-3 rounded-lg mt-4 text-sm',
+                  backupResult.type === 'success'
+                    ? 'bg-success-50 text-success-700'
+                    : 'bg-error-50 text-error-700'
+                )}
+              >
+                {backupResult.type === 'success'
+                  ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+                  : <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+                <span>{backupResult.text}</span>
+              </div>
+            )}
+
+            <p className="text-xs text-secondary-400 mt-4">
+              يشمل الملف: العملاء، الوثائق، الأقساط، المدفوعات، تحصيلات السنة الثانية، تقفيلات الشهور، والمستخدمون — كلٌ في شيت منفصل
+            </p>
           </div>
 
           {message && (

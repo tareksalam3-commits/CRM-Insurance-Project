@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Customer, PolicyStatus, PolicyType } from '../../lib/supabase';
 
 export const customerSchema = z.object({
   name: z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
@@ -21,3 +22,23 @@ export const customerSchema = z.object({
 });
 
 export type CustomerFormData = z.infer<typeof customerSchema>;
+
+// ملخص وثيقة مرتبطة بالعميل — للعرض فقط داخل بطاقة/تفاصيل العميل، بدون أي
+// تأثير على منطق أو جدول الوثائق نفسه
+export type CustomerPolicySummary = {
+  id: string;
+  policy_number: string;
+  policy_type: PolicyType;
+  premium_amount: number;
+  sum_assured?: number | null;
+  start_date: string;
+  status: PolicyStatus;
+  created_at: string;
+};
+
+// شكل بيانات العميل بعد ضمّ اسم الوكيل ووثائقه — تُستخدم فقط لعرض القائمة
+// والبطاقات، ولا تُستخدم فى الحفظ/التعديل (النموذج يعتمد على CustomerFormData)
+export type CustomerWithRelations = Customer & {
+  owner?: { id: string; name: string } | null;
+  policies?: CustomerPolicySummary[];
+};

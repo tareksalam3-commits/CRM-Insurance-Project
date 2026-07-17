@@ -1,18 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { User, UserRole, canManageUsers } from '../../lib/supabase';
-import { Plus, Search, Shield } from 'lucide-react';
+import { User, UserRole, canManageUsers, canResetOtherUserPassword } from '../../lib/supabase';
+import { Plus, Search, Shield, X } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import clsx from 'clsx';
 
 import { userSchema, passwordSchema, type UserFormData, type PasswordFormData } from './types';
-import { getAllowedManagers } from './business/roleHierarchy';
+import { getAllowedManagers, getCreatableRoles } from './business/roleHierarchy';
 import {
-  fetchAllUsers, fetchUsersPage, saveUser, changeUserPassword, toggleUserActive, TEMP_PASSWORD,
+  fetchAllUsers, fetchUsersPage, saveUser, changeUserPassword, toggleUserActive, softDeleteUser, TEMP_PASSWORD,
 } from './services/usersService';
-import { UsersTable } from './components/UsersTable';
+import { UsersGrid } from './components/UsersGrid';
 import { UserFormModal } from './components/UserFormModal';
 import { PasswordModal } from './components/PasswordModal';
+import { UserDetailsModal } from './components/UserDetailsModal';
+import { DeleteUserModal } from './components/DeleteUserModal';
+
+type StatusFilter = 'all' | 'active' | 'inactive';
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all',      label: 'الكل' },
+  { value: 'active',   label: 'نشط' },
+  { value: 'inactive', label: 'غير نشط' },
+];
 
 // ────────────────────────────────────────────────────────────
 // Component
@@ -24,6 +35,8 @@ export function Users() {
   const [users, setUsers]               = useState<User[]>([]);
   const [allUsers, setAllUsers]         = useState<User[]>([]); // for manager dropdown
   const [loading, setLoading]           = useState(true);
+  // أول تحميل فقط (لسه مفيش أي بيانات) يستحق Skeleton كامل
+  const isInitialLoading = loading && users.length === 0;
   const [showModal, setShowModal]       = useState(false);
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [editingUser, setEditingUser]   = useState<User | null>(null);
@@ -31,14 +44,22 @@ export function Users() {
   const [savingPwd, setSavingPwd]       = useState(false);
   const [page, setPage]                 = useState(1);
   const [totalPages, setTotalPages]     = useState(1);
+  const [totalCount, setTotalCount]     = useState(0);
   const [searchQuery, setSearchQuery]   = useState('');
   const [localSearch, setLocalSearch]   = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [showPwd, setShowPwd]           = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [togglingId, setTogglingId]     = useState<string | null>(null);
+  const [viewingUser, setViewingUser]   = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deleting, setDeleting]         = useState(false);
 
   const canManage = user ? canManageUsers(user.role) : false;
+  // الدرجات الوظيفية المسموح لهذا المستخدم إنشاؤها/إسنادها (نظام هرمي)
+  const allowedRoles = user ? getCreatableRoles(user.role) : [];
+  // إعادة تعيين كلمة مرور مستخدم آخر: Super Admin فقط
+  const canResetPassword = user ? canResetOtherUserPassword(user.role) : false;
 
   // ── forms ──────────────────────────────────────────────
   const {
@@ -73,25 +94,26 @@ export function Users() {
     if (user && canManage) loadAllUsers();
   }, [user, canManage]);
 
-  const loadAllUsers = async () => {
+  const loadAllUsers = useCallback(async () => {
     setAllUsers(await fetchAllUsers());
-  };
+  }, []);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { users: pageUsers, totalPages: pages } = await fetchUsersPage({ page, searchQuery, statusFilter });
+      const { users: pageUsers, totalPages: pages, totalCount: count } = await fetchUsersPage({ page, searchQuery, statusFilter });
       setUsers(pageUsers);
       setTotalPages(pages);
+      setTotalCount(count);
     } catch (err) {
       console.error('Error loading users:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, searchQuery, statusFilter]);
 
   // ── open / close modals ────────────────────────────────
-  const openEditModal = (u: User) => {
+  const openEditModal = useCallback((u: User) => {
     if (!canManage) return;
     setEditingUser(u);
     reset({
@@ -103,14 +125,14 @@ export function Users() {
       target:     u.target || 0,
     });
     setShowModal(true);
-  };
+  }, [canManage, reset]);
 
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     if (!canManage) return;
     setEditingUser(null);
-    reset({ name: '', email: '', phone: '', role: 'agent', manager_id: null, target: 0 });
+    reset({ name: '', email: '', phone: '', role: allowedRoles[0] ?? 'agent', manager_id: null, target: 0 });
     setShowModal(true);
-  };
+  }, [canManage, reset, allowedRoles]);
 
   const closeModal = () => {
     setShowModal(false);
@@ -118,14 +140,14 @@ export function Users() {
     reset();
   };
 
-  const openPwdModal = (u: User) => {
-    if (!canManage) return;
+  const openPwdModal = useCallback((u: User) => {
+    if (!canManage || !canResetPassword) return;
     setEditingUser(u);
     resetPwd({ password: '', confirmPassword: '' });
     setShowPwd(false);
     setShowConfirmPwd(false);
     setShowPwdModal(true);
-  };
+  }, [canManage, canResetPassword, resetPwd]);
 
   const closePwdModal = () => {
     setShowPwdModal(false);
@@ -176,7 +198,7 @@ export function Users() {
   };
 
   // ── toggle active ──────────────────────────────────────
-  const handleToggleActive = async (u: User) => {
+  const handleToggleActive = useCallback(async (u: User) => {
     if (!canManage) return;
     setTogglingId(u.id);
     try {
@@ -188,7 +210,32 @@ export function Users() {
     } finally {
       setTogglingId(null);
     }
+  }, [canManage, loadUsers]);
+
+  // ── delete (soft delete) ───────────────────────────────
+  const handleConfirmDelete = async () => {
+    if (!canManage || !deletingUser) return;
+    setDeleting(true);
+    try {
+      await softDeleteUser(deletingUser);
+      setDeletingUser(null);
+      await Promise.all([loadUsers(), loadAllUsers()]);
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      alert(`حدث خطأ أثناء حذف المستخدم: ${err.message || 'خطأ غير معروف'}`);
+    } finally {
+      setDeleting(false);
+    }
   };
+
+  // ── filters ─────────────────────────────────────────────
+  const hasFilters = searchQuery.trim() !== '' || statusFilter !== 'all';
+  const clearFilters = useCallback(() => {
+    setLocalSearch('');
+    setSearchQuery('');
+    setStatusFilter('all');
+    setPage(1);
+  }, []);
 
   // ── manager dropdown filtering ─────────────────────────
   const selectedRole = watch('role') as UserRole | undefined;
@@ -206,57 +253,94 @@ export function Users() {
 
   // ── render ─────────────────────────────────────────────
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-5 animate-fadeIn pb-4">
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-secondary-900">المستخدمون</h2>
-          <p className="text-sm text-secondary-500 mt-1">إدارة المستخدمين والهيكل الإداري</p>
+          <h2 className="text-xl md:text-2xl font-bold text-secondary-900">إدارة المستخدمين</h2>
+          <p className="text-sm text-secondary-500 mt-0.5">إدارة المستخدمين والهيكل الإداري</p>
         </div>
-        <button onClick={openCreateModal} className="btn btn-primary">
+        <button onClick={openCreateModal} className="btn btn-primary w-full sm:w-auto shadow-sm">
           <Plus className="w-5 h-5" />
           <span>إضافة مستخدم</span>
         </button>
       </div>
 
-      {/* Table card */}
-      <div className="card">
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+      {/* Filters */}
+      <div className="card space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
             <input
               type="text"
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
-              placeholder="بحث بالاسم أو البريد..."
-              className="input-field pr-10"
+              placeholder="بحث بالاسم أو البريد الإلكتروني..."
+              className="input-field pr-10 pl-9"
             />
+            {localSearch && (
+              <button
+                onClick={() => setLocalSearch('')}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-secondary-100 text-secondary-400 hover:text-secondary-600"
+                aria-label="مسح البحث"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
-            className="input-field w-auto"
-          >
-            <option value="all">جميع الحالات</option>
-            <option value="active">نشط</option>
-            <option value="inactive">غير نشط</option>
-          </select>
+
+          {/* Segmented status filter */}
+          <div className="flex items-center bg-secondary-100 rounded-lg p-1 shrink-0">
+            {STATUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => { setStatusFilter(opt.value); setPage(1); }}
+                className={clsx(
+                  'flex-1 sm:flex-none px-3.5 py-2 rounded-md text-sm font-medium transition-all duration-200 whitespace-nowrap',
+                  statusFilter === opt.value
+                    ? 'bg-white text-primary-700 shadow-sm'
+                    : 'text-secondary-500 hover:text-secondary-800'
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <UsersTable
-          users={users}
-          loading={loading}
-          page={page}
-          totalPages={totalPages}
-          setPage={setPage}
-          togglingId={togglingId}
-          onEdit={openEditModal}
-          onChangePassword={openPwdModal}
-          onToggleActive={handleToggleActive}
-        />
+        {/* عدد النتائج — بنفس مكانه وشكله فى صفحات العملاء/الوثائق/التحصيل */}
+        {!isInitialLoading && (
+          <p className="text-xs text-secondary-500 flex items-center gap-2">
+            <span>عدد النتائج: <span className="font-semibold text-secondary-700">{totalCount}</span></span>
+            {loading && (
+              <span className="inline-flex items-center gap-1 text-secondary-400">
+                <span className="w-3 h-3 rounded-full border-2 border-secondary-300 border-t-primary-500 animate-spin" />
+                <span>جارِ التحديث...</span>
+              </span>
+            )}
+          </p>
+        )}
       </div>
+
+      {/* Users grid */}
+      <UsersGrid
+        users={users}
+        isInitialLoading={isInitialLoading}
+        page={page}
+        totalPages={totalPages}
+        setPage={setPage}
+        togglingId={togglingId}
+        hasFilters={hasFilters}
+        onClearFilters={clearFilters}
+        onAddUser={openCreateModal}
+        onViewDetails={setViewingUser}
+        onEdit={openEditModal}
+        onChangePassword={openPwdModal}
+        canResetPassword={canResetPassword}
+        onToggleActive={handleToggleActive}
+        onDelete={setDeletingUser}
+      />
 
       {/* ══════════════════════════════════════════════════
           MODAL: Create / Edit User
@@ -270,6 +354,7 @@ export function Users() {
           errors={errors}
           selectedRole={selectedRole}
           allowedManagers={allowedManagers}
+          allowedRoles={allowedRoles}
           onSubmit={onSubmit}
           onClose={closeModal}
         />
@@ -291,6 +376,28 @@ export function Users() {
           errors={pwdErrors}
           onSubmit={onPwdSubmit}
           onClose={closePwdModal}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          MODAL: View Details
+      ══════════════════════════════════════════════════ */}
+      {viewingUser && (
+        <UserDetailsModal
+          user={viewingUser}
+          onClose={() => setViewingUser(null)}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          MODAL: Delete User (Soft Delete)
+      ══════════════════════════════════════════════════ */}
+      {deletingUser && (
+        <DeleteUserModal
+          user={deletingUser}
+          deleting={deleting}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setDeletingUser(null)}
         />
       )}
 

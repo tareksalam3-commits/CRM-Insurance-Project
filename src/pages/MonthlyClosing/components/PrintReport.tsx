@@ -1,4 +1,5 @@
 import { ROLE_LABELS } from '../../../lib/supabase';
+import { useSettings } from '../../../hooks/useSettings';
 import type { SupervisorAgg, PrintDetailRow } from '../types';
 import { fmt, last6 } from '../utils';
 
@@ -19,6 +20,7 @@ export function PrintReport({
   grandCollection: number;
   grandTotal: number;
 }) {
+  const { branding } = useSettings();
   return (
     <div className="hidden print:block print-report" dir="rtl">
       <style>{`
@@ -31,6 +33,9 @@ export function PrintReport({
         .print-report table { width: 100%; border-collapse: collapse; }
         .print-report th, .print-report td { border: 1px solid #999; padding: 4px 6px; text-align: center; }
         .print-report th { background: #e8e8e8; font-weight: 700; }
+        .print-report .pr-company { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px; }
+        .print-report .pr-company img { width: 28px; height: 28px; object-fit: contain; }
+        .print-report .pr-company span { font-size: 13px; font-weight: 700; color: #333; }
         .print-report .pr-title { text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
         .print-report .pr-sub { text-align: center; font-size: 12px; color: #444; margin-bottom: 14px; }
         .print-report .pr-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 6px; }
@@ -52,6 +57,10 @@ export function PrintReport({
       `}</style>
 
       {/* ══ صفحة 1: التجميعات (هيكل إداري بحت — بدون تفاصيل عملاء) ══ */}
+      <div className="pr-company">
+        {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
+        <span>{branding.company_name}</span>
+      </div>
       <div className="pr-title">تقرير تقفيل الشهر</div>
       <div className="pr-sub">صفحة التجميعات</div>
       <div className="pr-meta">
@@ -113,6 +122,10 @@ export function PrintReport({
           <thead>
             <tr className="pr-detail-title-row">
               <th colSpan={8}>
+                <div className="pr-company">
+                  {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
+                  <span>{branding.company_name}</span>
+                </div>
                 <div className="pr-title">تقرير تقفيل الشهر</div>
               </th>
             </tr>

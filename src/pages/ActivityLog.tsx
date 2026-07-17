@@ -4,8 +4,6 @@ import { supabase, type ActivityLog as ActivityLogEntry, type ActionType } from 
 import {
   Search,
   History,
-  ChevronLeft,
-  ChevronRight,
   User,
   FileText,
   Settings,
@@ -24,6 +22,7 @@ import {
   Shield
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { Pagination } from '../components/ui/Pagination';
 
 const ACTION_CONFIG: Record<ActionType, { label: string; icon: any; color: string }> = {
   login: { label: 'تسجيل دخول', icon: LogIn, color: 'text-info-600 bg-info-100' },
@@ -57,6 +56,9 @@ export function ActivityLog() {
   const { user } = useAuth();
   const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // أول تحميل فقط (لسه مفيش بيانات) يستحق Skeleton كامل — تغيير
+  // الفلتر/الصفحة/البحث بعد كده يحافظ على القائمة الحالية ظاهرة
+  const isInitialLoading = loading && logs.length === 0;
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
@@ -202,7 +204,13 @@ export function ActivityLog() {
           </select>
         </div>
 
-        {loading ? (
+        {loading && !isInitialLoading && (
+          <p className="text-xs text-secondary-400 flex items-center gap-1 mb-2">
+            <span className="w-3 h-3 rounded-full border-2 border-secondary-300 border-t-primary-500 animate-spin" />
+            <span>جارِ التحديث...</span>
+          </p>
+        )}
+        {isInitialLoading ? (
           <div className="flex items-center justify-center h-48">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
@@ -249,29 +257,12 @@ export function ActivityLog() {
               })}
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-secondary-200">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="btn btn-ghost disabled:opacity-50"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                  <span>السابق</span>
-                </button>
-                <span className="text-sm text-secondary-600">
-                  صفحة {page} من {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="btn btn-ghost disabled:opacity-50"
-                >
-                  <span>التالي</span>
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              className="mt-4 pt-4 border-t border-secondary-200"
+            />
           </>
         )}
       </div>

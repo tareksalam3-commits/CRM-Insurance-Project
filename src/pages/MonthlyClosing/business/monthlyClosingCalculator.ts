@@ -85,6 +85,11 @@ export function buildMonthlyClosingSummary(
   const buildGroup = (leaderId: string): GroupSummary => {
     const leader = usersMap.get(leaderId)!;
     const agents = getAgentsUnder(leaderId);
+    // لو رئيس المجموعة نفسه مالك وثائق (باع/حصّل بنفسه)، بياناته الشخصية
+    // موجودة بالفعل في agentMap لكنها كانت بتتفقد لأن getAgentsUnder بتجيب
+    // مرؤوسيه فقط دون بياناته هو — فبنضيفها هنا يدويًا.
+    const ownEntry = agentMap.get(leaderId);
+    if (ownEntry) agents.unshift(ownEntry);
     const prod = agents.reduce((s, a) => s + a.production, 0);
     const coll = agents.reduce((s, a) => s + a.collection, 0);
     return { leaderId, leaderName: leader.name, leaderRole: leader.role, production: prod, collection: coll, total: prod + coll, agents };
@@ -99,13 +104,26 @@ export function buildMonthlyClosingSummary(
     for (const cid of children) {
       const cu = usersMap.get(cid);
       if (!cu) continue;
-      if (getRoleLevel(cu.role) === 5) {
+      const lvl = getRoleLevel(cu.role);
+      if (lvl === 5) {
         groups.push(buildGroup(cid));
-      } else if (getRoleLevel(cu.role) >= 6) {
+      } else if (lvl >= 6) {
         if (agentMap.has(cid)) directA.push(agentMap.get(cid)!);
         else directA.push({ id: cu.id, name: cu.name, role: cu.role, manager_id: cu.manager_id, production: 0, collection: 0, total: 0, details: [] });
+      } else {
+        // مستوى إداري متداخل فوق رئيس المجموعة (مراقب تحت مراقب عام، مراقب عام
+        // تحت مدير تطوير... إلخ) — كان بيتفقد بالكامل قبل كده. بنبنيه بنفس منطق
+        // المراقب (بما فيه رقمه الشخصي) وبندمج مجموعاته هنا عشان الأرقام تتجمع
+        // هرميًا مهما زاد عدد المستويات الإدارية بين المستخدم الحالي والوكلاء.
+        const nested = buildSupervisor(cid);
+        groups.push(...nested.groups);
       }
     }
+
+    // لو المراقب نفسه مالك وثائق (باع/حصّل بنفسه)، بياناته الشخصية موجودة في
+    // agentMap لكنها كانت بتتفقد لأن الحلقة فوق بتمر على المرؤوسين فقط.
+    const supOwn = agentMap.get(supId);
+    if (supOwn) directA.unshift(supOwn);
 
     if (directA.length > 0) {
       groups.push({
@@ -182,7 +200,9 @@ export function buildMonthlyClosingSummary(
 
   const buildGroupLeaderAgg = (glId: string): GroupLeaderAgg => {
     const gl = usersMap.get(glId)!;
-    return { id: glId, name: gl.name, ...sumAgentIds(getAgentIdsUnder(glId)) };
+    const ids = getAgentIdsUnder(glId);
+    if (agentMap.has(glId)) ids.push(glId); // بيانات رئيس المجموعة الشخصية لو باع/حصّل بنفسه
+    return { id: glId, name: gl.name, ...sumAgentIds(ids) };
   };
 
   const buildSupervisorAgg = (supId: string, nameOverride?: string): SupervisorAgg => {
@@ -194,12 +214,20 @@ export function buildMonthlyClosingSummary(
     for (const kid of kids) {
       const ku = usersMap.get(kid);
       if (!ku) continue;
+      const lvl = getRoleLevel(ku.role);
       if (ku.role === 'group_leader') {
         groupLeaders.push(buildGroupLeaderAgg(kid));
-      } else if (getRoleLevel(ku.role) >= 6) {
+      } else if (lvl >= 6) {
         directAgentIds.push(kid);
+      } else {
+        // مستوى إداري متداخل (نفس الفكرة اللي فوق) — بندمج مجموعات رؤساء المجموعات
+        // بتاعته هنا عشان التقرير المطبوع يتطابق مع المعروض على الشاشة.
+        const nested = buildSupervisorAgg(kid);
+        groupLeaders.push(...nested.groupLeaders);
       }
     }
+    if (agentMap.has(supId)) directAgentIds.push(supId); // بيانات المراقب الشخصية لو باع/حصّل بنفسه
+
     if (directAgentIds.length > 0) {
       groupLeaders.push({ id: supId + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
     }
@@ -224,14 +252,20 @@ export function buildMonthlyClosingSummary(
     for (const kid of kids) {
       const ku = usersMap.get(kid);
       if (!ku) continue;
-      if (ku.role === 'supervisor') {
+      const lvl = getRoleLevel(ku.role);
+      if (lvl <= 4) {
+        // أي مستوى إداري من "مراقب" فما فوق (مراقب، مراقب عام، مدير تطوير، مدير
+        // نظام) — كان بيتلقط الدور "supervisor" حرفيًا بس، فكانت المستويات
+        // الإدارية الأعلى بتتفقد بالكامل من التقرير.
         printSupervisorList.push(buildSupervisorAgg(kid));
       } else if (ku.role === 'group_leader') {
         directGroupLeaderIds.push(kid);
-      } else if (getRoleLevel(ku.role) >= 6) {
+      } else if (lvl >= 6) {
         directAgentIds.push(kid);
       }
     }
+
+    if (agentMap.has(user.id)) directAgentIds.push(user.id); // بيانات المستخدم الحالي الشخصية لو باع/حصّل بنفسه
 
     if (directGroupLeaderIds.length > 0 || directAgentIds.length > 0) {
       const groupLeaders: GroupLeaderAgg[] = directGroupLeaderIds.map(buildGroupLeaderAgg);

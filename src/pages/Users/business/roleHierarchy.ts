@@ -1,15 +1,22 @@
 import { getRoleLevel } from '../../../lib/supabase';
 import type { User, UserRole } from '../../../lib/supabase';
 
-// كل درجة وظيفية لها درجة واحدة فقط مسموح يكون هو المدير المباشر
-export const EXPECTED_PARENT: Partial<Record<UserRole, UserRole>> = {
-  development_manager:  'super_admin',
-  general_supervisor:   'development_manager',
-  supervisor:           'general_supervisor',
-  group_leader:         'supervisor',      // رئيس المجموعة لا بد تحت مراقب
-  agent:                'group_leader',
-  premium_agent:        'group_leader',
-};
+// الأدوار التي لا تحتاج مدير مباشر إطلاقاً
+const NO_MANAGER_REQUIRED: UserRole[] = ['super_admin'];
+
+// كل الأدوار بترتيب الهيكل الإداري
+const ALL_ROLES: UserRole[] = [
+  'super_admin', 'development_manager', 'general_supervisor',
+  'supervisor', 'group_leader', 'agent', 'premium_agent',
+];
+
+// الأدوار التي يحق لدرجة وظيفية معيّنة إنشاؤها/تعديل الدرجة الوظيفية إليها
+// (نفس المنطق المطبّق فى edge function admin-create-user)
+export function getCreatableRoles(callerRole: UserRole): UserRole[] {
+  if (callerRole === 'super_admin') return ALL_ROLES;
+  const callerLevel = getRoleLevel(callerRole);
+  return ALL_ROLES.filter((r) => getRoleLevel(r) > callerLevel);
+}
 
 export const getRoleBadgeClass = (role: UserRole) => {
   switch (getRoleLevel(role)) {
@@ -23,16 +30,18 @@ export const getRoleBadgeClass = (role: UserRole) => {
 };
 
 // ── manager dropdown filtering ─────────────────────────
+// المدير المباشر ممكن يكون أي درجة وظيفية أعلى (مش لازم الدرجة اللي فوق
+// مباشرة بالظبط). مثلاً: Agent ينفع يتحط تحت Group Leader أو Supervisor أو
+// General Supervisor... إلخ، طالما درجته أعلى من درجة المستخدم الجديد.
 export function getAllowedManagers(
   allUsers: User[],
   selectedRole: UserRole | undefined,
   editingUserId: string | undefined,
 ): User[] {
+  if (!selectedRole || NO_MANAGER_REQUIRED.includes(selectedRole)) return [];
+  const selectedLevel = getRoleLevel(selectedRole);
   return allUsers.filter((u) => {
-    if (!selectedRole) return true;
     if (u.id === editingUserId) return false;
-    const expected = EXPECTED_PARENT[selectedRole];
-    if (!expected) return false; // super_admin مثلاً ما يحتاج مدير
-    return u.role === expected;
+    return getRoleLevel(u.role) < selectedLevel;
   });
 }

@@ -1,59 +1,110 @@
 import { supabase } from '../../../lib/supabase';
+import { format, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
+import { fetchCommissionSourceData } from '../../Commissions/services/commissionsService';
+import { computeCommissionRows, computeSummary } from '../../Commissions/business/commissionsCalculator';
 import type { ProfileFormData } from '../types';
+import type { ProfilePerformanceStats } from '../types';
+import { dalRead } from '../../../lib/dataAccessLayer';
 
-export async function fetchRankAmongSameRole(role: string, userId: string): Promise<{ rank: number; total: number } | null> {
-  // 1. Get all users with the same role and their policy counts
-  const { data: sameRoleUsers, error: usersError } = await supabase
-    .from('users')
-    .select('id')
-    .eq('role', role)
-    .eq('is_active', true);
+// كل الأرقام هنا محسوبة لحظيًا من جداول Supabase الفعلية (payments, policies,
+// customers) وقت فتح الصفحة، ومفيش أي قيمة مخزّنة أو Placeholder.
+const EMPTY_PROFILE_STATS: ProfilePerformanceStats = {
+  yearTotalPaid: 0,
+  monthTotalPaid: 0,
+  policiesThisYearCount: 0,
+  activeCustomersCount: 0,
+  commissionsThisMonth: 0,
+};
 
-  if (usersError || !sameRoleUsers) return null;
+export async function fetchProfilePerformanceStats(userId: string): Promise<ProfilePerformanceStats> {
+  const today = new Date();
+  const yearStartStr = format(startOfYear(today), 'yyyy-MM-dd');
+  const monthStartStr = format(startOfMonth(today), 'yyyy-MM-dd');
+  const monthEndStr = format(endOfMonth(today), 'yyyy-MM-dd');
+  const todayStr = format(today, 'yyyy-MM-dd');
 
-  const userIds = sameRoleUsers.map((u: { id: string }) => u.id);
+  const result = await dalRead(
+    `profile:performanceStats:${userId}:${todayStr}`,
+    async () => {
+      // التارجت الخاص بصاحب الدرجة الوظيفية (مراقب/مشرف/قائد مجموعة...) بيتحقق
+      // بإنتاجه الشخصي + إنتاج فريقه معًا، فكل المؤشرات هنا (عدا العمولات)
+      // بتتحسب على المستخدم نفسه + كل من هم تحته في الهيكل الوظيفي
+      const { data: subtreeIds, error: subtreeError } = await supabase.rpc(
+        'get_user_subtree',
+        { user_id: userId }
+      );
+      if (subtreeError) throw subtreeError;
 
-  // Get policy counts for each user with same role
-  const { data: policyCounts, error: policiesError } = await supabase
-    .from('policies')
-    .select('owner_id')
-    .in('owner_id', userIds);
+      const ownerIds: string[] = (subtreeIds as string[] | null) || [userId];
 
-  if (policiesError || !policyCounts) return null;
+      // 1) كل الأقساط المسددة (غير الملغاة) الخاصة بوثائق المستخدم وفريقه من أول
+      // السنة لغاية النهاردة — منها بنشتق "إجمالي المحقق هذا العام" و"نسبة
+      // تحقيق الشهر الحالي"
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payments')
+        .select('amount, payment_month, is_cancelled, installment:installment_id(policy:policy_id(owner_id))')
+        .eq('is_cancelled', false)
+        .gte('payment_month', yearStartStr)
+        .lte('payment_month', todayStr);
 
-  // Count policies per user
-  const countMap: Record<string, number> = {};
-  for (const p of policyCounts) {
-    countMap[p.owner_id] = (countMap[p.owner_id] || 0) + 1;
-  }
+      if (paymentsError) throw paymentsError;
 
-  const myCount = countMap[userId] || 0;
-  // Rank = number of users with more policies than me + 1
-  const rank = Object.values(countMap).filter((c) => c > myCount).length + 1;
+      const ownerIdsSet = new Set(ownerIds);
+      const teamPayments = ((paymentsData || []) as any[]).filter(
+        (p) => p.installment?.policy?.owner_id && ownerIdsSet.has(p.installment.policy.owner_id)
+      );
 
-  return { rank, total: userIds.length };
-}
+      const yearTotalPaid = teamPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const monthTotalPaid = teamPayments
+        .filter((p) => p.payment_month >= monthStartStr && p.payment_month <= monthEndStr)
+        .reduce((sum, p) => sum + Number(p.amount), 0);
 
-export async function fetchPaidThisMonthCount(userId: string): Promise<number | null> {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      // 2) عدد الوثائق التي أصدرها المستخدم نفسه + كل من هم تحته في الهيكل
+      // الوظيفي (نفس قاعدة الصلاحيات المستخدمة في باقي شاشات التطبيق)، مش
+      // بس الإنتاج الشخصي
+      const { count: policiesThisYearCount, error: policiesError } = await supabase
+        .from('policies')
+        .select('id', { count: 'exact', head: true })
+        .in('owner_id', ownerIds)
+        .gte('start_date', yearStartStr)
+        .lte('start_date', todayStr);
 
-  const { data: payments, error: paymentsError } = await supabase
-    .from('payments')
-    .select('id, installment_id, is_cancelled, installments!inner(policy_id, policies!inner(owner_id))')
-    .eq('is_cancelled', false)
-    .gte('payment_month', monthStart)
-    .lte('payment_month', monthEnd);
+      if (policiesError) throw policiesError;
 
-  if (paymentsError || !payments) return null;
+      // 3) عدد العملاء "النشطين" = عدد العملاء المميزين اللي عندهم وثيقة واحدة
+      // نشطة على الأقل، عند المستخدم أو أي فرد من فريقه (لا يوجد عمود حالة
+      // مباشر في جدول customers)
+      const { data: activePolicyCustomers, error: activeCustomersError } = await supabase
+        .from('policies')
+        .select('customer_id')
+        .in('owner_id', ownerIds)
+        .eq('status', 'active');
 
-  // Filter only payments for this user's policies
-  const myPayments = payments.filter((pay: any) => {
-    return pay.installments?.policies?.owner_id === userId;
-  });
+      if (activeCustomersError) throw activeCustomersError;
 
-  return myPayments.length;
+      const activeCustomersCount = new Set(
+        (activePolicyCustomers || []).map((p: any) => p.customer_id)
+      ).size;
+
+      // 4) العمولات المستحقة هذا الشهر — عمولة شخصية بحتة (مش على الفريق)،
+      // بنفس منطق حساب العمولات المستخدم في صفحة العمولات بالضبط، لضمان
+      // تطابق الرقمين
+      const targetMonth = format(today, 'yyyy-MM');
+      const { year1Payments, year2Payments } = await fetchCommissionSourceData(userId, today);
+      const { rows: commissionRows } = computeCommissionRows(year1Payments, year2Payments, targetMonth);
+      const commissionsThisMonth = computeSummary(commissionRows).totalMonth;
+
+      return {
+        yearTotalPaid,
+        monthTotalPaid,
+        policiesThisYearCount: policiesThisYearCount || 0,
+        activeCustomersCount,
+        commissionsThisMonth,
+      };
+    },
+    { emptyValue: EMPTY_PROFILE_STATS },
+  );
+  return result.data;
 }
 
 export async function updateProfile(userId: string, data: ProfileFormData): Promise<void> {

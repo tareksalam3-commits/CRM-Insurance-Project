@@ -2,8 +2,7 @@ import { X, Mail, Phone, Save } from 'lucide-react';
 import clsx from 'clsx';
 import type { UseFormRegister, UseFormHandleSubmit, FieldErrors } from 'react-hook-form';
 import { ROLE_LABELS, type User, type UserRole } from '../../../lib/supabase';
-import { ROLES, type UserFormData } from '../types';
-import { EXPECTED_PARENT } from '../business/roleHierarchy';
+import type { UserFormData } from '../types';
 
 interface UserFormModalProps {
   editingUser: User | null;
@@ -13,13 +12,15 @@ interface UserFormModalProps {
   errors: FieldErrors<UserFormData>;
   selectedRole: UserRole | undefined;
   allowedManagers: User[];
+  // الدرجات الوظيفية المسموح للمستخدم الحالي إنشاءها/إسنادها (نظام هرمي)
+  allowedRoles: UserRole[];
   onSubmit: (data: UserFormData) => void;
   onClose: () => void;
 }
 
 export function UserFormModal({
   editingUser, saving, register, handleSubmit, errors,
-  selectedRole, allowedManagers, onSubmit, onClose,
+  selectedRole, allowedManagers, allowedRoles, onSubmit, onClose,
 }: UserFormModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -89,7 +90,7 @@ export function UserFormModal({
             <div className="form-group">
               <label className="input-label">الدرجة الوظيفية *</label>
               <select {...register('role')} className="input-field">
-                {ROLES.map((role) => (
+                {allowedRoles.map((role) => (
                   <option key={role} value={role}>
                     {ROLE_LABELS[role]}
                   </option>
@@ -107,14 +108,14 @@ export function UserFormModal({
                   </option>
                 ))}
               </select>
-              {selectedRole && EXPECTED_PARENT[selectedRole] && allowedManagers.length === 0 && (
+              {selectedRole !== 'super_admin' && allowedManagers.length === 0 && (
                 <p className="text-xs text-error-600 mt-1">
-                  لا يوجد {ROLE_LABELS[EXPECTED_PARENT[selectedRole]!]} متاح — يجب إضافته أولاً
+                  لا يوجد مدير مناسب متاح ضمن نطاقك الإداري لهذه الدرجة الوظيفية
                 </p>
               )}
-              {selectedRole && EXPECTED_PARENT[selectedRole] && (
+              {selectedRole !== 'super_admin' && (
                 <p className="text-xs text-secondary-400 mt-1">
-                  يجب أن يكون المدير المباشر: {ROLE_LABELS[EXPECTED_PARENT[selectedRole]!]}
+                  يمكن اختيار أي درجة وظيفية أعلى كمدير مباشر
                 </p>
               )}
             </div>

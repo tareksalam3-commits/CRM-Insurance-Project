@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { POLICY_TYPE_LABELS, POLICY_STATUS_LABELS } from '../../../lib/supabase';
+import type { CancellationSummary } from '../../Cancellations/types';
 
 export const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('ar-EG', {
@@ -36,7 +37,6 @@ export function computeCustomersReport(customers: any[]) {
 export function computePoliciesReport(policies: any[]) {
   const byStatus = {
     active: policies.filter((p) => p.status === 'active').length,
-    suspended: policies.filter((p) => p.status === 'suspended').length,
     cancelled: policies.filter((p) => p.status === 'cancelled').length
   };
 
@@ -48,7 +48,6 @@ export function computePoliciesReport(policies: any[]) {
 
   const chart = [
     { name: 'نشط', value: byStatus.active, color: '#22c55e' },
-    { name: 'موقوف', value: byStatus.suspended, color: '#f59e0b' },
     { name: 'ملغى', value: byStatus.cancelled, color: '#ef4444' }
   ];
 
@@ -153,6 +152,45 @@ export function computeAgentsReport(agents: any[], payments: any[]) {
   return {
     data: { agents: sorted, details },
     chartData: sorted.slice(0, 10),
+  };
+}
+
+// تقرير "نسبة الإلغاءات" — يُبنى من ملخص جاهز (CancellationSummary) تم حسابه
+// مسبقاً في src/pages/Cancellations، فقط نعيد تنسيقه هنا بنفس شكل باقي
+// التقارير (details بمفاتيح عربية + بيانات رسم بياني) دون أي حساب إضافي.
+export function computeCancellationsReport(summary: CancellationSummary) {
+  const byType: Record<string, number> = {};
+  summary.rows.forEach((r) => {
+    const label = POLICY_TYPE_LABELS[r.policyType as keyof typeof POLICY_TYPE_LABELS] || r.policyType;
+    byType[label] = (byType[label] || 0) + r.totalPaidBeforeCancellation;
+  });
+
+  const chart = Object.entries(byType).map(([name, value]) => ({ name, value }));
+
+  const details = summary.rows.map((r) => ({
+    'اسم العميل': r.customerName,
+    'رقم الوثيقة': r.policyNumberLast6,
+    'الوكيل': r.agentName || '-',
+    'رئيس المجموعة': r.groupLeaderName || '-',
+    'المراقب': r.supervisorName || '-',
+    'المراقب العام': r.generalSupervisorName || '-',
+    'تاريخ البداية': format(new Date(r.startDate), 'd MMMM yyyy', { locale: ar }),
+    'تاريخ الإلغاء': format(new Date(r.cancelledDate), 'd MMMM yyyy', { locale: ar }),
+    'عدد الأشهر': r.monthsElapsed,
+    'الأقساط المسددة قبل الإلغاء': formatCurrency(r.totalPaidBeforeCancellation),
+    'قيمة القسط': formatCurrency(r.premiumAmount),
+    'نوع الوثيقة': POLICY_TYPE_LABELS[r.policyType as keyof typeof POLICY_TYPE_LABELS] || r.policyType,
+  }));
+
+  return {
+    data: {
+      cancellationRate: summary.cancellationRate,
+      cancelledValue: summary.cancelledValue,
+      totalCollected: summary.totalCollected,
+      count: summary.rows.length,
+      details,
+    },
+    chartData: chart,
   };
 }
 

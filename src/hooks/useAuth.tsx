@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { Session, User as AuthUser } from '@supabase/supabase-js';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { supabase, User, WEBAUTHN_FUNCTIONS_URL } from '../lib/supabase';
+import { clearAllDataCache } from '../lib/dataCache';
 
 interface AuthContextType {
   session: Session | null;
@@ -23,11 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // مرجع حي لهوية المستخدم الحالي — بيتحدّث فوراً (بعكس الـ state) عشان
+  // onAuthStateChange (اللي بيتسجل مرة واحدة بس عند mount) يقدر يعرف هل
+  // الحدث ده لنفس المستخدم أو لمستخدم مختلف فعلاً
+  const currentUserIdRef = useRef<string | null>(null);
+
   const fetchUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('id', userId)
+      .is('deleted_at', null) // مستخدم محذوف (Soft Delete) لا يستطيع الدخول للنظام
       .maybeSingle();
 
     if (error) {
@@ -45,38 +52,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setAuthUser(session?.user ?? null);
-
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-
-        if (profile) {
-          await supabase
-            .from('users')
-            .update({ last_login: new Date().toISOString() })
-            .eq('id', session.user.id);
-        }
-      }
-
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (async () => {
+    // ملحوظة: تغليف كل المنطق هنا بـ try/catch/finally مهم جداً — لو فشلت
+    // أي خطوة هنا (مثلاً بسبب انقطاع الإنترنت أثناء فتح التطبيق) لازم
+    // "loading" ترجع false فى كل الأحوال، وإلا التطبيق يفضل عالق على
+    // شاشة التحميل الأولى للأبد (نفس أثر الشاشة البيضاء عملياً)
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
         setAuthUser(session?.user ?? null);
 
         if (session?.user) {
           const profile = await fetchUserProfile(session.user.id);
           setUser(profile);
-        } else {
-          setUser(null);
-        }
+          currentUserIdRef.current = session.user.id;
 
+          if (profile) {
+            // تحديث "آخر دخول" عملية ثانوية — فشلها (مثلاً بسبب الشبكة)
+            // ما ينفعش يمنع تسجيل الدخول نفسه
+            try {
+              await supabase
+                .from('users')
+                .update({ last_login: new Date().toISOString() })
+                .eq('id', session.user.id);
+            } catch (err) {
+              console.error('Error updating last_login:', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error bootstrapping auth session:', err);
+      } finally {
         setLoading(false);
+      }
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      (async () => {
+        try {
+          setSession(session);
+          setAuthUser(session?.user ?? null);
+
+          if (session?.user) {
+            // Supabase بتطلق TOKEN_REFRESHED تلقائياً بشكل دوري (كل ما التوكن
+            // يوشك ينتهي) لنفس المستخدم المسجل دخوله فعلاً بدون أي تغيير حقيقي
+            // فى بياناته. إعادة جلب البروفايل وعمل setUser بكائن جديد فى كل مرة
+            // كانت بتغيّر reference "user" فتشغّل من جديد كل useEffect فى كل
+            // الصفحات المعتمدة عليه فى الـ deps (تحميل/رعشة متكررة بدون سبب).
+            // هنا نحدّث الجلسة (مهم لطلبات الشبكة القادمة) ونتجاهل فقط إعادة
+            // تعيين "user" لو نفس المستخدم ونفس الحدث الدوري ده تحديداً.
+            if (event === 'TOKEN_REFRESHED' && session.user.id === currentUserIdRef.current) {
+              return;
+            }
+            const profile = await fetchUserProfile(session.user.id);
+            setUser(profile);
+            currentUserIdRef.current = session.user.id;
+          } else {
+            setUser(null);
+            currentUserIdRef.current = null;
+          }
+        } catch (err) {
+          console.error('Error handling auth state change:', err);
+        } finally {
+          setLoading(false);
+        }
       })();
     });
 
@@ -230,6 +269,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setAuthUser(null);
     setUser(null);
+    currentUserIdRef.current = null;
+    // نفرّغ كاش القراءات المحلي حتى لا يرى مستخدم تالي على نفس الجهاز
+    // بيانات محفوظة من حساب سابق أثناء عرض حالة Offline
+    void clearAllDataCache();
   };
 
   return (

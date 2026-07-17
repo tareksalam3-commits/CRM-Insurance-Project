@@ -1,51 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import {
-  Bell, Search, X, User, Settings, LogOut, Shield, Menu,
-  LayoutDashboard, Users, FileText, CreditCard, BarChart3,
-  CalendarCheck, History, Network
-} from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Bell, Search, X, User, Settings, LogOut, Menu, Wallet } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { ROLE_LABELS, getRoleLevel, canViewSettings, canViewOrgStructure } from '../lib/supabase';
+import { ROLE_LABELS } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
+import { useSettings } from '../hooks/useSettings';
 import { supabase, Notification } from '../lib/supabase';
+import { dalRead } from '../lib/dataAccessLayer';
 import clsx from 'clsx';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
-import { ConnectionStatusBadge } from './ConnectionStatusBadge';
-
-const pageTitles: Record<string, string> = {
-  '/':                'لوحة التحكم',
-  '/customers':       'العملاء',
-  '/policies':        'الوثائق',
-  '/collection':      'التحصيل والسداد',
-  '/users':           'المستخدمون',
-  '/org-structure':   'الهيكل الوظيفي',
-  '/reports':         'التقارير',
-  '/monthly-closing': 'تقفيل الشهر',
-  '/activity-log':    'سجل العمليات',
-  '/profile':         'الملف الشخصي',
-  '/settings':        'الإعدادات'
-};
-
-const drawerMenuItems = [
-  { path: '/',                icon: LayoutDashboard, label: 'لوحة التحكم' },
-  { path: '/customers',       icon: Users,           label: 'العملاء' },
-  { path: '/policies',        icon: FileText,        label: 'الوثائق' },
-  { path: '/collection',      icon: CreditCard,      label: 'التحصيل والسداد' },
-  { path: '/org-structure',   icon: Network,         label: 'الهيكل الوظيفي', orgStructure: true },
-  { path: '/reports',         icon: BarChart3,       label: 'التقارير' },
-  { path: '/monthly-closing', icon: CalendarCheck,   label: 'تقفيل الشهر' },
-  { path: '/activity-log',    icon: History,         label: 'سجل العمليات' },
-  { path: '/profile',         icon: User,            label: 'الملف الشخصي' },
-  { path: '/settings',        icon: Settings,        label: 'الإعدادات', superAdminOnly: true },
-];
+import { BrandMark } from './BrandMark';
+import { PAGE_TITLES } from '../config/navigation';
 
 export function Header() {
   const { user, signOut }  = useAuth();
   const navigate           = useNavigate();
   const location           = useLocation();
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
+  const { sidebarCollapsed, toggleMobileMenu, closeMobileMenu } = useAppStore();
+  const { branding } = useSettings();
 
   const [searchOpen,        setSearchOpen]        = useState(false);
   const [searchQuery,       setSearchQuery]       = useState('');
@@ -53,23 +26,24 @@ export function Header() {
   const [notifications,     setNotifications]     = useState<Notification[]>([]);
   const [unreadCount,       setUnreadCount]       = useState(0);
   const [profileOpen,       setProfileOpen]       = useState(false);
-  const [mobileMenuOpen,    setMobileMenuOpen]    = useState(false);
 
   const notificationRef = useRef<HTMLDivElement>(null);
   const profileRef      = useRef<HTMLDivElement>(null);
 
   const getPageTitle = () => {
     const path = location.pathname;
-    if (path === '/') return pageTitles['/'];
-    const key = Object.keys(pageTitles).find((k) => k !== '/' && path.startsWith(k));
-    return key ? pageTitles[key] : 'CRM';
+    if (path === '/') return PAGE_TITLES['/'];
+    const key = Object.keys(PAGE_TITLES).find((k) => k !== '/' && path.startsWith(k));
+    return key ? PAGE_TITLES[key] : 'CRM';
   };
 
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
+    // نشترك في INSERT (إشعار جديد) وUPDATE (تعليم كمقروء من جهاز/تبويب آخر) عشان الحالة تتزامن لحظياً بدون أي تحديث يدوي للصفحة
     const ch = supabase.channel('notifications')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, fetchNotifications)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, fetchNotifications)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [user]);
@@ -83,18 +57,50 @@ export function Header() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // إغلاق الـ drawer عند تغيير الصفحة
-  useEffect(() => { setMobileMenuOpen(false); setSearchOpen(false); }, [location.pathname]);
+  // إغلاق الـ drawer والبحث عند تغيير الصفحة
+  useEffect(() => { closeMobileMenu(); setSearchOpen(false); }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchNotifications = async () => {
     if (!user) return;
-    const { data } = await supabase.from('notifications').select('*')
-      .eq('user_id', user.id).order('created_at', { ascending: false }).limit(20);
-    if (data) { setNotifications(data as Notification[]); setUnreadCount(data.filter((n) => !n.is_read).length); }
+    const result = await dalRead(
+      `header:notifications:${user.id}`,
+      async () => {
+        const { data, error } = await supabase.from('notifications').select('*')
+          .eq('user_id', user.id).order('created_at', { ascending: false }).limit(20);
+        if (error) throw error;
+        return (data as Notification[]) || [];
+      },
+      { emptyValue: [] as Notification[] },
+    );
+    // نتجاهل استبدال الحالة الحالية بقائمة فاضية أوفلاين لو فيه بيانات ظاهرة
+    // بالفعل على الشاشة (لا داعي لإخفاء إشعارات كانت ظاهرة قبل انقطاع الاتصال)
+    if (result.data.length > 0 || result.status === 'online') {
+      setNotifications(result.data);
+      setUnreadCount(result.data.filter((n) => !n.is_read).length);
+    }
   };
 
   const markAsRead    = async (id: string) => { await supabase.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('id', id); fetchNotifications(); };
   const markAllAsRead = async () => { if (!user) return; await supabase.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('user_id', user.id).eq('is_read', false); fetchNotifications(); };
+
+  // تحديد الصفحة المرتبطة بالإشعار (إن وجدت) بالاعتماد على نفس المسارات القائمة في التطبيق
+  const getNotificationLink = (n: Notification): string | null => {
+    switch (n.entity_type) {
+      case 'policy':         return n.entity_id ? `/policies/${n.entity_id}` : '/policies';
+      case 'customer':       return '/customers';
+      case 'installment':    return '/collection';
+      case 'user':           return '/users';
+      case 'monthly_closing':return '/monthly-closing';
+      default:                return null;
+    }
+  };
+
+  const handleNotificationClick = (n: Notification) => {
+    if (!n.is_read) markAsRead(n.id);
+    setNotificationsOpen(false);
+    const link = getNotificationLink(n);
+    if (link) navigate(link);
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,9 +108,9 @@ export function Header() {
   };
 
   const getNotifColor = (type: string) => {
-    if (['due_today','due_this_week'].includes(type)) return 'bg-warning-100 text-warning-600';
-    if (['overdue','policy_suspended'].includes(type)) return 'bg-error-100 text-error-600';
-    if (type === 'payment_received') return 'bg-success-100 text-success-600';
+    if (['due_today','due_this_week','month_closing_upcoming'].includes(type)) return 'bg-warning-100 text-warning-600';
+    if (['overdue','policy_suspended','policy_cancelled','payment_cancelled','user_disabled','user_deleted','subscription_rejected','subscription_expired'].includes(type)) return 'bg-error-100 text-error-600';
+    if (['payment_received','policy_reactivated','user_enabled','month_closing_completed','subscription_approved'].includes(type)) return 'bg-success-100 text-success-600';
     return 'bg-info-100 text-info-600';
   };
 
@@ -120,10 +126,10 @@ export function Header() {
       )}>
         {/* يسار */}
         <div className="flex items-center gap-2 min-w-0">
-          <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-secondary-100 flex-shrink-0">
+          <button onClick={toggleMobileMenu} className="md:hidden p-2 rounded-lg hover:bg-secondary-100 flex-shrink-0">
             <Menu className="w-5 h-5 text-secondary-600" />
           </button>
-          <Shield className="w-5 h-5 text-primary-600 md:hidden flex-shrink-0" />
+          <BrandMark className="w-5 h-5 md:hidden" />
           <h1 className="text-sm md:text-lg font-semibold text-secondary-900 truncate">{getPageTitle()}</h1>
         </div>
 
@@ -165,7 +171,7 @@ export function Header() {
                   {notifications.length === 0
                     ? <div className="px-4 py-8 text-center text-secondary-500 text-sm">لا توجد إشعارات</div>
                     : notifications.map((n) => (
-                      <button key={n.id} onClick={() => markAsRead(n.id)}
+                      <button key={n.id} onClick={() => handleNotificationClick(n)}
                         className={clsx('w-full text-right px-4 py-3 hover:bg-secondary-50 border-b border-secondary-50 last:border-0', !n.is_read && 'bg-primary-50/30')}>
                         <div className="flex items-start gap-3">
                           <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0', getNotifColor(n.type))}>
@@ -201,7 +207,10 @@ export function Header() {
               <div className="dropdown-menu left-0 right-auto min-w-[180px]">
                 <button onClick={() => { setProfileOpen(false); navigate('/profile'); }} className="dropdown-item w-full"><User className="w-4 h-4" /><span>الملف الشخصي</span></button>
                 {user.role === 'super_admin' && (
-                  <button onClick={() => { setProfileOpen(false); navigate('/settings'); }} className="dropdown-item w-full"><Settings className="w-4 h-4" /><span>الإعدادات</span></button>
+                  <button onClick={() => { setProfileOpen(false); navigate('/subscriptions-admin'); }} className="dropdown-item w-full"><Wallet className="w-4 h-4" /><span>الاشتراكات</span></button>
+                )}
+                {user.role === 'super_admin' && (
+                  <button onClick={() => { setProfileOpen(false); navigate('/settings'); }} className="dropdown-item w-full"><Settings className="w-4 h-4" /><span>إعدادات النظام</span></button>
                 )}
                 <hr className="my-1 border-secondary-200" />
                 <button onClick={() => { setProfileOpen(false); signOut(); }} className="dropdown-item w-full text-error-600"><LogOut className="w-4 h-4" /><span>تسجيل الخروج</span></button>
@@ -210,76 +219,6 @@ export function Header() {
           </div>
         </div>
       </header>
-
-      {/* ===========================  MOBILE DRAWER  =========================== */}
-      {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex" onClick={() => setMobileMenuOpen(false)}>
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          {/* Drawer من اليمين */}
-          <div
-            className="relative w-72 max-w-[85vw] h-full bg-white flex flex-col shadow-2xl animate-slideIn ml-auto mr-0"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* رأس */}
-            <div className="flex items-center justify-between px-4 h-14 bg-primary-600">
-              <div className="flex items-center gap-2">
-                <Shield className="w-7 h-7 text-white" />
-                <ConnectionStatusBadge variant="light" />
-              </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30">
-                <X className="w-5 h-5 text-white" />
-              </button>
-            </div>
-
-            {/* بيانات المستخدم */}
-            <div className="px-4 py-3 border-b border-secondary-100 bg-primary-50">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-full bg-primary-100 border-2 border-primary-200 flex items-center justify-center flex-shrink-0">
-                  {user.avatar_url
-                    ? <img src={user.avatar_url} alt={user.name} className="w-11 h-11 rounded-full object-cover" loading="lazy" decoding="async" />
-                    : <span className="text-primary-700 font-bold">{user.name.charAt(0)}</span>}
-                </div>
-                <div>
-                  <p className="font-semibold text-secondary-900 text-sm">{user.name}</p>
-                  <p className="text-xs text-secondary-500">{ROLE_LABELS[user.role]}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* روابط */}
-            <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
-              {drawerMenuItems
-                .filter((item) => {
-                  if ((item as any).superAdminOnly) return canViewSettings(user.role);
-                  if ((item as any).orgStructure)   return canViewOrgStructure(user.role);
-                  return true;
-                })
-                .map((item) => {
-                  const Icon   = item.icon;
-                  const active = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-                  return (
-                    <Link key={item.path} to={item.path} onClick={() => setMobileMenuOpen(false)}
-                      className={clsx(
-                        'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all',
-                        active ? 'bg-primary-600 text-white' : 'text-secondary-700 hover:bg-secondary-100'
-                      )}>
-                      <Icon className="w-5 h-5 flex-shrink-0" />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
-            </nav>
-
-            {/* تسجيل الخروج */}
-            <div className="border-t border-secondary-200 p-3">
-              <button onClick={() => { setMobileMenuOpen(false); signOut(); }}
-                className="btn btn-ghost w-full text-error-600 hover:bg-error-50 justify-start gap-3">
-                <LogOut className="w-5 h-5" /><span>تسجيل الخروج</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

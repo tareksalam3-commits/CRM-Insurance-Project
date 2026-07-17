@@ -1,14 +1,24 @@
 import { supabase, type User } from '../../../lib/supabase';
 import type { UserFormData, PasswordFormData } from '../types';
+import { dalRead } from '../../../lib/dataAccessLayer';
 
 const PAGE_SIZE = 10;
 
 export async function fetchAllUsers(): Promise<User[]> {
-  const { data } = await supabase
-    .from('users')
-    .select('id, name, role')
-    .order('name');
-  return (data as User[]) || [];
+  const result = await dalRead(
+    `users:all`,
+    async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, role')
+        .is('deleted_at', null) // استبعاد المستخدمين المحذوفين (Soft Delete)
+        .order('name');
+      if (error) throw error;
+      return (data as User[]) || [];
+    },
+    { emptyValue: [] as User[] },
+  );
+  return result.data;
 }
 
 export interface FetchUsersParams {
@@ -17,29 +27,46 @@ export interface FetchUsersParams {
   statusFilter: 'all' | 'active' | 'inactive';
 }
 
+interface UsersPageResult {
+  users: User[];
+  totalPages: number;
+  totalCount: number;
+}
+
+const EMPTY_USERS_PAGE: UsersPageResult = { users: [], totalPages: 1, totalCount: 0 };
+
 export async function fetchUsersPage({ page, searchQuery, statusFilter }: FetchUsersParams) {
-  let query = supabase
-    .from('users')
-    .select('*, manager:manager_id(id, name)', { count: 'exact' })
-    .order('created_at', { ascending: false });
+  const result = await dalRead(
+    `users:page:${page}:${searchQuery.trim()}:${statusFilter}`,
+    async () => {
+      let query = supabase
+        .from('users')
+        .select('*, manager:manager_id(id, name)', { count: 'exact' })
+        .is('deleted_at', null) // استبعاد المستخدمين المحذوفين (Soft Delete) من صفحة المستخدمين
+        .order('created_at', { ascending: false });
 
-  if (searchQuery) {
-    query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`);
-  }
-  if (statusFilter !== 'all') {
-    query = query.eq('is_active', statusFilter === 'active');
-  }
+      if (searchQuery) {
+        query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`);
+      }
+      if (statusFilter !== 'all') {
+        query = query.eq('is_active', statusFilter === 'active');
+      }
 
-  const from = (page - 1) * PAGE_SIZE;
-  const to   = from + PAGE_SIZE - 1;
+      const from = (page - 1) * PAGE_SIZE;
+      const to   = from + PAGE_SIZE - 1;
 
-  const { data, error, count } = await query.range(from, to);
-  if (error) throw error;
+      const { data, error, count } = await query.range(from, to);
+      if (error) throw error;
 
-  return {
-    users: data as User[],
-    totalPages: Math.ceil((count || 0) / PAGE_SIZE),
-  };
+      return {
+        users: data as User[],
+        totalPages: Math.ceil((count || 0) / PAGE_SIZE),
+        totalCount: count || 0,
+      };
+    },
+    { emptyValue: EMPTY_USERS_PAGE },
+  );
+  return result.data;
 }
 
 async function getAccessToken(): Promise<string> {
@@ -189,5 +216,33 @@ export async function toggleUserActive(u: User): Promise<void> {
     p_action:      u.is_active ? 'user_disable' : 'user_enable',
     p_entity_type: 'user',
     p_entity_id:   u.id,
+  });
+}
+
+// ── soft delete ─────────────────────────────────────────
+// حذف ناعم (Soft Delete): لا يتم حذف أي صف من القاعدة إطلاقاً.
+// فقط نضع طابع زمني في deleted_at + نعطّل الحساب (is_active = false) حتى:
+//  - يختفي المستخدم من صفحة المستخدمين والهيكل الوظيفي (فلترة deleted_at is null).
+//  - لا يقدر يسجل دخول (فلترة deleted_at is null في useAuth).
+//  - لا يمكن إسناد بيانات جديدة له (نفس آلية is_active المستخدمة بالفعل في قوائم الإسناد).
+// كل البيانات التاريخية (عملاء، وثائق، أقساط، تحصيل، عمولات، تقارير، تقفيل الشهر، سجل العمليات)
+// تبقى كما هي تماماً لأنها لا تُحذف ولا تُعدَّل، وتستمر في عرض اسم المستخدم من نفس الصف المحفوظ.
+export async function softDeleteUser(u: User): Promise<void> {
+  const { error } = await supabase
+    .from('users')
+    .update({
+      deleted_at: new Date().toISOString(),
+      is_active:  false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', u.id);
+
+  if (error) throw error;
+
+  await supabase.rpc('log_activity', {
+    p_action:      'user_delete',
+    p_entity_type: 'user',
+    p_entity_id:   u.id,
+    p_old_values:  u,
   });
 }

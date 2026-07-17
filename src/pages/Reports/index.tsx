@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import {
   BarChart,
@@ -10,6 +11,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import clsx from 'clsx';
+import { Printer } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -22,10 +24,13 @@ import {
 import {
   formatCurrency, computeCustomersReport, computePoliciesReport, computeProductionReport,
   computeCollectionReport, computeOverdueReport, computeAgentsReport, computeTeamPerformanceReport,
+  computeCancellationsReport,
 } from './business/reportsCalculator';
+import { loadCancellationSummary } from '../Cancellations/services/cancellationService';
 
 export function Reports() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [reportType, setReportType] = useState<ReportType>('production');
   const [dateRange, setDateRange] = useState<DateRange>('month');
   // فلتر الشهر: بصيغة yyyy-MM، يُستخدم فقط عندما تكون dateRange = 'month'
@@ -33,6 +38,10 @@ export function Reports() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
+  // أول تحميل فقط (لسه مفيش بيانات لأي تقرير) يستحق شاشة تحميل كاملة —
+  // تبديل نوع التقرير أو الفلتر بعد كده يحافظ على آخر تقرير ظاهر مع
+  // مؤشر تحديث بسيط بدل ما تختفي الشاشة بالكامل فى كل مرة
+  const isInitialLoading = loading && data === null;
 
   useEffect(() => {
     if (user) {
@@ -60,8 +69,16 @@ export function Reports() {
   const loadReport = async () => {
     setLoading(true);
     try {
-      const userIds = await fetchUserSubtreeIds(user!.id);
       const { start, end } = getDateRange();
+
+      // تقرير "نسبة الإلغاءات" لا يحتاج مطلقًا شجرة المستخدمين الفرعية (يعتمد
+      // فقط على loadCancellationSummary) — تفادي استعلام RPC غير مستخدم له
+      if (reportType === 'cancellations') {
+        await loadCancellationsReport();
+        return;
+      }
+
+      const userIds = await fetchUserSubtreeIds(user!.id);
 
       switch (reportType) {
         case 'customers':
@@ -132,8 +149,12 @@ export function Reports() {
   };
 
   const loadAgentsReport = async (userIds: string[], start: Date, end: Date) => {
-    const agents = await fetchAgentsForReport(userIds);
-    const payments = await fetchSimplePaymentsInRange(start, end);
+    // الدالتان مستقلتان (لا تعتمد إحداهما على نتيجة الأخرى) — تنفيذهما بالتوازي
+    // بدل التسلسل يقلّل زمن التحميل دون أي تغيير فى النتيجة
+    const [agents, payments] = await Promise.all([
+      fetchAgentsForReport(userIds),
+      fetchSimplePaymentsInRange(start, end),
+    ]);
     const { data: reportData, chartData: chart } = computeAgentsReport(agents, payments);
     setData(reportData);
     setChartData(chart);
@@ -146,6 +167,16 @@ export function Reports() {
 
     setData({ leaders: performance, details });
     setChartData(performance);
+  };
+
+  // تقرير "نسبة الإلغاءات" له فترة حساب ثابتة دائماً (أول يناير حتى نهاية
+  // الشهر الحالي)، مستقلة عن فلاتر الفترة الخاصة بباقي التقارير
+  const loadCancellationsReport = async () => {
+    if (!user) return;
+    const summary = await loadCancellationSummary({ id: user.id, name: user.name, role: user.role });
+    const { data: reportData, chartData: chart } = computeCancellationsReport(summary);
+    setData(reportData);
+    setChartData(chart);
   };
 
   const loadSupervisorsReport = async (userIds: string[], start: Date, end: Date) => {
@@ -165,7 +196,8 @@ export function Reports() {
     { id: 'overdue', label: 'الأقساط المتأخرة' },
     { id: 'agents', label: 'أداء الوكلاء' },
     { id: 'group_leaders', label: 'أداء رؤساء المجموعات' },
-    { id: 'supervisors', label: 'أداء المراقبين' }
+    { id: 'supervisors', label: 'أداء المراقبين' },
+    { id: 'cancellations', label: 'نسبة الإلغاءات' }
   ];
 
   const { start: periodStart, end: periodEnd } = getDateRange();
@@ -188,32 +220,26 @@ export function Reports() {
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div>
-          <h2 className="text-xl font-bold text-secondary-900">التقارير</h2>
+          <h2 className="text-xl md:text-2xl font-bold text-secondary-900 flex items-center gap-2">
+            <span>التقارير الشاملة</span>
+            {loading && !isInitialLoading && (
+              <span className="inline-flex items-center gap-1 text-secondary-400 text-xs font-normal">
+                <span className="w-3 h-3 rounded-full border-2 border-secondary-300 border-t-primary-500 animate-spin" />
+                <span>جارِ التحديث...</span>
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-secondary-500 mt-1">
             تقارير وإحصائيات الأداء
           </p>
         </div>
         <button
           onClick={() => window.print()}
-          className="btn btn-secondary flex items-center gap-2"
+          className="btn btn-secondary"
           title="طباعة التقرير"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="6 9 6 2 18 2 18 9" />
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-            <rect x="6" y="14" width="12" height="8" />
-          </svg>
-          طباعة
+          <Printer className="w-4 h-4" />
+          <span>طباعة</span>
         </button>
       </div>
 
@@ -232,28 +258,34 @@ export function Reports() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4 print:hidden">
-        <select
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value as DateRange)}
-          className="input-field w-auto"
-        >
-          <option value="month">شهر محدد</option>
-          <option value="quarter">الربع السنوي</option>
-          <option value="year">السنة الحالية</option>
-        </select>
-
-        {dateRange === 'month' && (
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+      {reportType === 'cancellations' ? (
+        <p className="text-sm text-secondary-500 print:hidden">
+          فترة الحساب ثابتة دائماً: من أول يناير حتى نهاية الشهر الحالي من سنة {new Date().getFullYear()}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2 mb-4 print:hidden">
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value as DateRange)}
             className="input-field w-auto"
-          />
-        )}
-      </div>
+          >
+            <option value="month">شهر محدد</option>
+            <option value="quarter">الربع السنوي</option>
+            <option value="year">السنة الحالية</option>
+          </select>
 
-      {loading ? (
+          {dateRange === 'month' && (
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="input-field w-auto"
+            />
+          )}
+        </div>
+      )}
+
+      {isInitialLoading ? (
         <div className="flex items-center justify-center h-48 print:hidden">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
@@ -288,6 +320,32 @@ export function Reports() {
               <h3 className="font-semibold text-secondary-900 mb-4">ملخص التقرير</h3>
               {data && (
                 <div className="space-y-4">
+                  {data.cancellationRate !== undefined && (
+                    <div className="grid grid-cols-1 gap-3 print:grid-cols-1">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/cancellations')}
+                        className="text-right p-4 bg-error-50 rounded-lg hover:bg-error-100 transition-colors print:bg-white print:border print:p-2"
+                      >
+                        <p className="text-sm text-secondary-600">نسبة الإلغاءات</p>
+                        <p className="text-2xl font-bold text-error-700 mt-1">{data.cancellationRate}%</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/cancellations')}
+                        className="text-right p-4 bg-error-50 rounded-lg hover:bg-error-100 transition-colors print:bg-white print:border print:p-2"
+                      >
+                        <p className="text-sm text-secondary-600">قيمة الإلغاءات</p>
+                        <p className="text-2xl font-bold text-error-700 mt-1">{formatCurrency(data.cancelledValue)}</p>
+                      </button>
+                      <div className="p-4 bg-secondary-50 rounded-lg print:bg-white print:border print:p-2">
+                        <p className="text-sm text-secondary-600">إجمالي الأقساط المسددة هذا العام</p>
+                        <p className="text-lg font-semibold text-secondary-800 mt-1">{formatCurrency(data.totalCollected)}</p>
+                        <p className="text-sm text-secondary-500 mt-1">{data.count} وثيقة داخلة في الحساب</p>
+                      </div>
+                    </div>
+                  )}
+
                   {data.total !== undefined && (
                     <div className="p-4 bg-primary-50 rounded-lg print:bg-white print:border print:p-2">
                       <p className="text-sm text-secondary-600">الإجمالي</p>
@@ -311,10 +369,6 @@ export function Reports() {
                       <div className="flex justify-between items-center">
                         <span className="text-secondary-600">نشط</span>
                         <span className="font-semibold text-success-700">{data.byStatus.active}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-secondary-600">موقوف</span>
-                        <span className="font-semibold text-warning-700">{data.byStatus.suspended}</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-secondary-600">ملغى</span>
@@ -368,30 +422,20 @@ export function Reports() {
           <div className="card print:shadow-none print:border print:break-inside-avoid">
             <h3 className="font-semibold text-secondary-900 mb-4">تفاصيل السجلات</h3>
             {detailsColumns.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="table-container print:hover:bg-transparent">
+                <table>
                   <thead>
-                    <tr className="border-b border-secondary-200">
+                    <tr>
                       {detailsColumns.map((col) => (
-                        <th
-                          key={col}
-                          className="text-right py-2 px-3 text-secondary-500 font-medium whitespace-nowrap"
-                        >
-                          {col}
-                        </th>
+                        <th key={col}>{col}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {data.details.map((row: Record<string, any>, idx: number) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-secondary-100 hover:bg-secondary-50 print:hover:bg-transparent"
-                      >
+                      <tr key={idx}>
                         {detailsColumns.map((col) => (
-                          <td key={col} className="py-2 px-3 text-secondary-700 whitespace-nowrap">
-                            {row[col]}
-                          </td>
+                          <td key={col}>{row[col]}</td>
                         ))}
                       </tr>
                     ))}

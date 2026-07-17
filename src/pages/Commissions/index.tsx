@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { Wallet, CalendarClock, CalendarCheck2, Percent } from 'lucide-react';
+import { Wallet, CalendarClock, CalendarCheck2, Percent, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
 import type { CommissionRow } from './types';
@@ -24,7 +24,11 @@ export function Commissions() {
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   );
   const [rows, setRows] = useState<CommissionRow[]>([]);
+  const [missingSumAssuredCount, setMissingSumAssuredCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  // أول تحميل فقط (لسه مفيش بيانات) يستحق شاشة تحميل كاملة — تغيير الشهر
+  // بعد كده يحافظ على الجدول الحالي ظاهر مع مؤشر تحديث بسيط
+  const isInitialLoading = loading && rows.length === 0;
 
   const loadCommissions = useCallback(async () => {
     if (!user) return;
@@ -34,14 +38,20 @@ export function Commissions() {
       const selectedMonthDate = new Date(year, month - 1, 1);
 
       const { year1Payments, year2Payments } = await fetchCommissionSourceData(user.id, selectedMonthDate);
-      const computedRows = computeCommissionRows(year1Payments, year2Payments, selectedMonth);
+      const { rows: computedRows, missingSumAssuredCount: missingCount } = computeCommissionRows(
+        year1Payments,
+        year2Payments,
+        selectedMonth
+      );
 
       // الأحدث أولاً حسب يوم الاستحقاق ثم النوع
       computedRows.sort((a, b) => a.dueDay - b.dueDay);
       setRows(computedRows);
+      setMissingSumAssuredCount(missingCount);
     } catch (error) {
       console.error('Error loading commissions:', error);
       setRows([]);
+      setMissingSumAssuredCount(0);
     } finally {
       setLoading(false);
     }
@@ -56,7 +66,10 @@ export function Commissions() {
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <h1 className="text-xl md:text-2xl font-bold text-secondary-900">العمولات</h1>
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-secondary-900">العمولات</h2>
+          <p className="text-sm text-secondary-500 mt-0.5">عمولاتك المستحقة بناءً على التحصيل الفعلي</p>
+        </div>
 
         <input
           type="month"
@@ -65,6 +78,18 @@ export function Commissions() {
           className="input-field w-auto"
         />
       </div>
+
+      {/* تنبيه: وثائق مسدد عليها أقساط الشهر ده (سنة أولى أو تجديد) بس
+          "مبلغ التأمين" فيها لسه مش متسجل، فمش ممكن تُحسب عمولتها لحد ما يتضاف */}
+      {!loading && missingSumAssuredCount > 0 && (
+        <div className="card bg-warning-50/60 border border-warning-100 py-3 px-4 flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 text-warning-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-warning-800">
+            يوجد {missingSumAssuredCount} {missingSumAssuredCount === 1 ? 'قسط مسدد' : 'أقساط مسددة'} لا يمكن احتساب
+            عمولتها لأن "مبلغ التأمين" غير مسجل على الوثيقة — أضِف القيمة من صفحة الوثيقة لتظهر عمولتها هنا.
+          </p>
+        </div>
+      )}
 
       {/* بطاقات الملخص */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -113,14 +138,22 @@ export function Commissions() {
 
       {/* الجدول */}
       <div className="card">
-        {loading ? (
+        {loading && !isInitialLoading && (
+          <p className="text-xs text-secondary-400 flex items-center gap-1 mb-2">
+            <span className="w-3 h-3 rounded-full border-2 border-secondary-300 border-t-primary-500 animate-spin" />
+            <span>جارِ التحديث...</span>
+          </p>
+        )}
+        {isInitialLoading ? (
           <div className="flex items-center justify-center h-48">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
           </div>
         ) : rows.length === 0 ? (
-          <div className="text-center py-12">
-            <Percent className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
-            <p className="text-secondary-500">لا توجد عمولات لهذا الشهر</p>
+          <div className="text-center py-14">
+            <div className="w-16 h-16 rounded-full bg-secondary-100 flex items-center justify-center mx-auto mb-4">
+              <Percent className="w-8 h-8 text-secondary-400" />
+            </div>
+            <p className="text-secondary-600 font-medium">لا توجد عمولات لهذا الشهر</p>
           </div>
         ) : (
           <div className="table-container">
