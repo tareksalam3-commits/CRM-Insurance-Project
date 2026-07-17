@@ -157,6 +157,23 @@ export function buildMonthlyClosingSummary(
     }
   }
 
+  // لو المستخدم الحالي (لما يفتح هو نفسه صفحة إقفال الشهر، مش حد فوقه بيشوف
+  // فريقه) عنده وثائق باعها/حصّلها بنفسه، بياناته الشخصية موجودة في agentMap
+  // لكن المسار ده (myDirectGroups) كان بيتجاهلها بالكامل — نفس الخلل اللي كان
+  // في buildSupervisor بالظبط، بس في المسار المنفصل ده.
+  const myOwn = agentMap.get(user.id);
+  if (myOwn) {
+    myDirectGroups.push({
+      leaderId: user.id + '_direct',
+      leaderName: 'وكلاء مباشرون',
+      leaderRole: 'agent' as UserRole,
+      production: myOwn.production,
+      collection: myOwn.collection,
+      total: myOwn.total,
+      agents: [myOwn],
+    });
+  }
+
   if (myDirectGroups.length > 0) {
     supervisorList.unshift({
       supervisorId: user.id,
