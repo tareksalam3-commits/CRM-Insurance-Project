@@ -42,6 +42,7 @@ export interface GroupSummary {
   collection: number;
   total: number;
   agents: AgentSummary[];
+  agentCount: number;
 }
 
 export interface SupervisorSummary {

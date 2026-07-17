@@ -25,26 +25,58 @@ export function PrintReport({
     <div className="hidden print:block print-report" dir="rtl">
       <style>{`
         @media print {
-          @page { size: A4; margin: 14mm 12mm; }
+          @page { size: A4; margin: 16mm 12mm 14mm; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-        .print-report { font-family: 'Tahoma', 'Arial', sans-serif; color: #111; font-size: 12px; }
+        .print-report {
+          font-family: 'Tahoma', 'Segoe UI', 'Arial', sans-serif;
+          color: #1f2937;
+          font-size: 11.5px;
+          line-height: 1.5;
+        }
         .print-report .pr-page-break { page-break-before: always; break-before: page; }
+
         .print-report table { width: 100%; border-collapse: collapse; }
-        .print-report th, .print-report td { border: 1px solid #999; padding: 4px 6px; text-align: center; }
-        .print-report th { background: #e8e8e8; font-weight: 700; }
-        .print-report .pr-company { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px; }
-        .print-report .pr-company img { width: 28px; height: 28px; object-fit: contain; }
-        .print-report .pr-company span { font-size: 13px; font-weight: 700; color: #333; }
-        .print-report .pr-title { text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
-        .print-report .pr-sub { text-align: center; font-size: 12px; color: #444; margin-bottom: 14px; }
-        .print-report .pr-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 6px; }
-        .print-report .pr-sup-name { font-weight: 800; font-size: 13px; }
-        .print-report .pr-group-row td:first-child { text-align: right; font-weight: 700; }
-        .print-report .pr-totals-row td { font-weight: 800; background: #f6f6f6; }
-        .print-report .pr-grand-box { border: 2px solid #333; padding: 10px 14px; margin-top: 16px; }
-        .print-report .pr-grand-box .row { display:flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
-        .print-report .pr-grand-box .row.total { font-weight: 800; font-size: 15px; border-top: 1px solid #999; margin-top: 4px; padding-top: 6px; }
+        .print-report th, .print-report td { border: 1px solid #d8dce1; padding: 6px 8px; text-align: center; }
+        .print-report th {
+          background: #15803d;
+          color: #fff;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+        }
+        .print-report tbody tr:nth-child(even) { background: #f7f9f7; }
+
+        /* ترويسة الشركة والعنوان */
+        .print-report .pr-company { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px; }
+        .print-report .pr-company img { width: 30px; height: 30px; object-fit: contain; }
+        .print-report .pr-company span { font-size: 13px; font-weight: 700; color: #15803d; letter-spacing: 0.3px; }
+        .print-report .pr-title { text-align: center; font-size: 19px; font-weight: 800; color: #14532d; margin-bottom: 2px; }
+        .print-report .pr-sub { text-align: center; font-size: 11.5px; color: #6b7280; margin-bottom: 12px; font-weight: 500; }
+        .print-report .pr-title-rule { height: 3px; width: 64px; background: #16a34a; border-radius: 2px; margin: 6px auto 14px; }
+
+        .print-report .pr-meta {
+          display: flex; justify-content: space-between; font-size: 11.5px;
+          margin-bottom: 12px; padding: 8px 12px; background: #f0fdf4;
+          border: 1px solid #bbf7d0; border-radius: 6px;
+        }
+        .print-report .pr-meta b { color: #166534; }
+
+        .print-report .pr-sup-name {
+          font-weight: 800; font-size: 12.5px; color: #14532d;
+          padding: 4px 2px; border-bottom: 1.5px solid #16a34a; margin: 10px 0 5px;
+        }
+        .print-report .pr-group-row td:first-child { text-align: right; font-weight: 600; }
+        .print-report .pr-totals-row td { font-weight: 800; background: #dcfce7 !important; color: #14532d; }
+
+        .print-report .pr-grand-box {
+          border: 1.5px solid #16a34a; border-radius: 8px;
+          padding: 12px 16px; margin-top: 18px; background: #f9fafb;
+        }
+        .print-report .pr-grand-box .row { display:flex; justify-content: space-between; padding: 3px 0; font-size: 12.5px; color: #374151; }
+        .print-report .pr-grand-box .row.total {
+          font-weight: 800; font-size: 15px; color: #14532d;
+          border-top: 1px dashed #86efac; margin-top: 5px; padding-top: 8px;
+        }
 
         /* جدول التفاصيل: عنوان التقرير ورأس الجدول يتكرران تلقائياً في كل صفحة مطبوعة */
         .print-report .pr-detail-table thead { display: table-header-group; }
@@ -52,8 +84,15 @@ export function PrintReport({
         .print-report .pr-detail-table tr { page-break-inside: avoid; }
         .print-report .pr-detail-title-row th { background: #fff; border: none; padding: 0 0 4px; }
         .print-report .pr-detail-title-row .pr-title { margin-bottom: 0; }
-        .print-report .pr-detail-meta-row th { background: #fff; border: none; border-bottom: 2px solid #333; padding: 0 0 8px; }
-        .print-report .pr-detail-meta-row .pr-meta { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+        .print-report .pr-detail-meta-row th { background: #fff; border: none; padding: 0 0 10px; }
+        .print-report .pr-detail-meta-row .pr-meta { margin-bottom: 0; }
+
+        /* تذييل يتكرر أسفل كل صفحة مطبوعة */
+        .print-report .pr-footer {
+          position: fixed; bottom: -10mm; left: 0; right: 0;
+          text-align: center; font-size: 9.5px; color: #9ca3af;
+          border-top: 1px solid #e5e7eb; padding-top: 4px;
+        }
       `}</style>
 
       {/* ══ صفحة 1: التجميعات (هيكل إداري بحت — بدون تفاصيل عملاء) ══ */}
@@ -63,6 +102,7 @@ export function PrintReport({
       </div>
       <div className="pr-title">تقرير تقفيل الشهر</div>
       <div className="pr-sub">صفحة التجميعات</div>
+      <div className="pr-title-rule" />
       <div className="pr-meta">
         <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
         <span><b>الشهر:</b> {monthLabel}</span>
@@ -173,6 +213,10 @@ export function PrintReport({
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      <div className="pr-footer">
+        {branding.company_name} · تقرير تقفيل الشهر — {monthLabel}
       </div>
     </div>
   );

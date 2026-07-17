@@ -265,3 +265,42 @@ body {
   border-radius: 50%;
   animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
+
+/* ===== PRINT MODE (تقارير الطباعة — تقفيل الشهر وغيرها) =====
+   الهدف: صفحة طباعة نظيفة تحتوي على التقرير فقط، بدون هيكل التطبيق
+   (Sidebar / Header / الأزرار / الودجت العائم)، حتى لو نسينا وسم
+   print:hidden على عنصر جديد مستقبلاً. */
+@media print {
+  html, body {
+    background: #fff !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* إعادة ضبط حاوية الصفحة الرئيسية: إلغاء الـ padding/margin المخصصة
+     لإفساح مكان للـ Header الثابت والـ Sidebar الجانبي */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  main > div {
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  /* أي عنصر غير مخصص صراحة للطباعة يُخفى كإجراء احترازي شامل */
+  body * {
+    visibility: hidden;
+  }
+  .print-report, .print-report * {
+    visibility: visible;
+  }
+  .print-report {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+  }
+}

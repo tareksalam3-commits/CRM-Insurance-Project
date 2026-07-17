@@ -142,13 +142,15 @@ function AppLayout() {
         </div>
       </main>
 
-      <Suspense fallback={null}>
-        <ErrorBoundary boundaryName="AssistantWidget">
-          <AssistantWidget />
-        </ErrorBoundary>
-      </Suspense>
+      <div className="print:hidden">
+        <Suspense fallback={null}>
+          <ErrorBoundary boundaryName="AssistantWidget">
+            <AssistantWidget />
+          </ErrorBoundary>
+        </Suspense>
 
-      <OfflineToast />
+        <OfflineToast />
+      </div>
     </div>
   );
 }

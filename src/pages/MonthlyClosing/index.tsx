@@ -291,7 +291,7 @@ export function MonthlyClosing() {
                             </div>
                             <div>
                               <p className="text-sm font-medium text-secondary-800">{grp.leaderName}</p>
-                              <p className="text-xs text-secondary-400">{ROLE_LABELS[grp.leaderRole] ?? 'مجموعة'} · {grp.agents.length} وكيل</p>
+                              <p className="text-xs text-secondary-400">{ROLE_LABELS[grp.leaderRole] ?? 'مجموعة'} · {grp.agentCount} وكيل</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-4">

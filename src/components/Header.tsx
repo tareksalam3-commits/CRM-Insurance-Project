@@ -122,6 +122,7 @@ export function Header() {
       <header className={clsx(
         'fixed top-0 left-0 right-0 h-14 md:h-16 bg-white border-b border-secondary-200 z-30',
         'flex items-center justify-between px-3 md:px-4 transition-all duration-300',
+        'print:hidden',
         sidebarCollapsed ? 'md:mr-20' : 'md:mr-64'
       )}>
         {/* يسار */}

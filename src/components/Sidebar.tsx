@@ -48,7 +48,7 @@ export function Sidebar() {
   const isMoreActive = !BOTTOM_NAV_ITEMS.some((item) => isPathActive(location.pathname, item.path));
 
   return (
-    <>
+    <div className="print:hidden">
       {/* =============================================
           DESKTOP SIDEBAR  (md وأكبر)
       ============================================= */}
@@ -307,7 +307,7 @@ export function Sidebar() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
