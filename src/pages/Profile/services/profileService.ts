@@ -160,28 +160,45 @@ export async function changePassword(email: string, currentPassword: string, new
   return {};
 }
 
+// محاولات إعادة جلب/تحديث الجلسة قبل الحكم بإنها منتهية فعلاً. لما الموبايل
+// يرجع من الخلفية بعد فترة طويلة، أول محاولة تحديث للتوكن ممكن تفشل لأن
+// الشبكة لسه بترجع تتصل (خصوصاً WebView أندرويد)، مش لأن الجلسة منتهية.
+async function getFreshSession(retries = 3, delayMs = 800) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        lastError = sessionError;
+        continue;
+      }
+      const expiresInMs = (session.expires_at ?? 0) * 1000 - Date.now();
+      if (expiresInMs < 60_000) {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshData.session) {
+          lastError = refreshError;
+          continue;
+        }
+        return refreshData.session;
+      }
+      return session;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  console.error('getFreshSession failed after retries:', lastError);
+  throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
+}
+
 export async function uploadAvatar(userId: string, file: File): Promise<string> {
   const fileExt = file.name.split('.').pop();
   // Use fixed filename per user to overwrite old avatar
   const filePath = `avatars/${userId}.${fileExt}`;
 
-  // تأكيد إن الجلسة سليمة ومحدّثة قبل الرفع مباشرة. لو الموبايل فضل شغال
-  // فترة طويلة في الخلفية (زي ما بيحصل مع تطبيقات الأندرويد اللي بتشتغل
-  // كـ WebView)، ممكن الـ access token يكون انتهت صلاحيته والـ refresh
-  // التلقائي متأخر، فتوصل طلبات الرفع كـ "anon" وترفض بـ RLS رغم إن
-  // المستخدم شايف نفسه مسجل دخول. نجبر تحديث الجلسة هنا عشان نضمن إن
-  // التوكن المرسل مع طلب الـ Storage صالح فعلاً.
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !session) {
-    throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
-  }
-  const expiresInMs = (session.expires_at ?? 0) * 1000 - Date.now();
-  if (expiresInMs < 60_000) {
-    const { error: refreshError } = await supabase.auth.refreshSession();
-    if (refreshError) {
-      throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
-    }
-  }
+  const session = await getFreshSession();
 
   // نستخدم fetch مباشر بدل supabase.storage.upload() هنا عمدًا: مكتبة
   // supabase-js أحيانًا بتفضل شايلة access token قديم/فاضي جوه الـ storage
