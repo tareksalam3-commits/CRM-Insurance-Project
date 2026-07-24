@@ -28,7 +28,7 @@ export function ActivityTargetsPanel({
       setForm({
         calls: String(targets.callsDailyTarget),
         appointments: String(targets.appointmentsDailyTarget),
-        newClients: String(targets.newClientsDailyTarget),
+        newClients: String(targets.newClientsWeeklyTarget),
       });
     }
   }, [targets]);
@@ -43,7 +43,7 @@ export function ActivityTargetsPanel({
       const input: ActivityTargets = {
         callsDailyTarget: Math.max(1, Number(form.calls) || 1),
         appointmentsDailyTarget: Math.max(1, Number(form.appointments) || 1),
-        newClientsDailyTarget: Math.max(1, Number(form.newClients) || 1),
+        newClientsWeeklyTarget: Math.max(1, Number(form.newClients) || 1),
       };
       await updateActivityTargets(targets.id, input, user.id);
       const refreshed = await fetchActivityTargets();
@@ -63,14 +63,15 @@ export function ActivityTargetsPanel({
         className="flex items-center gap-2 text-sm font-medium text-secondary-700"
       >
         <Settings2 className="w-4 h-4" />
-        إعدادات الأهداف اليومية (لحساب درجة النشاط فى التقييم الشامل)
+        إعدادات أهداف النشاط (لحساب درجة النشاط فى التقييم الشامل)
       </button>
 
       {open && (
         <div className="mt-4 space-y-3">
           <p className="text-xs text-secondary-500">
-            الأهداف دي بتتقارن بمتوسط الفعلي اليومي لأي فترة مختارة (المكالمات/المواعيد/العملاء
-            الجدد)، وبتمثل 30% من "التقييم الشامل" النهائي (70% الباقية نسبة تحقيق الهدف المالي).
+            هدفا المكالمات والمواعيد بيتقارنوا بالمتوسط الفعلي اليومي، وهدف العملاء الجدد
+            بيتقارن بالمتوسط الفعلي الأسبوعي — لأي فترة مختارة. الثلاثة مؤشرات دي بيمثلوا
+            30% من "التقييم الشامل" النهائي (70% الباقية نسبة تحقيق الهدف المالي).
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -94,7 +95,7 @@ export function ActivityTargetsPanel({
               />
             </div>
             <div>
-              <label className="input-label">هدف العملاء الجدد اليومي</label>
+              <label className="input-label">هدف العملاء الجدد الأسبوعي</label>
               <input
                 type="number"
                 min={1}

@@ -13,13 +13,14 @@ import type { StatsAggregate } from '../../DailyReports/types';
 export interface ActivityTargets {
   callsDailyTarget: number;
   appointmentsDailyTarget: number;
-  newClientsDailyTarget: number;
+  /** هدف أسبوعي (مش يومي) — مش منطقي إن كل وكيل يجيب عميل جديد كل يوم */
+  newClientsWeeklyTarget: number;
 }
 
 export const DEFAULT_ACTIVITY_TARGETS: ActivityTargets = {
   callsDailyTarget: 15,
   appointmentsDailyTarget: 3,
-  newClientsDailyTarget: 1,
+  newClientsWeeklyTarget: 5,
 };
 
 export interface ActivityScoreResult {
@@ -101,7 +102,7 @@ export function computeActivityScore(
   const punctualityPct = cap100((agg.punctualityOkCount / agg.entriesCount) * 100);
   const callsScore = cap100((avgCallsPerDay / targets.callsDailyTarget) * 100);
   const appointmentsScore = cap100((avgAppointmentsPerDay / targets.appointmentsDailyTarget) * 100);
-  const newClientsScore = cap100((avgNewClientsPerDay / targets.newClientsDailyTarget) * 100);
+  const newClientsScore = cap100(((avgNewClientsPerDay * 7) / targets.newClientsWeeklyTarget) * 100);
 
   // أربعة مؤشرات بوزن متساوٍ داخل الـ30% (الالتزام، المكالمات، المواعيد،
   // العملاء الجدد) — جودة المواعيد ونسبة تحويل المكالمات معروضتان للعلم فقط

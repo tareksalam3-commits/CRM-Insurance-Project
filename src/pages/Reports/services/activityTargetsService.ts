@@ -9,7 +9,7 @@ interface ActivityTargetsRow {
   id: string;
   calls_daily_target: number;
   appointments_daily_target: number;
-  new_clients_daily_target: number;
+  new_clients_weekly_target: number;
 }
 
 /** الأهداف اليومية الحالية المستخدمة فى حساب التقييم الشامل — صف واحد فقط
@@ -20,7 +20,7 @@ export async function fetchActivityTargets(): Promise<ActivityTargets & { id: st
     async () => {
       const { data, error } = await supabase
         .from('performance_activity_targets')
-        .select('id, calls_daily_target, appointments_daily_target, new_clients_daily_target')
+        .select('id, calls_daily_target, appointments_daily_target, new_clients_weekly_target')
         .maybeSingle();
       if (error) throw error;
       if (!data) return { id: null, ...DEFAULT_ACTIVITY_TARGETS };
@@ -29,7 +29,7 @@ export async function fetchActivityTargets(): Promise<ActivityTargets & { id: st
         id: row.id,
         callsDailyTarget: row.calls_daily_target,
         appointmentsDailyTarget: row.appointments_daily_target,
-        newClientsDailyTarget: row.new_clients_daily_target,
+        newClientsWeeklyTarget: row.new_clients_weekly_target,
       };
     },
     { emptyValue: { id: null, ...DEFAULT_ACTIVITY_TARGETS } },
@@ -50,7 +50,7 @@ export async function updateActivityTargets(
     .update({
       calls_daily_target: input.callsDailyTarget,
       appointments_daily_target: input.appointmentsDailyTarget,
-      new_clients_daily_target: input.newClientsDailyTarget,
+      new_clients_weekly_target: input.newClientsWeeklyTarget,
       updated_by: updatedBy,
     })
     .eq('id', id);
