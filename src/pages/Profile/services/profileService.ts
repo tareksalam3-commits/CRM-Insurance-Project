@@ -190,7 +190,8 @@ async function getFreshSession(retries = 3, delayMs = 800) {
     }
   }
   console.error('getFreshSession failed after retries:', lastError);
-  throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
+  const detail = (lastError as any)?.message || (lastError as any)?.code || 'no session';
+  throw new Error(`انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة (${detail})`);
 }
 
 export async function uploadAvatar(userId: string, file: File): Promise<string> {
