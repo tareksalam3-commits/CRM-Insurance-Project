@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../../../lib/supabase';
 import { format, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
 import { fetchCommissionSourceData } from '../../Commissions/services/commissionsService';
 import { computeCommissionRows, computeSummary } from '../../Commissions/business/commissionsCalculator';
@@ -183,12 +183,30 @@ export async function uploadAvatar(userId: string, file: File): Promise<string> 
     }
   }
 
-  // Upload with upsert to overwrite existing file
-  const { error: uploadError } = await supabase.storage
-    .from('profiles')
-    .upload(filePath, file, { upsert: true });
+  // نستخدم fetch مباشر بدل supabase.storage.upload() هنا عمدًا: مكتبة
+  // supabase-js أحيانًا بتفضل شايلة access token قديم/فاضي جوه الـ storage
+  // sub-client حتى لو الـ session الأساسية سليمة ومتجددة (مشكلة معروفة في
+  // بعض إصدارات المكتبة)، فيوصل الطلب "anon" فعليًا ويترفض بـ RLS رغم إن
+  // المستخدم مسجل دخول فعلاً. الطلب المباشر ده بياخد التوكن الطازج من
+  // الـ session نفسها في كل مرة فيضمن إرساله صح مهما كان حال الـ client.
+  const uploadRes = await fetch(
+    `${supabaseUrl}/storage/v1/object/profiles/${filePath}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: supabaseAnonKey,
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-upsert': 'true',
+      },
+      body: file,
+    }
+  );
 
-  if (uploadError) throw uploadError;
+  if (!uploadRes.ok) {
+    const errBody = await uploadRes.json().catch(() => ({}));
+    throw new Error(errBody?.message || errBody?.error || `فشل رفع الصورة (${uploadRes.status})`);
+  }
 
   const { data: { publicUrl } } = supabase.storage
     .from('profiles')
