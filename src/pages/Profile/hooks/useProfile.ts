@@ -182,6 +182,8 @@ export function useProfile() {
         msg = 'صيغة الصورة غير مدعومة، جرّب صورة بصيغة JPG أو PNG';
       } else if (error?.message?.toLowerCase().includes('exceeded the maximum')) {
         msg = 'حجم الصورة أكبر من المسموح به';
+      } else if (error?.message?.toLowerCase().includes('row-level security')) {
+        msg = 'انتهت صلاحية جلسة الدخول، سجّل خروج ثم دخول تاني وحاول ترفع الصورة';
       } else if (error?.message) {
         // نعرض رسالة الخطأ الفعلية بدل رسالة عامة، عشان يسهل تشخيص أي مشكلة جديدة
         msg = `حدث خطأ أثناء رفع الصورة: ${error.message}`;
