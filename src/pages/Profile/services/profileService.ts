@@ -165,6 +165,24 @@ export async function uploadAvatar(userId: string, file: File): Promise<string> 
   // Use fixed filename per user to overwrite old avatar
   const filePath = `avatars/${userId}.${fileExt}`;
 
+  // تأكيد إن الجلسة سليمة ومحدّثة قبل الرفع مباشرة. لو الموبايل فضل شغال
+  // فترة طويلة في الخلفية (زي ما بيحصل مع تطبيقات الأندرويد اللي بتشتغل
+  // كـ WebView)، ممكن الـ access token يكون انتهت صلاحيته والـ refresh
+  // التلقائي متأخر، فتوصل طلبات الرفع كـ "anon" وترفض بـ RLS رغم إن
+  // المستخدم شايف نفسه مسجل دخول. نجبر تحديث الجلسة هنا عشان نضمن إن
+  // التوكن المرسل مع طلب الـ Storage صالح فعلاً.
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session) {
+    throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
+  }
+  const expiresInMs = (session.expires_at ?? 0) * 1000 - Date.now();
+  if (expiresInMs < 60_000) {
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError) {
+      throw new Error('انتهت صلاحية الجلسة، سجّل خروج ثم دخول تاني وحاول ترفع الصورة');
+    }
+  }
+
   // Upload with upsert to overwrite existing file
   const { error: uploadError } = await supabase.storage
     .from('profiles')
