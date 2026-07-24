@@ -1,22 +1,18 @@
-import { Maximize2, Minimize2, Search, Loader2, X, Download } from 'lucide-react';
+import { Search, X, Download } from 'lucide-react';
 import type { UserRole } from '../../../lib/supabase';
 import { getVisibleRoleFilterOptions } from '../constants';
-import type { RosterUser } from '../types';
 
 // ─── أدوات البحث والفلترة ────────────────────────────────
+// أزرار "توسيع الكل/طي الكل" اتشالت — مالهاش معنى فى نظام التصفح الجديد
+// (Drill-down) لأنك دايمًا شايف مستوى واحد بس فى المرة.
 export function OrgActions({
-  searchQuery, setSearchQuery, roleFilter, setRoleFilter,
-  expandAll, expandingAll, collapseAll, onDownloadClick, matches, currentUserRole,
+  searchQuery, setSearchQuery, roleFilter, setRoleFilter, onDownloadClick, currentUserRole,
 }: {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   roleFilter: UserRole | 'all';
   setRoleFilter: (r: UserRole | 'all') => void;
-  expandAll: () => void;
-  expandingAll: boolean;
-  collapseAll: () => void;
   onDownloadClick: () => void;
-  matches: RosterUser[] | null;
   currentUserRole: UserRole;
 }) {
   const roleFilterOptions = getVisibleRoleFilterOptions(currentUserRole);
@@ -34,6 +30,7 @@ export function OrgActions({
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery('')}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 hover:text-secondary-600"
             >
@@ -50,32 +47,11 @@ export function OrgActions({
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
-        <div className="flex gap-2">
-          <button
-            onClick={expandAll}
-            disabled={expandingAll}
-            className="btn btn-ghost text-secondary-600 flex-1 sm:flex-none"
-          >
-            {expandingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Maximize2 className="w-4 h-4" />}
-            <span>توسيع الكل</span>
-          </button>
-          <button onClick={collapseAll} className="btn btn-ghost text-secondary-600 flex-1 sm:flex-none">
-            <Minimize2 className="w-4 h-4" />
-            <span>طي الكل</span>
-          </button>
-          <button onClick={onDownloadClick} className="btn btn-primary flex-1 sm:flex-none">
-            <Download className="w-4 h-4" />
-            <span>تنزيل التشكيل</span>
-          </button>
-        </div>
+        <button type="button" onClick={onDownloadClick} className="btn btn-primary">
+          <Download className="w-4 h-4" />
+          <span>تنزيل التشكيل</span>
+        </button>
       </div>
-      {matches && (
-        <p className="text-xs text-secondary-500 mt-3">
-          {matches.length > 0
-            ? `${matches.length} نتيجة مطابقة — تم فتح المسار حتى مكانهم في الهيكل`
-            : 'لا توجد نتائج مطابقة'}
-        </p>
-      )}
     </div>
   );
 }

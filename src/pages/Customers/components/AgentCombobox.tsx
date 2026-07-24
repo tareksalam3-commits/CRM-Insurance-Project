@@ -64,8 +64,6 @@ export function AgentCombobox({
     if (open) {
       setSearch('');
       setJobLevel('all');
-      const t = setTimeout(() => searchInputRef.current?.focus(), 0);
-      return () => clearTimeout(t);
     }
   }, [open]);
 

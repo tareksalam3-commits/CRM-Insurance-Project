@@ -1,4 +1,4 @@
-import { supabase, type User } from '../../../lib/supabase';
+import { supabase, type User, type UserRole } from '../../../lib/supabase';
 import type { UserFormData, PasswordFormData } from '../types';
 import { dalRead } from '../../../lib/dataAccessLayer';
 
@@ -25,6 +25,10 @@ export interface FetchUsersParams {
   page: number;
   searchQuery: string;
   statusFilter: 'all' | 'active' | 'inactive';
+  roleFilter?: UserRole | 'all';
+  // فرع المستخدم (عبر جدول user_branch_roles — راجع phase 1 multi-branch).
+  // 'all' أو undefined = بدون فلترة حسب الفرع.
+  branchId?: string | 'all';
 }
 
 interface UsersPageResult {
@@ -35,10 +39,31 @@ interface UsersPageResult {
 
 const EMPTY_USERS_PAGE: UsersPageResult = { users: [], totalPages: 1, totalCount: 0 };
 
-export async function fetchUsersPage({ page, searchQuery, statusFilter }: FetchUsersParams) {
+export async function fetchUsersPage({
+  page, searchQuery, statusFilter, roleFilter = 'all', branchId = 'all',
+}: FetchUsersParams) {
   const result = await dalRead(
-    `users:page:${page}:${searchQuery.trim()}:${statusFilter}`,
+    `users:page:${page}:${searchQuery.trim()}:${statusFilter}:${roleFilter}:${branchId}`,
     async () => {
+      // فلترة حسب الفرع: الجدول users لا يحتوي على branch_id مباشرة (تعدد
+      // الفروع بيتم عن طريق جدول user_branch_roles)، فبنجيب أولاً كل
+      // user_id المرتبطين بالفرع المختار، وبعدين نفلتر بيهم استعلام users.
+      let branchUserIds: string[] | null = null;
+      if (branchId !== 'all') {
+        const { data: branchRows, error: branchErr } = await supabase
+          .from('user_branch_roles')
+          .select('user_id')
+          .eq('branch_id', branchId);
+        if (branchErr) throw branchErr;
+        branchUserIds = Array.from(new Set((branchRows || []).map((r) => r.user_id as string)));
+
+        // مفيش أي مستخدم فى الفرع ده أصلاً → رجّع نتيجة فاضية فورًا بدون
+        // استعلام إضافي.
+        if (branchUserIds.length === 0) {
+          return { users: [], totalPages: 1, totalCount: 0 };
+        }
+      }
+
       let query = supabase
         .from('users')
         .select('*, manager:manager_id(id, name)', { count: 'exact' })
@@ -50,6 +75,12 @@ export async function fetchUsersPage({ page, searchQuery, statusFilter }: FetchU
       }
       if (statusFilter !== 'all') {
         query = query.eq('is_active', statusFilter === 'active');
+      }
+      if (roleFilter !== 'all') {
+        query = query.eq('role', roleFilter);
+      }
+      if (branchUserIds) {
+        query = query.in('id', branchUserIds);
       }
 
       const from = (page - 1) * PAGE_SIZE;
@@ -154,6 +185,7 @@ export async function saveUser(data: UserFormData, editingUser: User | null): Pr
       role:       data.role,
       manager_id: data.manager_id || null,
       target:     data.target || 0,
+      branch_id:  data.branch_id || null,
     }),
   });
 

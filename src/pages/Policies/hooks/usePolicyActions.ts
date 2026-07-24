@@ -97,9 +97,13 @@ export function usePolicyActions({
           customer_id: newForCustomerId,
           policy_type: 'quadruple',
           start_date: computeDefaultPolicyStartDate(),
-          payment_method: 'monthly',
+          // مبلغ التأمين وطريقة السداد يترصدوا تلقائياً من بيانات "طلب
+          // التأمين" المسجلة مع العميل (راجع customer_defaults_locked فى
+          // PolicyFormDialog) — لو العميل قديم ومفيهوش هذه البيانات، بيرجع
+          // لنفس القيم الافتراضية القديمة عشان الحقل يفضل قابل للتعديل يدوياً
+          payment_method: (customer?.payment_method as PaymentMethod) || 'monthly',
           premium_amount: '' as any,
-          sum_assured: '' as any,
+          sum_assured: customer?.insurance_amount ?? ('' as any),
           notes: '',
           isEditingPolicy: false
         });
@@ -170,8 +174,27 @@ export function usePolicyActions({
   const handleSelectCustomer = (customer: CustomerPickerItem) => {
     setSelectedCustomer(customer);
     setValue('customer_id', customer.id, { shouldValidate: true });
+
+    // عند إصدار وثيقة جديدة (مش تعديل وثيقة موجودة)، وكان عند العميل بيانات
+    // "طلب تأمين" محفوظة، بنعبّي مبلغ التأمين وطريقة السداد تلقائياً منها
+    // بدل إدخالهما يدوياً تانى — نفس الحقلين بيتقفلوا للعرض فقط فى
+    // PolicyFormDialog (customerDefaultsLocked). لو العميل مفيهوش هذه
+    // البيانات (عميل قديم قبل إضافة الميزة)، الحقول تفضل زي ما هي قابلة
+    // للتعديل يدوياً بدون أي تغيير فى السلوك القديم.
+    if (!editingPolicy && customer.insurance_amount != null && customer.payment_method) {
+      setValue('sum_assured', customer.insurance_amount, { shouldValidate: true });
+      setValue('payment_method', customer.payment_method as PaymentMethod, { shouldValidate: true });
+    }
+
     setShowCustomerPicker(false);
   };
+
+  // مبلغ التأمين وطريقة السداد بيبقوا للعرض فقط (مقفولين) فى نموذج "إصدار
+  // وثيقة جديدة" لو العميل المختار عنده بيانات "طلب تأمين" محفوظة —
+  // بيتقفلوا لحماية القيمة اللي اترصدت تلقائياً من التعديل غير المقصود. ما
+  // بيتفعلش أثناء تعديل وثيقة موجودة أصلاً (نفس السلوك القديم زي ما هو).
+  const customerDefaultsLocked =
+    !editingPolicy && !!selectedCustomer && selectedCustomer.insurance_amount != null && !!selectedCustomer.payment_method;
 
   const onSubmit = async (data: PolicyFormData) => {
     if (!user) return;
@@ -192,7 +215,7 @@ export function usePolicyActions({
           if (paidCount > 0) {
             const confirmed = window.confirm(
               `تنبيه: يوجد ${paidCount} قسط مدفوع مسبقاً في هذه الوثيقة بالقيمة/الموعد القديم.\n\n` +
-              `تعديل قيمة القسط أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة).\n\n` +
+              `تعديل قيمة القسط الصافي أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة).\n\n` +
               `هل تريد المتابعة؟`
             );
             if (!confirmed) {
@@ -301,6 +324,7 @@ export function usePolicyActions({
     showCustomerPicker,
     setShowCustomerPicker,
     handleSelectCustomer,
+    customerDefaultsLocked,
 
     navigate,
   };

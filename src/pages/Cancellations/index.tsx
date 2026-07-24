@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
+import { useBranchContext } from '../../lib/branchContext';
 import { POLICY_TYPE_LABELS, type PolicyType } from '../../lib/supabase';
 import { ArrowRight, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { format } from 'date-fns';
@@ -23,6 +25,7 @@ const formatCurrency = (amount: number) => {
 
 export function Cancellations() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
   const navigate = useNavigate();
 
   const [summary, setSummary] = useState<CancellationSummary | null>(null);
@@ -38,13 +41,15 @@ export function Cancellations() {
     if (user) {
       loadData();
     }
-  }, [user]);
+  }, [user, currentBranchId]);
+
+  useReconnectRefetch(() => { if (user) loadData(); });
 
   const loadData = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const result = await loadCancellationSummary({ id: user.id, name: user.name, role: user.role });
+      const result = await loadCancellationSummary({ id: user.id, name: user.name, role: user.role }, currentBranchId);
       setSummary(result);
     } catch (error) {
       console.error('Error loading cancellations summary:', error);
@@ -113,7 +118,7 @@ export function Cancellations() {
     { key: 'cancelledDate', label: 'تاريخ الإلغاء' },
     { key: 'monthsElapsed', label: 'عدد الأشهر' },
     { key: 'totalPaidBeforeCancellation', label: 'الأقساط المسددة قبل الإلغاء' },
-    { key: 'premiumAmount', label: 'قيمة القسط' },
+    { key: 'premiumAmount', label: 'قيمة القسط الصافي' },
     { key: null, label: 'نوع الوثيقة' },
   ];
 

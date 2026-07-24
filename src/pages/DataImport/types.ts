@@ -12,7 +12,7 @@ export const IMPORT_COLUMNS = [
   { key: 'policy_number', header: 'رقم الوثيقة', required: true },
   { key: 'policy_type', header: 'نوع الوثيقة', required: true },
   { key: 'sum_assured', header: 'مبلغ التأمين', required: true },
-  { key: 'premium_amount', header: 'قيمة القسط', required: true },
+  { key: 'premium_amount', header: 'قيمة القسط الصافي', required: true },
   { key: 'payment_method', header: 'طريقة السداد', required: true },
   { key: 'start_date', header: 'تاريخ بداية التأمين', required: true },
   { key: 'notes', header: 'الملاحظات', required: false },

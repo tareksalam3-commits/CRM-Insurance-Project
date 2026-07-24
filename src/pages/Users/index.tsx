@@ -1,16 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { User, UserRole, canManageUsers, canResetOtherUserPassword } from '../../lib/supabase';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
+import { User, UserRole, ROLE_LABELS, canManageUsers, canResetOtherUserPassword } from '../../lib/supabase';
 import { Plus, Search, Shield, X } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import clsx from 'clsx';
 
-import { userSchema, passwordSchema, type UserFormData, type PasswordFormData } from './types';
+import { userSchema, passwordSchema, ROLES, type UserFormData, type PasswordFormData } from './types';
 import { getAllowedManagers, getCreatableRoles } from './business/roleHierarchy';
 import {
   fetchAllUsers, fetchUsersPage, saveUser, changeUserPassword, toggleUserActive, softDeleteUser, TEMP_PASSWORD,
 } from './services/usersService';
+import { fetchUserBranchRolesForUser, fetchBranches } from '../../features/branches/services/branchesService';
+import type { UserBranchRoleRow, Branch } from '../../features/branches/types';
 import { UsersGrid } from './components/UsersGrid';
 import { UserFormModal } from './components/UserFormModal';
 import { PasswordModal } from './components/PasswordModal';
@@ -48,6 +51,9 @@ export function Users() {
   const [searchQuery, setSearchQuery]   = useState('');
   const [localSearch, setLocalSearch]   = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [roleFilter, setRoleFilter]     = useState<UserRole | 'all'>('all');
+  const [branchFilter, setBranchFilter] = useState<string>('all');
+  const [branches, setBranches]         = useState<Branch[]>([]);
   const [showPwd, setShowPwd]           = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [togglingId, setTogglingId]     = useState<string | null>(null);
@@ -76,7 +82,17 @@ export function Users() {
   // ── load ───────────────────────────────────────────────
   useEffect(() => {
     if (user && canManage) loadUsers();
-  }, [user, canManage, page, searchQuery, statusFilter]);
+  }, [user, canManage, page, searchQuery, statusFilter, roleFilter, branchFilter]);
+
+  // فروع الشركة لإظهارها فى فلتر الفرع — تُحمّل مرة واحدة فقط
+  useEffect(() => {
+    if (user && canManage) fetchBranches().then(setBranches);
+  }, [user, canManage]);
+
+  useReconnectRefetch(
+    () => { if (user && canManage) loadUsers(); },
+    () => { if (user && canManage) loadAllUsers(); },
+  );
 
   // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
   useEffect(() => {
@@ -101,7 +117,9 @@ export function Users() {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { users: pageUsers, totalPages: pages, totalCount: count } = await fetchUsersPage({ page, searchQuery, statusFilter });
+      const { users: pageUsers, totalPages: pages, totalCount: count } = await fetchUsersPage({
+        page, searchQuery, statusFilter, roleFilter, branchId: branchFilter,
+      });
       setUsers(pageUsers);
       setTotalPages(pages);
       setTotalCount(count);
@@ -110,7 +128,7 @@ export function Users() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchQuery, statusFilter]);
+  }, [page, searchQuery, statusFilter, roleFilter, branchFilter]);
 
   // ── open / close modals ────────────────────────────────
   const openEditModal = useCallback((u: User) => {
@@ -123,6 +141,7 @@ export function Users() {
       role:       u.role,
       manager_id: u.manager_id || null,
       target:     u.target || 0,
+      branch_id:  null,
     });
     setShowModal(true);
   }, [canManage, reset]);
@@ -130,7 +149,7 @@ export function Users() {
   const openCreateModal = useCallback(() => {
     if (!canManage) return;
     setEditingUser(null);
-    reset({ name: '', email: '', phone: '', role: allowedRoles[0] ?? 'agent', manager_id: null, target: 0 });
+    reset({ name: '', email: '', phone: '', role: allowedRoles[0] ?? 'agent', manager_id: null, target: 0, branch_id: null });
     setShowModal(true);
   }, [canManage, reset, allowedRoles]);
 
@@ -158,6 +177,10 @@ export function Users() {
   // ── submit: create / edit user ─────────────────────────
   const onSubmit = async (data: UserFormData) => {
     if (!user || !canManage) return;
+    if (!editingUser && managerHasMultipleBranches && !data.branch_id) {
+      alert('المدير المختار له أكثر من فرع، يجب اختيار الفرع أولاً');
+      return;
+    }
     setSaving(true);
 
     try {
@@ -229,17 +252,40 @@ export function Users() {
   };
 
   // ── filters ─────────────────────────────────────────────
-  const hasFilters = searchQuery.trim() !== '' || statusFilter !== 'all';
+  const hasFilters = searchQuery.trim() !== '' || statusFilter !== 'all' || roleFilter !== 'all' || branchFilter !== 'all';
   const clearFilters = useCallback(() => {
     setLocalSearch('');
     setSearchQuery('');
     setStatusFilter('all');
+    setRoleFilter('all');
+    setBranchFilter('all');
     setPage(1);
   }, []);
 
   // ── manager dropdown filtering ─────────────────────────
   const selectedRole = watch('role') as UserRole | undefined;
   const allowedManagers = getAllowedManagers(allUsers, selectedRole, editingUser?.id);
+
+  // ── فرع المستخدم الجديد (مشكلة 3): لو المدير المختار له أكثر من فرع،
+  // الترigger فى قاعدة البيانات (056) مش هيقدر يحدده تلقائيًا، فلازم نعرض
+  // اختيار صريح هنا ونبعته مع باقي بيانات الإنشاء. بيظهر فقط وقت إنشاء
+  // مستخدم جديد (مش وقت التعديل — الفرع بيتغير من UserBranchRolesSection).
+  const selectedManagerId = watch('manager_id') as string | null | undefined;
+  const [managerBranches, setManagerBranches] = useState<UserBranchRoleRow[]>([]);
+
+  useEffect(() => {
+    if (editingUser || !selectedManagerId) {
+      setManagerBranches([]);
+      return;
+    }
+    let cancelled = false;
+    fetchUserBranchRolesForUser(selectedManagerId).then((rows) => {
+      if (!cancelled) setManagerBranches(rows);
+    });
+    return () => { cancelled = true; };
+  }, [editingUser, selectedManagerId]);
+
+  const managerHasMultipleBranches = managerBranches.length > 1;
 
   // ── guard ──────────────────────────────────────────────
   if (!canManage) {
@@ -309,6 +355,32 @@ export function Users() {
           </div>
         </div>
 
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* فلتر حسب الدرجة الوظيفية */}
+          <select
+            value={roleFilter}
+            onChange={(e) => { setRoleFilter(e.target.value as UserRole | 'all'); setPage(1); }}
+            className="input-field flex-1"
+          >
+            <option value="all">كل الدرجات الوظيفية</option>
+            {ROLES.map((r) => (
+              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+            ))}
+          </select>
+
+          {/* فلتر حسب الفرع */}
+          <select
+            value={branchFilter}
+            onChange={(e) => { setBranchFilter(e.target.value); setPage(1); }}
+            className="input-field flex-1"
+          >
+            <option value="all">كل الفروع</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+
         {/* عدد النتائج — بنفس مكانه وشكله فى صفحات العملاء/الوثائق/التحصيل */}
         {!isInitialLoading && (
           <p className="text-xs text-secondary-500 flex items-center gap-2">
@@ -355,6 +427,7 @@ export function Users() {
           selectedRole={selectedRole}
           allowedManagers={allowedManagers}
           allowedRoles={allowedRoles}
+          managerBranches={managerHasMultipleBranches ? managerBranches : []}
           onSubmit={onSubmit}
           onClose={closeModal}
         />

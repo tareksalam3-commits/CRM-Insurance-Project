@@ -9,6 +9,7 @@ export function CustomersHeader({ onAddCustomer }: CustomersHeaderProps) {
   return (
     <PageHeader
       title="العملاء"
+      titleSuffix="طلبات التأمين"
       subtitle="إدارة بيانات العملاء ومتابعة وثائقهم"
       action={
         <button

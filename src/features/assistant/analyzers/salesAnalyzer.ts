@@ -15,18 +15,15 @@ export async function getTodayNewPolicies(user: User): Promise<AssistantAnswer> 
   const result = await dalRead(
     `assistant:todayNewPolicies:${userIds.slice().sort().join(',')}:${format(new Date(), 'yyyy-MM-dd')}`,
     async () => {
-      const { data, count, error } = await supabase
-        .from('policies')
-        .select('policy_number, premium_amount, customer:customer_id(name)', { count: 'exact' })
-        .in('owner_id', userIds)
-        .gte('created_at', todayStart)
-        .lte('created_at', todayEnd)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const { data, error } = await supabase.rpc('assistant_scoped_policies', {
+        p_created_from: todayStart,
+        p_created_to: todayEnd,
+      });
       if (error) throw error;
-      return { data: data || [], count };
+      const sorted = (data || []).slice().sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1));
+      return { data: sorted.slice(0, 10), count: sorted.length };
     },
-    { emptyValue: { data: [] as any[], count: 0 as number | null } },
+    { emptyValue: { data: [] as any[], count: 0 } },
   );
   const { data, count } = result.data;
 
@@ -37,7 +34,7 @@ export async function getTodayNewPolicies(user: User): Promise<AssistantAnswer> 
         ? ['لا توجد وثائق جديدة اليوم']
         : [
             `الإجمالي: ${count ?? data.length} وثيقة`,
-            ...data.map((p: any) => `- ${p.policy_number} · ${p.customer?.name || ''}`)
+            ...data.map((p: any) => `- ${p.policy_number} · ${p.customer_name || ''}`)
           ]
   };
 }
@@ -53,16 +50,8 @@ export async function getMonthlyProduction(user: User): Promise<AssistantAnswer>
     `assistant:monthlyProduction:${userIds.slice().sort().join(',')}:${monthStartStr}`,
     async () => {
       const [curRes, prevRes] = await Promise.all([
-        supabase
-          .from('payments')
-          .select('amount, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-          .eq('payment_month', monthStartStr)
-          .eq('is_cancelled', false),
-        supabase
-          .from('payments')
-          .select('amount, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-          .eq('payment_month', prevMonthStartStr)
-          .eq('is_cancelled', false)
+        supabase.rpc('assistant_scoped_payments', { p_payment_month: monthStartStr }),
+        supabase.rpc('assistant_scoped_payments', { p_payment_month: prevMonthStartStr })
       ]);
       if (curRes.error) throw curRes.error;
       if (prevRes.error) throw prevRes.error;
@@ -72,9 +61,7 @@ export async function getMonthlyProduction(user: User): Promise<AssistantAnswer>
   );
 
   const sumProduction = (rows: any[]) =>
-    rows
-      .filter((p) => userIds.includes(p.installment?.policy?.owner_id) && p.installment?.is_first)
-      .reduce((s, p) => s + Number(p.amount), 0);
+    rows.filter((p) => p.is_first).reduce((s, p) => s + Number(p.amount), 0);
 
   const current = sumProduction(monthlyRaw.data.current);
   const previous = sumProduction(monthlyRaw.data.previous);
@@ -93,6 +80,73 @@ export async function getMonthlyProduction(user: User): Promise<AssistantAnswer>
   };
 }
 
+/** اتجاه الإنتاج والتحصيل ووثائق جديدة على مدار آخر شهور (افتراضيًا 6) -
+ * بترجع رقم كل شهر لوحده عشان أي مقارنة بين أي شهرين أو أي مدة داخل
+ * النطاق ده تبقى ممكنة من البيانات المرفقة مباشرة، من غير ما نحتاج نخمّن
+ * مقدمًا المدة اللي المستخدم قاصدها بالظبط. */
+export async function getMonthlyTrend(user: User, monthsBack = 6): Promise<AssistantAnswer> {
+  const userIds = await getScopedUserIds(user);
+  const now = new Date();
+  const months = Array.from({ length: monthsBack }, (_, i) => startOfMonth(subMonths(now, monthsBack - 1 - i)));
+  const monthStrs = months.map((m) => format(m, 'yyyy-MM-dd'));
+  const rangeKey = `${monthStrs[0]}:${monthStrs[monthStrs.length - 1]}`;
+
+  interface TrendRaw {
+    paymentsByMonth: any[][];
+    policiesByMonth: any[][];
+  }
+
+  const raw = await dalRead<TrendRaw>(
+    `assistant:monthlyTrend:${userIds.slice().sort().join(',')}:${rangeKey}`,
+    async () => {
+      const paymentsResults = await Promise.all(
+        monthStrs.map((m) => supabase.rpc('assistant_scoped_payments', { p_payment_month: m }))
+      );
+      const policiesResults = await Promise.all(
+        months.map((m, i) => {
+          const from = m.toISOString();
+          const nextMonth = i + 1 < months.length ? months[i + 1] : startOfMonth(subMonths(now, -1));
+          return supabase.rpc('assistant_scoped_policies', { p_created_from: from, p_created_to: nextMonth.toISOString() });
+        })
+      );
+      paymentsResults.forEach((r) => {
+        if (r.error) throw r.error;
+      });
+      policiesResults.forEach((r) => {
+        if (r.error) throw r.error;
+      });
+      return {
+        paymentsByMonth: paymentsResults.map((r) => r.data || []),
+        policiesByMonth: policiesResults.map((r) => r.data || [])
+      };
+    },
+    { emptyValue: { paymentsByMonth: monthStrs.map(() => []), policiesByMonth: monthStrs.map(() => []) } }
+  ).then((r) => r.data);
+
+  const rows = months.map((m, i) => {
+    const payments = raw.paymentsByMonth[i] || [];
+    const policies = raw.policiesByMonth[i] || [];
+    const production = payments.filter((p: any) => p.is_first).reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const collection = payments.filter((p: any) => !p.is_first).reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const cancelled = policies.filter((p: any) => p.status === 'cancelled').length;
+    return {
+      label: format(m, 'MMMM yyyy', { locale: ar }),
+      production,
+      collection,
+      newPolicies: policies.length,
+      cancelled
+    };
+  });
+
+  return {
+    title: `📈 مقارنة آخر ${monthsBack} شهور (إنتاج / تحصيل / وثائق جديدة / إلغاءات)`,
+    lines: rows.map(
+      (r) =>
+        `- ${r.label}: إنتاج ${formatCurrency(r.production)} | تحصيل ${formatCurrency(r.collection)} | وثائق جديدة ${r.newPolicies} | ملغاة ${r.cancelled}`
+    )
+  };
+}
+
 /** الإنتاج السنوي (من بداية السنة الحالية) */
 export async function getYearlyProduction(user: User): Promise<AssistantAnswer> {
   const userIds = await getScopedUserIds(user);
@@ -102,20 +156,16 @@ export async function getYearlyProduction(user: User): Promise<AssistantAnswer> 
   const result = await dalRead(
     `assistant:yearlyProduction:${userIds.slice().sort().join(',')}:${yearStartStr}`,
     async () => {
-      const { data, error } = await supabase
-        .from('payments')
-        .select('amount, is_cancelled, payment_month, installment:installment_id(is_first, policy:policy_id(owner_id))')
-        .eq('is_cancelled', false)
-        .gte('payment_month', yearStartStr);
+      const { data, error } = await supabase.rpc('assistant_scoped_payments', {
+        p_payment_month_gte: yearStartStr,
+      });
       if (error) throw error;
       return data || [];
     },
     { emptyValue: [] as any[] },
   );
 
-  const rows = result.data.filter(
-    (p: any) => userIds.includes(p.installment?.policy?.owner_id) && p.installment?.is_first
-  );
+  const rows = result.data.filter((p: any) => p.is_first);
   const total = rows.reduce((s: number, p: any) => s + Number(p.amount), 0);
 
   const byMonth = new Map<string, number>();

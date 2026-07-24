@@ -11,6 +11,9 @@ export const userSchema = z.object({
   role:       z.enum(['super_admin', 'development_manager', 'general_supervisor', 'supervisor', 'group_leader', 'agent', 'premium_agent']),
   manager_id: z.string().optional().nullable(),
   target:     z.number().min(0).optional(),
+  // مطلوب فقط لو المدير المختار له أكثر من فرع (راجع migration 056) — التحقق
+  // الفعلي بيحصل فى admin-create-user، هنا مجرد نقل القيمة من الفورم.
+  branch_id:  z.string().optional().nullable(),
 });
 
 export const passwordSchema = z.object({

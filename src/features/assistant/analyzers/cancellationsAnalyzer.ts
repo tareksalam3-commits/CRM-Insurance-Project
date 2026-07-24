@@ -12,10 +12,7 @@ export async function getCancellationRate(user: User): Promise<AssistantAnswer> 
   const result = await dalRead(
     `assistant:cancellationRate:${userIds.slice().sort().join(',')}`,
     async () => {
-      const { data, error } = await supabase
-        .from('policies')
-        .select('id, status, cancelled_at')
-        .in('owner_id', userIds);
+      const { data, error } = await supabase.rpc('assistant_scoped_policies');
       if (error) throw error;
       return data || [];
     },

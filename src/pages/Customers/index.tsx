@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
+import { Plus } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useBranchContext } from '../../lib/branchContext';
 
 import { CustomersHeader } from './components/CustomersHeader';
 import { CustomerStatsCards } from './components/CustomerStatsCards';
@@ -22,6 +24,7 @@ import type { CustomerWithRelations } from './types';
 
 export function Customers() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
 
   const isManagerRole = !!user && user.role !== 'agent' && user.role !== 'premium_agent';
 
@@ -30,7 +33,8 @@ export function Customers() {
     searchParams, setSearchParams, page, setPage, searchQuery, localSearch, setLocalSearch,
     statusFilter, agentFilter, monthFilter,
     statusDraft, setStatusDraft, agentDraft, setAgentDraft, monthDraft, setMonthDraft,
-    showFilters, setShowFilters, activeFilterCount, hasActiveFilters, monthOptions,
+    showFilters, setShowFilters, noPolicyOnly, handleToggleNoPolicyOnly,
+    activeFilterCount, hasActiveFilters, monthOptions,
     handleApplyFilters, handleResetFilters, handleResetAll,
   } = filters;
 
@@ -38,7 +42,7 @@ export function Customers() {
     customers, agents, loading, isInitialLoading, totalCount,
     stats, statsLoading, totalPages, deletableIds,
     loadCustomers, loadStats,
-  } = useCustomers(user, page, searchQuery, statusFilter, agentFilter, monthFilter);
+  } = useCustomers(user, page, searchQuery, statusFilter, agentFilter, monthFilter, noPolicyOnly, currentBranchId);
 
   const actions = useCustomerActions({ user, searchParams, setSearchParams, loadCustomers, loadStats });
   const {
@@ -97,6 +101,8 @@ export function Customers() {
           isInitialLoading={isInitialLoading}
           loading={loading}
           totalCount={totalCount}
+          noPolicyOnly={noPolicyOnly}
+          onToggleNoPolicyOnly={handleToggleNoPolicyOnly}
           filtersPanel={showFilters && (
             <CustomerFilters
               statusDraft={statusDraft}
@@ -129,6 +135,16 @@ export function Customers() {
         setPage={setPage}
         totalPages={totalPages}
       />
+
+      {/* ===== زر عائم لإضافة عميل: يفضل ظاهر قدام المستخدم وهو بيتصفح
+          ويعمل سكرول لأسفل، بدون داعي للرجوع لأول الصفحة ===== */}
+      <button
+        onClick={openAddCustomerModal}
+        aria-label="إضافة عميل"
+        className="fixed z-40 bottom-20 md:bottom-8 left-4 md:left-8 w-14 h-14 rounded-full bg-primary-600 hover:bg-primary-700 active:bg-primary-800 text-white shadow-elevated flex items-center justify-center transition-colors duration-200"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
 
       {/* ===== مودال إضافة/تعديل عميل ===== */}
       {showModal && (

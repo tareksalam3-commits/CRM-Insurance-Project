@@ -1,21 +1,29 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
+import { useBranchContext } from '../../../lib/branchContext';
 import { supabase, canViewOrgStructure, type UserRole } from '../../../lib/supabase';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware, fetchBranchRoleMap } from '../../../lib/branchHierarchy';
+import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 import type { RosterUser } from '../types';
 import { monthStartStr } from '../utils';
 
-// ─── hook: كل منطق تحميل وعرض الهيكل الوظيفي ───────────────
+// ─── hook: منطق تحميل وعرض الهيكل الوظيفي ──────────────────
+// النظام دلوقتي "Drill-down": بتشوف مستوى واحد بس فى كل مرة (اللي أنت
+// فاتحه + المرؤوسين المباشرين ليه)، وبتدخل جوه أي حد بالضغط عليه — بدل
+// النظام القديم اللي كان بيفرد كل المستويات فوق بعض فى نفس الشاشة.
 export function useOrgStructure() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
   const canView = !!user && canViewOrgStructure(user.role);
 
   const [loading, setLoading]       = useState(true);
   const [roster, setRoster]         = useState<Map<string, RosterUser>>(new Map());
-  const [expanded, setExpanded]     = useState<Set<string>>(new Set());
   const [production, setProduction] = useState<Map<string, number>>(new Map());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
-  const [expandingAll, setExpandingAll] = useState(false);
+
+  // مسار التنقل: من الجذر (أنت) لحد الشخص اللي واقف فى صفحته دلوقتي
+  const [path, setPath] = useState<string[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter]   = useState<UserRole | 'all'>('all');
@@ -24,39 +32,35 @@ export function useOrgStructure() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [formationPreview, setFormationPreview] = useState<{ branchName: string; asOfDate: string } | null>(null);
 
-  // مراجع حية للحالة، عشان دالة ensureProduction تقرأ آخر نسخة دايماً
-  // من غير ما تحتاج تتكرر كـ dependency في كل الأماكن
   const rosterRef     = useRef(roster);
   const productionRef = useRef(production);
   const loadingRef    = useRef(loadingIds);
+  const branchIdRef   = useRef(currentBranchId);
   rosterRef.current     = roster;
   productionRef.current = production;
   loadingRef.current    = loadingIds;
+  branchIdRef.current   = currentBranchId;
 
-  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  useEffect(() => { if (user && canView) loadRoster(); }, [user, canView, currentBranchId]);
 
-  useEffect(() => { if (user && canView) loadRoster(); }, [user]);
+  useReconnectRefetch(() => { if (user && canView) loadRoster(); });
 
   const loadRoster = async () => {
     setLoading(true);
     try {
-      // كل القراءة (تحديد الفريق + بيانات الأعضاء الخفيفة) بتمر من DAL دلوقتي:
-      // لو مفيش إنترنت أو حصل فشل شبكة بترجع آخر نسخة محفوظة بدل ما تفضل
-      // الشاشة فاضية أو معلقة (نفس المنطق المستخدم فى باقي الصفحات).
-      const result = await dalRead(
-        `orgstructure:roster:${user!.id}`,
-        async () => {
-          // 1. كل من تحت المستخدم الحالي (نفس منطق الصلاحيات القديم بالظبط)
-          const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', { user_id: user!.id });
-          if (subtreeError) throw subtreeError;
-          const ids: string[] = subtreeIds || [user!.id];
+      // نطاق المستخدم (نفسه + كل من تحته) فى سياق الفرع الحالي (المرحلة 3):
+      // get_user_subtree_branch_aware بتمشي فى user_branch_roles الخاصة
+      // بالفرع ده بس لو currentBranchId موجود، وإلا بترجع لسلوك get_user_subtree
+      // الأصلي العابر للفروع.
+      const ids = await fetchUserSubtreeIdsBranchAware('orgstructure', user!.id, currentBranchId);
 
-          // 2. بيانات خفيفة فقط (بدون أي أرقام مالية) لكل الفريق دفعة واحدة —
-          // ده اللي بيسمح بالبحث والإحصائيات الفورية من غير ما نحمّل الإنتاج كله
+      const result = await dalRead(
+        `orgstructure:roster:${user!.id}:${[...ids].sort().join(',')}`,
+        async () => {
           const { data: usersData, error: usersError } = await supabase
             .from('users')
             .select('id, name, role, manager_id, is_active, avatar_url, target')
-            .is('deleted_at', null) // استبعاد المستخدمين المحذوفين (Soft Delete) من الهيكل الوظيفي
+            .is('deleted_at', null)
             .in('id', ids);
           if (usersError) throw usersError;
 
@@ -65,12 +69,33 @@ export function useOrgStructure() {
         { emptyValue: [] as RosterUser[] },
       );
 
+      // نطبّق "الفرع" فوق role/manager_id العامين: أي مستخدم عنده صف مطابق
+      // فى user_branch_roles لنفس الفرع، بياخد role/manager_id بتوع الفرع ده
+      // بدل قيمته العامة — فالهرم (childrenMap تحت) والإحصائيات والبحث كلها
+      // بتشتغل على سياق الفرع تلقائيًا من غير أي تعديل تاني فى الملف ده.
+      const branchRoles = await fetchBranchRoleMap(currentBranchId, ids);
+      const rosterData: RosterUser[] = result.data.map((u) => {
+        const br = branchRoles.get(u.id);
+        return br ? { ...u, role: br.role, manager_id: br.manager_id } : u;
+      });
+
       const map = new Map<string, RosterUser>();
-      result.data.forEach((u) => map.set(u.id, u));
+      rosterData.forEach((u) => map.set(u.id, u));
+
+      // نمسح إنتاج الفرع القديم عند إعادة تحميل الهيكل (مثلاً بعد تبديل
+      // الفرع الحالي) — القيم بقت مرتبطة بالفرع (get_org_node_production_branch_aware)
+      // فمينفعش نفضل مستخدمين قيمة محسوبة لفرع سابق لنفس المستخدم
+      setProduction(new Map());
+      productionRef.current = new Map();
+      setLoadingIds(new Set());
+      loadingRef.current = new Set();
 
       setRoster(map);
-      setExpanded(new Set()); // البداية: بطاقة أعلى مستوى فقط، مغلقة
-      await ensureProduction([user!.id], map);
+      setPath([user!.id]);
+      const directChildren = Array.from(map.values())
+        .filter((u) => u.manager_id === user!.id)
+        .map((u) => u.id);
+      await ensureProduction([user!.id, ...directChildren], map);
     } catch (err) {
       console.error('Error loading org structure:', err);
     } finally {
@@ -78,7 +103,6 @@ export function useOrgStructure() {
     }
   };
 
-  // خريطة (مدير → مرؤوسيه المباشرين) — مبنية مرة واحدة من القائمة الخفيفة
   const childrenMap = useMemo(() => {
     const map = new Map<string, string[]>();
     roster.forEach((u) => {
@@ -89,8 +113,6 @@ export function useOrgStructure() {
     return map;
   }, [roster]);
 
-  // Lazy Loading: بيجيب "الإنتاج الحالي" (مجموع تراكمي) لمجموعة مستخدمين بس،
-  // وقت ما بطاقاتهم بتتفتح فعلياً — بدل ما يتحسب لكل موظفي الشركة من البداية
   const ensureProduction = useCallback(async (ids: string[], rosterOverride?: Map<string, RosterUser>) => {
     const r = rosterOverride || rosterRef.current;
     const toFetch = ids.filter(
@@ -110,12 +132,14 @@ export function useOrgStructure() {
       const chunk = toFetch.slice(i, i + CHUNK);
       try {
         const monthKey = monthStartStr();
+        const branchId = branchIdRef.current;
         const result = await dalRead(
-          `orgstructure:production:${monthKey}:${[...chunk].sort().join(',')}`,
+          `orgstructure:production:${branchId || 'default'}:${monthKey}:${[...chunk].sort().join(',')}`,
           async () => {
-            const { data, error } = await supabase.rpc('get_org_node_production', {
+            const { data, error } = await supabase.rpc('get_org_node_production_branch_aware', {
               p_user_ids: chunk,
-              p_month_start: monthKey
+              p_month_start: monthKey,
+              p_branch_id: branchId,
             });
             if (error) throw error;
             return (data || []) as { user_id: string; production: number }[];
@@ -141,39 +165,34 @@ export function useOrgStructure() {
     }
   }, []);
 
-  const collectDescendants = (id: string, acc: Set<string>) => {
-    (childrenMap.get(id) || []).forEach((childId) => {
-      acc.add(childId);
-      collectDescendants(childId, acc);
-    });
-  };
-
-  const toggle = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        // إغلاق البطاقة: إخفاء كل المستويات التابعة لها كمان (مش بس المباشرين)
-        next.delete(id);
-        const toRemove = new Set<string>();
-        collectDescendants(id, toRemove);
-        toRemove.forEach((rid) => next.delete(rid));
-      } else {
-        next.add(id);
-        ensureProduction(childrenMap.get(id) || []);
-      }
-      return next;
-    });
+  // الدخول لصفحة حد معين (يبقى هو "الحالي" وتحته مرؤوسينه المباشرين)
+  const navigateInto = useCallback((id: string) => {
+    setPath((prev) => [...prev, id]);
+    ensureProduction(childrenMap.get(id) || []);
   }, [childrenMap, ensureProduction]);
 
-  const expandAll = useCallback(async () => {
-    const allIds = Array.from(roster.keys());
-    setExpanded(new Set(allIds));
-    setExpandingAll(true);
-    await ensureProduction(allIds);
-    setExpandingAll(false);
-  }, [roster, ensureProduction]);
+  // الضغط على أي اسم فى شريط المسار (breadcrumb) يرجعك لمستواه مباشرة
+  const navigateToIndex = useCallback((index: number) => {
+    setPath((prev) => prev.slice(0, index + 1));
+  }, []);
 
-  const collapseAll = useCallback(() => setExpanded(new Set()), []);
+  const goBack = useCallback(() => {
+    setPath((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  }, []);
+
+  // نتيجة بحث اتضغطت: يتفتح مسارها كامل من الجذر لحدها هى نفسها
+  const selectSearchResult = useCallback((match: RosterUser) => {
+    const r = rosterRef.current;
+    const chain: string[] = [];
+    let cur: RosterUser | undefined = match;
+    while (cur) {
+      chain.unshift(cur.id);
+      cur = cur.manager_id ? r.get(cur.manager_id) : undefined;
+    }
+    setPath(chain);
+    setSearchQuery('');
+    ensureProduction([...chain, ...(childrenMap.get(match.id) || [])]);
+  }, [childrenMap, ensureProduction]);
 
   // ── البحث والفلترة ──────────────────────────────────────
   const activeFilter = searchQuery.trim().length > 0 || roleFilter !== 'all';
@@ -187,39 +206,7 @@ export function useOrgStructure() {
     return list;
   }, [roster, searchQuery, roleFilter, activeFilter]);
 
-  // مسار كل نتيجة من الجذر لحد مكانها — عشان نفتحه تلقائياً ونمّيزه
-  const highlightIds = useMemo(() => {
-    if (!matches) return null;
-    const set = new Set<string>();
-    matches.forEach((m) => {
-      let cur: RosterUser | undefined = m;
-      while (cur) {
-        set.add(cur.id);
-        cur = cur.manager_id ? roster.get(cur.manager_id) : undefined;
-      }
-    });
-    return set;
-  }, [matches, roster]);
-
-  useEffect(() => {
-    if (!highlightIds || highlightIds.size === 0) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      highlightIds.forEach((id) => next.add(id));
-      return next;
-    });
-    ensureProduction(Array.from(highlightIds));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightIds]);
-
-  useEffect(() => {
-    if (searchQuery.trim() && matches && matches.length === 1) {
-      const el = cardRefs.current.get(matches[0].id);
-      if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
-    }
-  }, [matches, searchQuery]);
-
-  // ── إحصائيات سريعة ──────────────────────────────────────
+  // ── إحصائيات سريعة (على كامل النطاق، مش بس المستوى الحالي) ─
   const stats = useMemo(() => {
     let total = 0, generalSupervisors = 0, supervisors = 0, groupLeaders = 0, agents = 0;
     roster.forEach((u) => {
@@ -232,20 +219,18 @@ export function useOrgStructure() {
     return { total, generalSupervisors, supervisors, groupLeaders, agents };
   }, [roster]);
 
-  const registerRef = useCallback((id: string, el: HTMLDivElement | null) => {
-    if (el) cardRefs.current.set(id, el);
-    else cardRefs.current.delete(id);
-  }, []);
-
   return {
     user,
     canView,
     loading,
     roster,
-    expanded,
+    childrenMap,
     production,
     loadingIds,
-    expandingAll,
+    path,
+    navigateInto,
+    navigateToIndex,
+    goBack,
     searchQuery,
     setSearchQuery,
     roleFilter,
@@ -254,13 +239,8 @@ export function useOrgStructure() {
     setShowDownloadModal,
     formationPreview,
     setFormationPreview,
-    childrenMap,
-    toggle,
-    expandAll,
-    collapseAll,
     matches,
-    highlightIds,
+    selectSearchResult,
     stats,
-    registerRef,
   };
 }

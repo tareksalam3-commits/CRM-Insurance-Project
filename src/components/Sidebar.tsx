@@ -7,7 +7,7 @@ import { useAppStore } from '../store/appStore';
 import { useSettings } from '../hooks/useSettings';
 import { ConnectionStatusBadge } from './ConnectionStatusBadge';
 import { BrandMark } from './BrandMark';
-import { BOTTOM_NAV_ITEMS, getVisibleNavLayout, type NavGroup, type NavLayoutEntry, type NavItem } from '../config/navigation';
+import { getBottomNavItems, getVisibleNavLayout, type NavGroup, type NavLayoutEntry, type NavItem } from '../config/navigation';
 import clsx from 'clsx';
 
 function isPathActive(pathname: string, path: string) {
@@ -26,6 +26,7 @@ export function Sidebar() {
   const { branding } = useSettings();
 
   const navLayout: NavLayoutEntry[] = user ? getVisibleNavLayout(user.role) : [];
+  const bottomNavItems: NavItem[] = user ? getBottomNavItems(user.role) : [];
 
   // فتح القسم الذى يحتوي الصفحة الحالية تلقائياً عند كل تنقل، مع الحفاظ على
   // اختيار المستخدم اليدوي لباقي الأقسام (لا نعيد إغلاق أي قسم آخر فتحه بنفسه)
@@ -44,8 +45,8 @@ export function Sidebar() {
 
   const isSectionExpanded = (key: string) => expandedSections[key] ?? true;
 
-  // فلترة bottom nav الرئيسي (4 عناصر ثابتة لا تعتمد على الصلاحيات لأنها متاحة للجميع بالفعل)
-  const isMoreActive = !BOTTOM_NAV_ITEMS.some((item) => isPathActive(location.pathname, item.path));
+  // فلترة bottom nav الرئيسي (يعتمد على الدرجة الوظيفية — انظر getBottomNavItems)
+  const isMoreActive = !bottomNavItems.some((item) => isPathActive(location.pathname, item.path));
 
   return (
     <div className="print:hidden">
@@ -184,11 +185,11 @@ export function Sidebar() {
       </aside>
 
       {/* =============================================
-          MOBILE BOTTOM NAVIGATION  (أصغر من md) — 5 عناصر ثابتة فقط
+          MOBILE BOTTOM NAVIGATION  (أصغر من md) — يعتمد على الدرجة الوظيفية
       ============================================= */}
       <nav className="md:hidden fixed bottom-0 right-0 left-0 z-40 bg-white border-t border-secondary-200 safe-area-bottom">
         <div className="flex items-stretch justify-around px-0.5 py-1">
-          {BOTTOM_NAV_ITEMS.map((item) => {
+          {bottomNavItems.map((item) => {
             const Icon = item.icon;
             const active = isPathActive(location.pathname, item.path);
             return (
@@ -198,13 +199,13 @@ export function Sidebar() {
                 className={clsx(
                   'pressable flex flex-col items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-xl flex-1 min-w-0',
                   'transition-colors duration-200 touch-target',
-                  active ? 'text-primary-600' : 'text-secondary-400'
+                  active ? 'text-primary-600' : 'text-secondary-600'
                 )}
               >
                 <div className={clsx('p-1.5 rounded-xl transition-all duration-200', active ? 'bg-primary-100' : '')}>
                   <Icon className={clsx('w-5 h-5', active && 'text-primary-600')} />
                 </div>
-                <span className={clsx('text-[10px] font-medium leading-none truncate max-w-full', active ? 'text-primary-600' : 'text-secondary-400')}>
+                <span className={clsx('text-[10px] font-semibold leading-none truncate max-w-full', active ? 'text-primary-600' : 'text-secondary-600')}>
                   {item.label}
                 </span>
               </Link>
@@ -217,13 +218,13 @@ export function Sidebar() {
             className={clsx(
               'pressable flex flex-col items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-xl flex-1 min-w-0',
               'transition-colors duration-200 touch-target',
-              isMoreActive ? 'text-primary-600' : 'text-secondary-400'
+              isMoreActive ? 'text-primary-600' : 'text-secondary-600'
             )}
           >
             <div className={clsx('p-1.5 rounded-xl transition-all duration-200', isMoreActive ? 'bg-primary-100' : '')}>
               <Menu className={clsx('w-5 h-5', isMoreActive && 'text-primary-600')} />
             </div>
-            <span className={clsx('text-[10px] font-medium leading-none truncate max-w-full', isMoreActive ? 'text-primary-600' : 'text-secondary-400')}>
+            <span className={clsx('text-[10px] font-semibold leading-none truncate max-w-full', isMoreActive ? 'text-primary-600' : 'text-secondary-600')}>
               المزيد
             </span>
           </button>
@@ -358,7 +359,12 @@ function NavGroupSection({
                   )}
                 >
                   <Icon className={clsx('w-[18px] h-[18px] flex-shrink-0 transition-colors', active ? 'text-primary-600' : 'text-secondary-400')} />
-                  <span className="truncate">{item.label}</span>
+                  <span className="flex items-baseline gap-1.5 min-w-0 truncate">
+                    <span className="truncate">{item.label}</span>
+                    {item.subLabel && (
+                      <span className="text-[11px] font-normal text-secondary-400 truncate">{item.subLabel}</span>
+                    )}
+                  </span>
                 </Link>
               );
             })}
@@ -395,7 +401,12 @@ function StandaloneNavLink({
         )}
       >
         <Icon className={clsx('w-[18px] h-[18px] flex-shrink-0 transition-colors', active ? 'text-primary-600' : 'text-secondary-400')} />
-        <span className="truncate">{item.label}</span>
+        <span className="flex items-baseline gap-1.5 min-w-0 truncate">
+          <span className="truncate">{item.label}</span>
+          {item.subLabel && (
+            <span className="text-[11px] font-normal text-secondary-400 truncate">{item.subLabel}</span>
+          )}
+        </span>
       </Link>
     </div>
   );

@@ -1,9 +1,10 @@
 import { supabase } from '../../../lib/supabase';
 import {
-  format, startOfMonth, endOfMonth, subYears,
+  format, startOfMonth, endOfMonth, subYears, subMonths, addYears,
+  differenceInCalendarMonths,
   startOfQuarter, endOfQuarter, startOfYear, endOfYear,
 } from 'date-fns';
-import type { Year2Payment, Year2EligiblePolicy, Year2ReportRow, PrintPeriodType } from './types';
+import type { Year2Payment, Year2EligiblePolicy, Year2ReportRow, PrintPeriodType, Year2QuickFilter } from './types';
 import { dalRead } from '../../../lib/dataAccessLayer';
 
 const PAGE_SIZE = 10;
@@ -17,6 +18,16 @@ const PAGE_SIZE = 10;
 export interface FetchYear2PoliciesParams {
   page: number;
   searchQuery: string;
+  // الفرع الحالي المختار (BranchProvider العام) — فاضي/null يعني بدون فلترة
+  // إضافية (كل الفروع، معتمد على RLS بس) — تماماً بنفس مبدأ فلتر الفرع فى
+  // تحصيلات السنة الأولى (collectionService.ts)، دون أي تأثير على طبيعة
+  // عمل شاشة السنة الثانية أو عزلها عن باقي النظام.
+  branchId?: string | null;
+  // فلتر سريع: المستحق (لسه في انتظار تحصيل الشهر الحالي) / متأخر (فاته
+  // شهر كامل أو أكثر بدون تحصيل) / تم السداد (اتحصّل فعلاً خلال الشهر
+  // الحالي). نفس تسميات فلتر السنة الأولى تماماً — راجع الشرح أسفل
+  // classifyYear2Status.
+  quickFilter?: Year2QuickFilter;
 }
 
 export interface FetchYear2PoliciesResult {
@@ -27,35 +38,115 @@ export interface FetchYear2PoliciesResult {
 
 const EMPTY_YEAR2_POLICIES: FetchYear2PoliciesResult = { policies: [], totalCount: 0, totalPages: 1 };
 
+// ===================================================================
+// تصنيف حالة وثيقة في تحصيلات السنة الثانية (مستحق / متأخر / تم السداد)
+// ===================================================================
+// بما إنه مفيش جدول جدولة أقساط منفصل للسنة الثانية (فقط سجل تحصيلات فعلية
+// year2_payments)، بيتم بناء نفس مفهوم "الشهر المستحق" من تاريخ آخر تحصيل
+// فعلي غير ملغى للوثيقة، وإلا فمن أول شهر استحقاق للسنة الثانية نفسها
+// (سنة كاملة بعد start_date) لو لسه معهاش أي تحصيل. المعيار نفسه المستخدم
+// فى فلتر "متأخر" بالسنة الأولى: فوات شهر كامل أو أكثر = متأخر.
+function classifyYear2Status(startDate: string, lastPaidMonth: string | null, now: Date): Year2QuickFilter {
+  const currentMonthStart = startOfMonth(now);
+  const currentMonthStr = format(currentMonthStart, 'yyyy-MM-dd');
+
+  if (lastPaidMonth === currentMonthStr) return 'paid';
+
+  // أول شهر مستحق فعلياً للسنة الثانية = بداية الشهر اللي فيه سنة كاملة من
+  // بداية الوثيقة (نفس شرط الأهلية fetchYear2EligiblePolicies، محسوب هنا
+  // فقط عشان تحديد نقطة البداية لو لسه معهاش أي تحصيل)
+  const firstDueMonth = startOfMonth(addYears(new Date(startDate), 1));
+  const lastCoveredMonth = lastPaidMonth
+    ? startOfMonth(new Date(lastPaidMonth))
+    : subMonths(firstDueMonth, 1);
+
+  const monthsBehind = differenceInCalendarMonths(currentMonthStart, lastCoveredMonth);
+  return monthsBehind >= 2 ? 'overdue' : 'month';
+}
+
 // وثيقة تعتبر "دخلت السنة الثانية" فقط لو مر عليها سنة كاملة من start_date.
 // أي وثيقة لسه في السنة الأولى (أقل من سنة) لا تظهر هنا إطلاقاً.
 export async function fetchYear2EligiblePolicies(
-  { page, searchQuery }: FetchYear2PoliciesParams
+  { page, searchQuery, branchId = null, quickFilter }: FetchYear2PoliciesParams
 ): Promise<FetchYear2PoliciesResult> {
   const oneYearAgoStr = format(subYears(new Date(), 1), 'yyyy-MM-dd');
+  const nowStr = format(new Date(), 'yyyy-MM-dd');
 
   const result = await dalRead(
-    `year2:eligiblePolicies:${page}:${searchQuery.trim()}:${oneYearAgoStr}`,
+    `year2:eligiblePolicies:${page}:${searchQuery.trim()}:${oneYearAgoStr}:${branchId ?? 'none'}:${quickFilter ?? 'all'}:${nowStr}`,
     async () => {
-      let query = supabase
+      let baseQuery = supabase
         .from('policies')
-        .select('*, customer:customer_id(name), owner:owner_id(name)', { count: 'exact' })
+        .select('*, customer:customer_id(name), owner:owner_id(name)')
         .lte('start_date', oneYearAgoStr);
 
+      if (branchId) {
+        baseQuery = baseQuery.eq('branch_id', branchId);
+      }
       if (searchQuery.trim()) {
-        query = query.ilike('policy_number', `%${searchQuery.trim()}%`);
+        baseQuery = baseQuery.ilike('policy_number', `%${searchQuery.trim()}%`);
       }
 
-      const from = (page - 1) * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
+      let policies: Year2EligiblePolicy[];
+      let totalCount: number;
 
-      const { data, error, count } = await query
-        .order('start_date', { ascending: false })
-        .range(from, to);
+      if (!quickFilter) {
+        // بدون فلتر سريع: نفس المسار الأصلي (صفحة واحدة مباشرة من قاعدة
+        // البيانات) — أسرع لأنه معتمد على قاعدة البيانات للـ pagination
+        const from = (page - 1) * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error, count } = await baseQuery
+          .select('*, customer:customer_id(name), owner:owner_id(name)', { count: 'exact' })
+          .order('start_date', { ascending: false })
+          .range(from, to);
 
-      if (error) throw error;
+        if (error) throw error;
+        policies = (data || []) as Year2EligiblePolicy[];
+        totalCount = count || 0;
+      } else {
+        // مع فلتر سريع: الحالة (مستحق/متأخر/مسدد) محسوبة فى الجافاسكريبت
+        // من آخر تحصيل فعلي، فلازم نجيب كل الوثائق المطابقة لفلاتر الفرع
+        // والبحث أولاً (بدون range db-level)، نصنّفها، ثم نفلتر ونقسّم
+        // الصفحات يدوياً — بنفس أسلوب fetchCollectionQuickStats بالسنة
+        // الأولى (فلترة فى الجافاسكريبت بعد الجلب)
+        const { data: allMatching, error: allError } = await baseQuery
+          .order('start_date', { ascending: false });
 
-      const policies = (data || []) as Year2EligiblePolicy[];
+        if (allError) throw allError;
+        const candidates = (allMatching || []) as Year2EligiblePolicy[];
+
+        if (candidates.length === 0) {
+          policies = [];
+          totalCount = 0;
+        } else {
+          const ids = candidates.map((p) => p.id);
+          const { data: paymentsData, error: paymentsError } = await supabase
+            .from('year2_payments')
+            .select('policy_id, payment_month')
+            .in('policy_id', ids)
+            .eq('is_cancelled', false)
+            .order('payment_month', { ascending: false });
+
+          if (paymentsError) throw paymentsError;
+
+          const lastPaidMonthByPolicy = new Map<string, string>();
+          for (const p of paymentsData || []) {
+            if (!lastPaidMonthByPolicy.has(p.policy_id)) {
+              lastPaidMonthByPolicy.set(p.policy_id, p.payment_month);
+            }
+          }
+
+          const now = new Date();
+          const filtered = candidates.filter((policy) => {
+            const status = classifyYear2Status(policy.start_date, lastPaidMonthByPolicy.get(policy.id) ?? null, now);
+            return status === quickFilter;
+          });
+
+          totalCount = filtered.length;
+          const from = (page - 1) * PAGE_SIZE;
+          policies = filtered.slice(from, from + PAGE_SIZE);
+        }
+      }
 
       // إجمالي المحصل لكل وثيقة في السنة الثانية (استعلام واحد على الوثائق
       // المعروضة بالصفحة الحالية فقط)
@@ -80,8 +171,8 @@ export async function fetchYear2EligiblePolicies(
 
       return {
         policies,
-        totalCount: count || 0,
-        totalPages: Math.ceil((count || 0) / PAGE_SIZE),
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
       };
     },
     { emptyValue: EMPTY_YEAR2_POLICIES },
@@ -197,29 +288,38 @@ export function getPrintRange(periodType: PrintPeriodType, referenceDate: Date):
   };
 }
 
-export async function fetchYear2Report(periodType: PrintPeriodType, referenceDate: Date): Promise<Year2ReportRow[]> {
+export async function fetchYear2Report(
+  periodType: PrintPeriodType,
+  referenceDate: Date,
+  branchId: string | null = null,
+): Promise<Year2ReportRow[]> {
   const { start, end } = getPrintRange(periodType, referenceDate);
 
   const result = await dalRead(
-    `year2:report:${periodType}:${start}:${end}`,
+    `year2:report:${periodType}:${start}:${end}:${branchId ?? 'none'}`,
     async () => {
-      const { data, error } = await supabase
+      // فلتر الفرع هنا مبني على الوثيقة نفسها (policy.branch_id)، نفس مبدأ
+      // فلتر الفرع فى تحصيلات السنة الأولى — !inner ضروري عشان نقدر نفلتر
+      // على عمود من جدول مرتبط
+      let query = supabase
         .from('year2_payments')
-        .select(`
-          *,
-          policy:policy_id(
-            *,
-            customer:customer_id(name),
-            owner:owner_id(name)
-          )
-        `)
+        .select(
+          branchId
+            ? `*, policy:policy_id!inner(*, customer:customer_id(name), owner:owner_id(name))`
+            : `*, policy:policy_id(*, customer:customer_id(name), owner:owner_id(name))`
+        )
         .eq('is_cancelled', false)
         .gte('payment_date', start)
-        .lte('payment_date', end)
-        .order('payment_date', { ascending: true });
+        .lte('payment_date', end);
+
+      if (branchId) {
+        query = query.eq('policy.branch_id', branchId);
+      }
+
+      const { data, error } = await query.order('payment_date', { ascending: true });
 
       if (error) throw error;
-      return (data as Year2ReportRow[]) || [];
+      return (data as unknown as Year2ReportRow[]) || [];
     },
     { emptyValue: [] as Year2ReportRow[] },
   );

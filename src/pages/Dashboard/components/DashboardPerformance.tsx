@@ -25,7 +25,7 @@ export function DashboardPerformance({
   return (
     <>
       <div className="card">
-        <h3 className="font-semibold text-secondary-900 mb-4">أداء الفريق</h3>
+        <h3 className="font-semibold text-secondary-900 mb-4">إحصائيات الفريق</h3>
         <div className="space-y-5">
           {teamPerformanceSections.length === 0 ? (
             <p className="text-center text-secondary-500 py-4">لا توجد بيانات</p>

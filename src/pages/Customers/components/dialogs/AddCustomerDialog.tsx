@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { X, User as UserIcon, Phone, MapPin } from 'lucide-react';
 import type { UseFormRegister, UseFormHandleSubmit, UseFormSetValue, FieldErrors } from 'react-hook-form';
-import { MARITAL_STATUS_LABELS, type User } from '../../../../lib/supabase';
+import { MARITAL_STATUS_LABELS, PAYMENT_METHOD_LABELS, type User } from '../../../../lib/supabase';
 import type { CustomerFormData, CustomerWithRelations } from '../../types';
 import { AgentCombobox } from '../AgentCombobox';
 
@@ -137,6 +137,68 @@ export function CustomerFormDialog({
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+          </div>
+
+          {/* ===== بيانات طلب التأمين — بتتحفظ مع العميل وتُستخدم لاحقاً لتعبئة
+               مبلغ التأمين وطريقة السداد تلقائياً عند إصدار وثيقة له ===== */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-secondary-200">
+            <div className="form-group sm:col-span-2">
+              <p className="text-xs font-semibold text-secondary-500 -mb-1">بيانات طلب التأمين</p>
+            </div>
+
+            <div className="form-group">
+              <label className="input-label">مبلغ التأمين *</label>
+              <div className="relative">
+                <input
+                  {...register('insurance_amount', { valueAsNumber: true })}
+                  type="number"
+                  min="0"
+                  className={clsx('input-field pl-16', errors.insurance_amount && 'border-error-500')}
+                  placeholder="أدخل مبلغ التأمين"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
+                  جنيه
+                </span>
+              </div>
+              {errors.insurance_amount && (
+                <p className="text-sm text-error-600 mt-1">{errors.insurance_amount.message}</p>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label className="input-label">طريقة السداد *</label>
+              <select
+                {...register('payment_method')}
+                className={clsx('input-field', errors.payment_method && 'border-error-500')}
+              >
+                <option value="">اختر طريقة السداد</option>
+                {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {errors.payment_method && (
+                <p className="text-sm text-error-600 mt-1">{errors.payment_method.message}</p>
+              )}
+            </div>
+
+            <div className="form-group sm:col-span-2">
+              <label className="input-label">العربون *</label>
+              <div className="relative">
+                <input
+                  {...register('deposit_amount', { valueAsNumber: true })}
+                  type="number"
+                  min="0"
+                  className={clsx('input-field pl-16', errors.deposit_amount && 'border-error-500')}
+                  placeholder="أدخل قيمة العربون"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
+                  جنيه
+                </span>
+              </div>
+              {errors.deposit_amount && (
+                <p className="text-sm text-error-600 mt-1">{errors.deposit_amount.message}</p>
+              )}
+            </div>
           </div>
 
           {isManagerRole && (

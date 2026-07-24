@@ -26,7 +26,7 @@ export type InstallmentWithRelations = Installment & {
 };
 
 export const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
-  { id: 'month',   label: 'الشهر' },
+  { id: 'month',   label: 'المستحق' },
   { id: 'overdue', label: 'متأخر' },
   { id: 'paid',    label: 'تم السداد' },
 ];

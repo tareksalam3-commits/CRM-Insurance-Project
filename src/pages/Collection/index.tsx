@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useBranchContext } from '../../lib/branchContext';
 import type { InstallmentWithRelations, QuickFilter } from './types';
 import { Year2Collection } from './year2/Year2Collection';
 import { PayInstallmentModal } from '../../features/installments/PayInstallmentModal';
@@ -31,6 +32,7 @@ type YearMode = 'year1' | 'year2';
 
 export function Collection() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
 
   const { initialSubType, initialQuickFilter, hasUrlNavigation } = useCollectionUrlParams();
 
@@ -66,7 +68,7 @@ export function Collection() {
     localSearch,
     setLocalSearch,
     loadInstallments,
-  } = useCollectionInstallments({ user, yearMode, quickFilter, subType, ownerFilter });
+  } = useCollectionInstallments({ user, yearMode, quickFilter, subType, ownerFilter, branchId: currentBranchId });
 
   // تطبيق/إعادة تعيين الفلاتر أو اختيار شريحة سريعة لازم يرجّع الصفحة لأول
   // صفحة دايماً — بيتم استدعاء الدالتين معاً هنا فى نفس الحدث حتى يتجمّعا
@@ -77,8 +79,8 @@ export function Collection() {
 
   const hasActiveFilters = activeFilterCount > 0 || !!searchQuery;
 
-  const teamMembers = useTeamMembers(user);
-  const { quickStats, quickStatsLoading, loadQuickStats } = useCollectionQuickStats(user);
+  const teamMembers = useTeamMembers(user, currentBranchId);
+  const { quickStats, quickStatsLoading, loadQuickStats } = useCollectionQuickStats(user, currentBranchId);
 
   const {
     showPolicyModal,
@@ -140,7 +142,7 @@ export function Collection() {
       <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
 
       {yearMode === 'year2' ? (
-        <Year2Collection />
+        <Year2Collection branchId={currentBranchId} />
       ) : (
         <>
           {/* ===== البحث والفلاتر ===== */}

@@ -121,7 +121,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json();
-    const { email, password, name, role, phone, manager_id, target } = body;
+    const { email, password, name, role, phone, manager_id, target, branch_id } = body;
 
     if (!email || !password || !name || !role) {
       return new Response(
@@ -204,6 +204,41 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // 4) الفرع الافتراضي (مشكلة 3): لو المدير له فرع واحد بس، الـ trigger
+    //    فى قاعدة البيانات (056) بيحدده تلقائيًا فمفيش داعي نبعت branch_id.
+    //    لو المدير له أكتر من فرع، لازم الفرونت يبعت branch_id صراحة، ولازم
+    //    يكون فعلاً واحد من فروع هذا المدير بالتحديد.
+    if (managerRequired && manager_id) {
+      const { data: managerBranches, error: managerBranchesError } = await adminClient
+        .from("user_branch_roles")
+        .select("branch_id")
+        .eq("user_id", manager_id);
+
+      if (managerBranchesError) {
+        return new Response(
+          JSON.stringify({ error: "تعذر التحقق من فروع المدير المباشر" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const managerBranchIds = (managerBranches || []).map((r) => r.branch_id);
+
+      if (managerBranchIds.length > 1) {
+        if (!branch_id) {
+          return new Response(
+            JSON.stringify({ error: "المدير المباشر له أكثر من فرع؛ يجب تحديد الفرع للمستخدم الجديد" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        if (!managerBranchIds.includes(branch_id)) {
+          return new Response(
+            JSON.stringify({ error: "الفرع المختار ليس أحد فروع المدير المباشر" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    }
+
     const { data: createdUser, error: createError } = await adminClient.auth.admin.createUser({
       email,
       password,
@@ -214,6 +249,7 @@ Deno.serve(async (req: Request) => {
         phone: phone || null,
         manager_id: manager_id || null,
         target: target ?? 0,
+        branch_id: branch_id || null,
       },
     });
 

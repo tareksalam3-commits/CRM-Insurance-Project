@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { MARITAL_STATUS_LABELS, POLICY_STATUS_LABELS } from '../../../lib/supabase';
+import { MARITAL_STATUS_LABELS, PAYMENT_METHOD_LABELS, POLICY_STATUS_LABELS } from '../../../lib/supabase';
 import type { CustomerWithRelations } from '../types';
 import { formatCurrency, sortPoliciesByStartDate } from '../utils';
 
@@ -41,11 +41,14 @@ export function buildCustomerPrintHtml(customer: CustomerWithRelations): string 
             <tr><td>المهنة</td><td>${customer.occupation || '-'}</td></tr>
             <tr><td>الحالة الاجتماعية</td><td>${customer.marital_status ? MARITAL_STATUS_LABELS[customer.marital_status] : '-'}</td></tr>
             <tr><td>الوكيل المسؤول</td><td>${customer.owner?.name || '-'}</td></tr>
+            <tr><td>مبلغ التأمين (طلب التأمين)</td><td>${customer.insurance_amount != null ? formatCurrency(customer.insurance_amount) : '-'}</td></tr>
+            <tr><td>طريقة السداد (طلب التأمين)</td><td>${customer.payment_method ? PAYMENT_METHOD_LABELS[customer.payment_method] : '-'}</td></tr>
+            <tr><td>العربون</td><td>${customer.deposit_amount != null ? formatCurrency(customer.deposit_amount) : '-'}</td></tr>
           </table>
           ${sortedPolicies.length > 0 ? `
           <h2>الوثائق (${sortedPolicies.length})</h2>
           <table>
-            <tr><th>رقم الوثيقة</th><th>الحالة</th><th>قيمة القسط</th><th>تاريخ البداية</th></tr>
+            <tr><th>رقم الوثيقة</th><th>الحالة</th><th>قيمة القسط الصافي</th><th>تاريخ البداية</th></tr>
             ${policiesRows}
           </table>` : ''}
         </body>

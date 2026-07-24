@@ -61,15 +61,28 @@ export interface GroupLeaderAgg {
   production: number;
   collection: number;
   total: number;
+  // لو الصف ده بيمثل حد درجته الوظيفية الحقيقية أقل من اللي المفروض يكون
+  // فى نفس مستوى الصف ده (مثلاً وكيل ظاهر فى عمود "رئيس المجموعة" لأنه تابع
+  // مراقب مباشرة من غير رئيس مجموعة بينهم) — بنوضح تصنيفه الحقيقي هنا عشان
+  // يبان واضح إنه اتحط جنب ناس أعلى منه فى الدرجة الوظيفية وليه.
+  roleNote?: string;
 }
 
 export interface SupervisorAgg {
   id: string;
   name: string;
+  // الدرجة الوظيفية الحقيقية لصاحب هذا الصف — بتُستخدم فى التقرير المطبوع
+  // لعرض المسمى الوظيفي الصحيح (مراقب / مراقب عام / مدير تطوير...) بدل ما
+  // يتثبت على "المراقب" دايمًا.
+  role: UserRole;
   groupLeaders: GroupLeaderAgg[];
   production: number;
   collection: number;
   total: number;
+  // true لو الصف ده بيمثل تجميع المستخدم المسجّل دخوله نفسه (مثلاً رئيس
+  // مجموعة بيشوف صفحة تجميعاته الشخصية) — فبالتالي مفيش داعي نكرر اسمه
+  // كعنوان "المراقب" فوق الجدول، لأنه ظاهر أصلاً في ترويسة الصفحة.
+  isSelfReport?: boolean;
 }
 
 export interface PrintDetailRow {

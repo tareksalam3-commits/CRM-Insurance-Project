@@ -13,7 +13,7 @@ export type { AssistantAnswer, AgentRow } from './types';
 export { getTodaySummary, getBranchSummary, getDailyTip } from './analyzers/dashboardAnalyzer';
 
 // ── المبيعات والإنتاج ──
-export { getTodayNewPolicies, getMonthlyProduction, getYearlyProduction } from './analyzers/salesAnalyzer';
+export { getTodayNewPolicies, getMonthlyProduction, getMonthlyTrend, getYearlyProduction } from './analyzers/salesAnalyzer';
 
 // ── التحصيل ──
 export { getTodayCollection, getOverdueCustomers, getTodayTasks } from './analyzers/collectionsAnalyzer';
@@ -29,6 +29,7 @@ export {
   getSupervisorsPerformance,
   getGeneralSupervisorsPerformance,
   getUnderperformingTeam,
+  getOrgStructureSnapshot,
 } from './analyzers/usersAnalyzer';
 
 // ── العملاء ──
@@ -41,6 +42,9 @@ export {
 
 // ── الوثائق ──
 export { getDocumentsCount } from './analyzers/policiesAnalyzer';
+
+// ── نظرة شاملة (كل المؤشرات: وثائق، مسدد/غير مسدد، تحصيل، إنتاج جديد، إلغاءات) ──
+export { getFullSystemOverview } from './analyzers/overviewAnalyzer';
 
 // ── الأهداف ──
 export { getRemainingTarget, getGoalsAchievementOverview } from './analyzers/targetsAnalyzer';

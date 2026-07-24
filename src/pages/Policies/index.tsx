@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useBranchContext } from '../../lib/branchContext';
 import type { Policy } from '../../lib/supabase';
 
 import { PoliciesHeader } from './components/PoliciesHeader';
@@ -18,6 +19,7 @@ import { usePolicyActions } from './hooks/usePolicyActions';
 
 export function Policies() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
 
   const filters = usePolicyFilters();
   const {
@@ -32,7 +34,7 @@ export function Policies() {
     policies, loading, isInitialLoading, totalCount,
     stats, statsLoading, totalPages, deletableIds,
     loadPolicies, loadStats,
-  } = usePolicies(user, page, searchQuery, statusFilter, typeFilter, monthFilter);
+  } = usePolicies(user, page, searchQuery, statusFilter, typeFilter, monthFilter, currentBranchId);
 
   const actions = usePolicyActions({ user, searchParams, setSearchParams, loadPolicies, loadStats });
   const {
@@ -41,6 +43,7 @@ export function Policies() {
     deleteConfirm, setDeleteConfirm, deleting, handleDeletePolicy,
     moreMenuPolicy, setMoreMenuPolicy, handleStatusChange, handlePrintPolicy,
     presetCustomerId, selectedCustomer, showCustomerPicker, setShowCustomerPicker, handleSelectCustomer,
+    customerDefaultsLocked,
     navigate,
   } = actions;
 
@@ -122,6 +125,7 @@ export function Policies() {
           editingPolicy={editingPolicy}
           presetCustomerId={presetCustomerId}
           selectedCustomer={selectedCustomer}
+          customerDefaultsLocked={customerDefaultsLocked}
           onOpenCustomerPicker={() => setShowCustomerPicker(true)}
           register={register}
           handleSubmit={handleSubmit}

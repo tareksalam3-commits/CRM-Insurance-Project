@@ -12,6 +12,10 @@ interface StatsCardProps {
   iconClassName: string;
   /** كلاس نص القيمة الكامل، افتراضيًا نفس التنسيق المستخدم فى كل الصفحات */
   valueClassName?: string;
+  /** كلاس نص التسمية (Label) فوق القيمة — افتراضيًا رصاصي فاتح، ويمكن
+   *  تغييره (مثال: لأسود واضح) لصفحات محددة من غير ما يأثر على باقي
+   *  الصفحات اللي بتستخدم نفس الكارت */
+  labelClassName?: string;
   /** محتوى إضافى يظهر أسفل القيمة (مثل: من إجمالي ...) */
   footer?: ReactNode;
   onClick?: () => void;
@@ -30,13 +34,14 @@ export function StatsCard({
   borderClassName,
   iconClassName,
   valueClassName = 'text-xl md:text-2xl font-bold text-secondary-900 mt-1.5',
+  labelClassName = 'text-xs md:text-sm text-secondary-500',
   footer,
   onClick,
 }: StatsCardProps) {
   const content = (
     <>
       <div className="flex items-center justify-between">
-        <p className="text-xs md:text-sm text-secondary-500">{label}</p>
+        <p className={labelClassName}>{label}</p>
         <Icon className={iconClassName} />
       </div>
       <p className={valueClassName}>{value}</p>

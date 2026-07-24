@@ -1,8 +1,28 @@
-import { getRoleLevel, type UserRole } from '../../../lib/supabase';
+import { getRoleLevel, ROLE_LABELS, type UserRole } from '../../../lib/supabase';
+import type { BranchRoleInfo } from '../../../lib/branchHierarchy';
 import type {
   AgentSummary, GroupSummary, SupervisorSummary,
   GroupLeaderAgg, SupervisorAgg, PrintDetailRow, PaymentRow, BasicUser,
 } from '../types';
+
+/** التسمية المستخدمة لصف "الإنتاج الشخصي" (لما صاحب الإنتاج يكون رئيس مجموعة
+ * أو مراقب فما فوق باع/حصّل بنفسه) بدل اسم وكيل عادي — مُصدَّرة عشان تُستخدم
+ * فى التقرير المطبوع لتمييز هذه الصفوف وعرض اسم صاحبها الفعلي بجانبها */
+export const PERSONAL_PRODUCTION_LABEL = 'إنتاج شخصي';
+
+// لو حد (وكيل / رئيس مجموعة / مراقب... إلخ) ظاهر فى صف تجميعة تحت مدير
+// مش المدير المباشر "المتوقع" له فى الهرم الطبيعي (يعني فى مستوى إداري
+// اتقفز)، بيتحط فى نفس جدول ناس أعلى منه فى الدرجة الوظيفية من غير ما يبان
+// ده واضح. الدالة دي بتبني نص التصنيف اللي بيوضح علاقته الحقيقية بمديره
+// (مثلاً "وكيل يتبع المراقب مباشرة")، وترجع undefined لو مفيش قفزة (يعني
+// المدير هو نفسه المستوى المتوقع طبيعيًا).
+function hierarchySkipNote(subordinateRole: UserRole, managerRole: UserRole, plural = false): string | undefined {
+  const expectedManagerLevel = getRoleLevel(subordinateRole) - 1;
+  if (getRoleLevel(managerRole) >= expectedManagerLevel) return undefined;
+  const subordinateLabel = subordinateRole === 'agent' && plural ? 'وكلاء' : ROLE_LABELS[subordinateRole];
+  const verb = plural ? 'يتبعون' : 'يتبع';
+  return `${subordinateLabel} ${verb} ${ROLE_LABELS[managerRole]} مباشرة`;
+}
 
 export interface CurrentUserRef {
   id: string;
@@ -19,13 +39,34 @@ export interface MonthlyClosingSummary {
   printDetailRows: PrintDetailRow[];
 }
 
-// نفس منطق التجميع الأصلي بالكامل، منقول كما هو دون أي تغيير في السلوك أو الناتج.
+// نفس منطق التجميع الأصلي بالكامل، مع إضافة "سياق الفرع": لو branchId
+// وbranchRoles اتمررت، بناء الهرم (childrenOf) ودرجة/مدير كل شخص بيتحدد من
+// user_branch_roles الخاصة بهذا الفرع تحديدًا بدل الاعتماد المباشر على
+// users.manager_id/users.role العامين. لو من غير branchId (أو branchRoles
+// فاضية — أي استدعاء قديم لسه ما اتحدّثش)، السلوك بيرجع تلقائيًا لبالظبط
+// نفس المنطق الأصلي (توافق كامل مع الخلف).
 export function buildMonthlyClosingSummary(
   user: CurrentUserRef,
   usersData: BasicUser[],
   payments: PaymentRow[],
+  branchId?: string | null,
+  branchRoles?: Map<string, BranchRoleInfo>,
 ): MonthlyClosingSummary {
   const usersMap = new Map<string, BasicUser>(usersData.map((u) => [u.id, u]));
+  const branchRoleMap = branchRoles ?? new Map<string, BranchRoleInfo>();
+
+  // "درجة"/"مدير" كل شخص فى سياق الفرع المطلوب — بيرجع لقيمته العامة
+  // (users.role/users.manager_id) تلقائيًا لو مفيش صف مطابق فى الفرع
+  // (بما فى ذلك حالة عدم تمرير أي فرع أصلاً)، فمستخدم بوضع وظيفي واحد
+  // بس بيحصل بالظبط على نفس النتيجة القديمة سواء اتمرر الفرع أو لأ.
+  const roleOf = (id: string): UserRole =>
+    branchRoleMap.get(id)?.role ?? (usersMap.get(id)?.role as UserRole);
+  const managerOf = (id: string): string | null =>
+    branchRoleMap.has(id) ? branchRoleMap.get(id)!.manager_id : (usersMap.get(id)?.manager_id ?? null);
+
+  // درجة المستخدم الحالي (صاحب التقرير) فى سياق نفس الفرع — بترجع لقيمة
+  // user.role الممرّرة تلقائيًا لو مفيش فرع محدد (نفس السلوك القديم بالظبط).
+  const userRole = branchRoleMap.get(user.id)?.role ?? user.role;
 
   // 4. تجميع على مستوى الوكيل
   const agentMap = new Map<string, AgentSummary>();
@@ -36,7 +77,7 @@ export function buildMonthlyClosingSummary(
       const u = usersMap.get(ownerId);
       if (!u) continue;
       agentMap.set(ownerId, {
-        id: u.id, name: u.name, role: u.role, manager_id: u.manager_id,
+        id: u.id, name: u.name, role: roleOf(u.id), manager_id: managerOf(u.id),
         production: 0, collection: 0, total: 0, details: [],
       });
     }
@@ -61,9 +102,10 @@ export function buildMonthlyClosingSummary(
 
   const childrenOf = new Map<string, string[]>();
   for (const u of usersMap.values()) {
-    if (!u.manager_id) continue;
-    if (!childrenOf.has(u.manager_id)) childrenOf.set(u.manager_id, []);
-    childrenOf.get(u.manager_id)!.push(u.id);
+    const mgr = managerOf(u.id);
+    if (!mgr) continue;
+    if (!childrenOf.has(mgr)) childrenOf.set(mgr, []);
+    childrenOf.get(mgr)!.push(u.id);
   }
 
   const getAgentsUnder = (managerId: string): AgentSummary[] => {
@@ -72,9 +114,9 @@ export function buildMonthlyClosingSummary(
     for (const cid of children) {
       const cu = usersMap.get(cid);
       if (!cu) continue;
-      if (getRoleLevel(cu.role) >= 6) {
+      if (getRoleLevel(roleOf(cid)) >= 6) {
         if (agentMap.has(cid)) result.push(agentMap.get(cid)!);
-        else result.push({ id: cu.id, name: cu.name, role: cu.role, manager_id: cu.manager_id, production: 0, collection: 0, total: 0, details: [] });
+        else result.push({ id: cu.id, name: cu.name, role: roleOf(cid), manager_id: managerOf(cid), production: 0, collection: 0, total: 0, details: [] });
       } else {
         result.push(...getAgentsUnder(cid));
       }
@@ -92,7 +134,7 @@ export function buildMonthlyClosingSummary(
     const finalAgents = ownEntry ? [...agents, { ...ownEntry, id: leaderId + '_own', name: 'إنتاج شخصي' }] : agents;
     const prod = finalAgents.reduce((s, a) => s + a.production, 0);
     const coll = finalAgents.reduce((s, a) => s + a.collection, 0);
-    return { leaderId, leaderName: leader.name, leaderRole: leader.role, production: prod, collection: coll, total: prod + coll, agents: finalAgents, agentCount: agents.length };
+    return { leaderId, leaderName: leader.name, leaderRole: roleOf(leaderId), production: prod, collection: coll, total: prod + coll, agents: finalAgents, agentCount: agents.length };
   };
 
   const buildSupervisor = (supId: string): SupervisorSummary => {
@@ -104,12 +146,12 @@ export function buildMonthlyClosingSummary(
     for (const cid of children) {
       const cu = usersMap.get(cid);
       if (!cu) continue;
-      const lvl = getRoleLevel(cu.role);
+      const lvl = getRoleLevel(roleOf(cid));
       if (lvl === 5) {
         groups.push(buildGroup(cid));
       } else if (lvl >= 6) {
         if (agentMap.has(cid)) directA.push(agentMap.get(cid)!);
-        else directA.push({ id: cu.id, name: cu.name, role: cu.role, manager_id: cu.manager_id, production: 0, collection: 0, total: 0, details: [] });
+        else directA.push({ id: cu.id, name: cu.name, role: roleOf(cid), manager_id: managerOf(cid), production: 0, collection: 0, total: 0, details: [] });
       } else {
         // مستوى إداري متداخل فوق رئيس المجموعة (مراقب تحت مراقب عام، مراقب عام
         // تحت مدير تطوير... إلخ) — كان بيتفقد بالكامل قبل كده. بنبنيه بنفس منطق
@@ -121,8 +163,12 @@ export function buildMonthlyClosingSummary(
     }
 
     if (directA.length > 0) {
+      // لو وكيل واحد بس مباشر تحت المراقب (من غير رئيس مجموعة)، بيتكتب اسمه
+      // الحقيقي بدل تسميته "وكلاء مباشرون" — التسمية العامة دي بتفضل مستخدمة
+      // بس لما يكون فى أكتر من وكيل مجمّعين مع بعض.
+      const directLeaderName = directA.length === 1 ? directA[0].name : 'وكلاء مباشرون';
       groups.push({
-        leaderId: supId + '_direct', leaderName: 'وكلاء مباشرون',
+        leaderId: supId + '_direct', leaderName: directLeaderName,
         leaderRole: 'agent' as UserRole,
         production: directA.reduce((s, a) => s + a.production, 0),
         collection: directA.reduce((s, a) => s + a.collection, 0),
@@ -140,7 +186,7 @@ export function buildMonthlyClosingSummary(
       groups.push({
         leaderId: supId + '_own',
         leaderName: 'إنتاج شخصي',
-        leaderRole: sup.role,
+        leaderRole: roleOf(supId),
         production: supOwn.production,
         collection: supOwn.collection,
         total: supOwn.total,
@@ -151,7 +197,7 @@ export function buildMonthlyClosingSummary(
 
     const prod = groups.reduce((s, g) => s + g.production, 0);
     const coll = groups.reduce((s, g) => s + g.collection, 0);
-    return { supervisorId: supId, supervisorName: sup.name, supervisorRole: sup.role, production: prod, collection: coll, total: prod + coll, groups };
+    return { supervisorId: supId, supervisorName: sup.name, supervisorRole: roleOf(supId), production: prod, collection: coll, total: prod + coll, groups };
   };
 
   const myChildren = childrenOf.get(user.id) || [];
@@ -159,14 +205,14 @@ export function buildMonthlyClosingSummary(
   for (const cid of myChildren) {
     const cu = usersMap.get(cid);
     if (!cu) continue;
-    const lvl = getRoleLevel(cu.role);
+    const lvl = getRoleLevel(roleOf(cid));
     if (lvl <= 4) {
       supervisorList.push(buildSupervisor(cid));
     } else if (lvl === 5) {
       myDirectGroups.push(buildGroup(cid));
     } else {
       if (agentMap.has(cid)) directAgentList.push(agentMap.get(cid)!);
-      else directAgentList.push({ id: cu.id, name: cu.name, role: cu.role, manager_id: cu.manager_id, production: 0, collection: 0, total: 0, details: [] });
+      else directAgentList.push({ id: cu.id, name: cu.name, role: roleOf(cid), manager_id: managerOf(cid), production: 0, collection: 0, total: 0, details: [] });
     }
   }
 
@@ -178,7 +224,7 @@ export function buildMonthlyClosingSummary(
     myDirectGroups.push({
       leaderId: user.id + '_own',
       leaderName: 'إنتاج شخصي',
-      leaderRole: user.role,
+      leaderRole: userRole,
       production: myOwn.production,
       collection: myOwn.collection,
       total: myOwn.total,
@@ -191,7 +237,7 @@ export function buildMonthlyClosingSummary(
     supervisorList.unshift({
       supervisorId: user.id,
       supervisorName: user.name,
-      supervisorRole: user.role,
+      supervisorRole: userRole,
       production: myDirectGroups.reduce((s, g) => s + g.production, 0),
       collection: myDirectGroups.reduce((s, g) => s + g.collection, 0),
       total: myDirectGroups.reduce((s, g) => s + g.total, 0),
@@ -205,7 +251,7 @@ export function buildMonthlyClosingSummary(
                   + directAgentList.reduce((s, a) => s + a.collection, 0);
 
   // ── بيانات التقرير المطبوع (هيكل إداري بحت) ──
-  const isSupervisorPrinter = user.role === 'supervisor';
+  const isSupervisorPrinter = userRole === 'supervisor';
 
   const getAgentIdsUnder = (managerId: string): string[] => {
     const result: string[] = [];
@@ -213,7 +259,7 @@ export function buildMonthlyClosingSummary(
     for (const kid of kids) {
       const ku = usersMap.get(kid);
       if (!ku) continue;
-      if (getRoleLevel(ku.role) >= 6) result.push(kid);
+      if (getRoleLevel(roleOf(kid)) >= 6) result.push(kid);
       else result.push(...getAgentIdsUnder(kid));
     }
     return result;
@@ -228,7 +274,7 @@ export function buildMonthlyClosingSummary(
     return { production, collection, total };
   };
 
-  const buildGroupLeaderAgg = (glId: string): GroupLeaderAgg[] => {
+  const buildGroupLeaderAgg = (glId: string, managerRole: UserRole): GroupLeaderAgg[] => {
     const gl = usersMap.get(glId)!;
     const ids = getAgentIdsUnder(glId);
     const agentsSum = sumAgentIds(ids);
@@ -238,7 +284,8 @@ export function buildMonthlyClosingSummary(
     const production = agentsSum.production + (own?.production ?? 0);
     const collection = agentsSum.collection + (own?.collection ?? 0);
     const total = agentsSum.total + (own?.total ?? 0);
-    return [{ id: glId, name: gl.name, production, collection, total }];
+    const roleNote = hierarchySkipNote('group_leader', managerRole);
+    return [{ id: glId, name: gl.name, production, collection, total, roleNote }];
   };
 
   const buildSupervisorAgg = (supId: string, nameOverride?: string): SupervisorAgg => {
@@ -247,23 +294,71 @@ export function buildMonthlyClosingSummary(
     const groupLeaders: GroupLeaderAgg[] = [];
     const directAgentIds: string[] = [];
 
+    const supRole: UserRole = roleOf(supId) ?? sup?.role ?? 'supervisor';
+
     for (const kid of kids) {
       const ku = usersMap.get(kid);
       if (!ku) continue;
-      const lvl = getRoleLevel(ku.role);
-      if (ku.role === 'group_leader') {
-        groupLeaders.push(...buildGroupLeaderAgg(kid));
+      const kuRole = roleOf(kid);
+      const lvl = getRoleLevel(kuRole);
+      if (kuRole === 'group_leader') {
+        groupLeaders.push(...buildGroupLeaderAgg(kid, supRole));
       } else if (lvl >= 6) {
         directAgentIds.push(kid);
-      } else {
-        // مستوى إداري متداخل (نفس الفكرة اللي فوق) — بندمج مجموعات رؤساء المجموعات
-        // بتاعته هنا عشان التقرير المطبوع يتطابق مع المعروض على الشاشة.
+      } else if (lvl === getRoleLevel(supRole) + 1) {
+        // مستوى إداري متداخل طبيعي (المستوى المتوقع مباشرة تحت الحالي، زي
+        // مراقب عام تحت مدير تطوير) — بندمج مجموعات رؤساء المجموعات بتاعته
+        // هنا عشان التقرير المطبوع يتطابق مع المعروض على الشاشة.
         const nested = buildSupervisorAgg(kid);
         groupLeaders.push(...nested.groupLeaders);
+      } else {
+        // مستوى إداري اتقفز (مثلاً مراقب تابع مدير تطوير مباشرة من غير
+        // مراقب عام بينهم) — بيتحط كصف مستقل بإجمالي فريقه كله (بدل ما يتفكك
+        // لرؤساء مجموعاته منفردين وسط قائمة رؤساء مجموعات المستوى ده)،
+        // وبيتوضح جنبه تصنيفه الحقيقي عشان يبان إنه اتحط جنب حد أعلى منه.
+        const nested = buildSupervisorAgg(kid);
+        groupLeaders.push({
+          id: kid,
+          name: nested.name,
+          production: nested.production,
+          collection: nested.collection,
+          total: nested.total,
+          roleNote: hierarchySkipNote(kuRole, supRole),
+        });
       }
     }
     if (directAgentIds.length > 0) {
-      groupLeaders.push({ id: supId + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
+      // نفس قاعدة "وكيل مباشر واحد = يتكتب اسمه الحقيقي" لكن فى صف
+      // التجميعات المطبوع، على كل المستويات الإدارية.
+      const directName = directAgentIds.length === 1
+        ? (usersMap.get(directAgentIds[0])?.name ?? 'وكلاء مباشرون')
+        : 'وكلاء مباشرون';
+      groupLeaders.push({
+        id: supId + '_direct',
+        name: directName,
+        ...sumAgentIds(directAgentIds),
+        roleNote: hierarchySkipNote('agent', supRole, directAgentIds.length > 1),
+      });
+    }
+
+    // بيانات المراقب الشخصية لو باع/حصّل بنفسه — بتتحط كصف مستقل باسم
+    // "إنتاج شخصي" مع درجته الوظيفية الحقيقية جنب صفوف رؤساء المجموعات
+    // (زي "إنتاج شخصي — المراقب العام")، عشان تبان لوحدها ويتوضح صاحبها
+    // بالظبط لو التقرير بيجمع أكتر من مستوى إداري.
+    const supOwn = agentMap.get(supId);
+    if (supOwn) {
+      groupLeaders.push({
+        id: supId + '_own',
+        // بنضيف اسم صاحب الإنتاج (sup?.name) دايمًا مع الدرجة الوظيفية —
+        // لأن الصف ده ممكن يتدمج لاحقًا (فى الحالة أعلاه lvl === level+1)
+        // جوه groupLeaders بتاع مراقب أعلى منه (مراقب عام / مدير تطوير)،
+        // وساعتها لو مفيش اسم هيبقى فيه أكتر من صف بنفس النص من غير ما
+        // تعرف كل صف تبع مين.
+        name: `${PERSONAL_PRODUCTION_LABEL} — ${ROLE_LABELS[supRole]}: ${sup?.name ?? ''}`,
+        production: supOwn.production,
+        collection: supOwn.collection,
+        total: supOwn.total,
+      });
     }
 
     const totals = groupLeaders.reduce((acc, g) => ({
@@ -272,17 +367,7 @@ export function buildMonthlyClosingSummary(
       total: acc.total + g.total,
     }), { production: 0, collection: 0, total: 0 });
 
-    // بيانات المراقب الشخصية لو باع/حصّل بنفسه بتتحسب فى الإجمالي مباشرة
-    // (بدون صف تفصيلي مستقل باسم "إنتاج شخصي") — صفحة التجميعات صفحة
-    // إجمالي فقط بدون تفاصيل.
-    const supOwn = agentMap.get(supId);
-    if (supOwn) {
-      totals.production += supOwn.production;
-      totals.collection += supOwn.collection;
-      totals.total += supOwn.total;
-    }
-
-    return { id: supId, name: nameOverride ?? sup?.name ?? '', groupLeaders, ...totals };
+    return { id: supId, name: nameOverride ?? sup?.name ?? '', role: supRole, groupLeaders, ...totals };
   };
 
   const printSupervisorList: SupervisorAgg[] = [];
@@ -297,13 +382,13 @@ export function buildMonthlyClosingSummary(
     for (const kid of kids) {
       const ku = usersMap.get(kid);
       if (!ku) continue;
-      const lvl = getRoleLevel(ku.role);
+      const lvl = getRoleLevel(roleOf(kid));
       if (lvl <= 4) {
         // أي مستوى إداري من "مراقب" فما فوق (مراقب، مراقب عام، مدير تطوير، مدير
         // نظام) — كان بيتلقط الدور "supervisor" حرفيًا بس، فكانت المستويات
         // الإدارية الأعلى بتتفقد بالكامل من التقرير.
         printSupervisorList.push(buildSupervisorAgg(kid));
-      } else if (ku.role === 'group_leader') {
+      } else if (roleOf(kid) === 'group_leader') {
         directGroupLeaderIds.push(kid);
       } else if (lvl >= 6) {
         directAgentIds.push(kid);
@@ -311,40 +396,74 @@ export function buildMonthlyClosingSummary(
     }
 
     if (directGroupLeaderIds.length > 0 || directAgentIds.length > 0 || agentMap.has(user.id)) {
-      const groupLeaders: GroupLeaderAgg[] = directGroupLeaderIds.flatMap(buildGroupLeaderAgg);
+      const groupLeaders: GroupLeaderAgg[] = directGroupLeaderIds.flatMap((id) => buildGroupLeaderAgg(id, userRole));
       if (directAgentIds.length > 0) {
-        groupLeaders.push({ id: user.id + '_direct', name: 'وكلاء مباشرون', ...sumAgentIds(directAgentIds) });
+        // لو رئيس مجموعة بيشوف تجميعاته الشخصية، الوكلاء المباشرين دول هما
+        // فريقه هو نفسه، فبيتسموا "إنتاج شخصي" مش "وكلاء مباشرون" — وده
+        // وضع طبيعي مش قفزة فى الهرم، فمن غير تصنيف.
+        const directLabel = userRole === 'group_leader'
+          ? 'إنتاج شخصي'
+          : directAgentIds.length === 1
+            ? (usersMap.get(directAgentIds[0])?.name ?? 'وكلاء مباشرون')
+            : 'وكلاء مباشرون';
+        groupLeaders.push({
+          id: user.id + '_direct',
+          name: directLabel,
+          ...sumAgentIds(directAgentIds),
+          roleNote: userRole === 'group_leader'
+            ? undefined
+            : hierarchySkipNote('agent', userRole, directAgentIds.length > 1),
+        });
+      }
+      // بيانات المستخدم الحالي الشخصية لو باع/حصّل بنفسه — بتتحط كصف
+      // مستقل باسم "إنتاج شخصي" زي أي صف تاني، عشان تبان لوحدها. لو هو
+      // نفسه رئيس مجموعة بيشوف تجميعاته الشخصية، فريقه أصلاً بيتسمى
+      // "إنتاج شخصي" فوق (سطر directLabel)، فبنجمع إنتاجه الشخصي عليه
+      // بدل ما يتكرر نفس الاسم فى صفين.
+      const myOwn = agentMap.get(user.id);
+      if (myOwn) {
+        const ownTeamRow = userRole === 'group_leader'
+          ? groupLeaders.find((g) => g.id === user.id + '_direct')
+          : undefined;
+        if (ownTeamRow) {
+          ownTeamRow.production += myOwn.production;
+          ownTeamRow.collection += myOwn.collection;
+          ownTeamRow.total += myOwn.total;
+        } else {
+          groupLeaders.push({
+            id: user.id + '_own',
+            name: `${PERSONAL_PRODUCTION_LABEL} — ${ROLE_LABELS[userRole]}: ${user.name}`,
+            production: myOwn.production,
+            collection: myOwn.collection,
+            total: myOwn.total,
+          });
+        }
       }
       const totals = groupLeaders.reduce((acc, g) => ({
         production: acc.production + g.production,
         collection: acc.collection + g.collection,
         total: acc.total + g.total,
       }), { production: 0, collection: 0, total: 0 });
-      // بيانات المستخدم الحالي الشخصية لو باع/حصّل بنفسه بتتحسب فى الإجمالي
-      // مباشرة (بدون صف تفصيلي مستقل) — صفحة التجميعات صفحة إجمالي فقط.
-      const myOwn = agentMap.get(user.id);
-      if (myOwn) {
-        totals.production += myOwn.production;
-        totals.collection += myOwn.collection;
-        totals.total += myOwn.total;
-      }
-      printSupervisorList.push({ id: user.id, name: user.name, groupLeaders, ...totals });
+      printSupervisorList.push({
+        id: user.id, name: user.name, role: userRole, groupLeaders, ...totals,
+        isSelfReport: userRole === 'group_leader',
+      });
     }
   }
 
   // ── تفاصيل العمليات المسددة — قائمة مسطّحة ──
-  const PERSONAL_PRODUCTION_LABEL = 'إنتاج شخصي';
 
   const resolveHierarchyNames = (agentId: string) => {
     const agent = usersMap.get(agentId);
     const agentName = agent?.name || '';
-    const ownerLevel = agent ? getRoleLevel(agent.role) : 6;
+    const agentRole = agent ? roleOf(agentId) : undefined;
+    const ownerLevel = agent ? getRoleLevel(agentRole!) : 6;
 
     if (isSupervisorPrinter) {
       // صاحب الإنتاج نفسه رئيس مجموعة (إنتاج شخصي) — اسمه يتحط فى عموده
       // الوظيفي الحقيقي "رئيس المجموعة"، وعمود "الوكيل" يتكتب فيه
       // "إنتاج شخصي" بدل تكرار اسمه فيه.
-      if (agent?.role === 'group_leader') {
+      if (agentRole === 'group_leader') {
         return { supervisorName: user.name, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
       }
       // صاحب الإنتاج نفسه مراقب (اللي بيطبع التقرير) وباع/حصّل بنفسه —
@@ -354,27 +473,27 @@ export function buildMonthlyClosingSummary(
       }
 
       let groupLeaderName = 'وكلاء مباشرون';
-      let cur = agent?.manager_id;
+      let cur = agent ? managerOf(agentId) : null;
       while (cur && cur !== user.id) {
         const m = usersMap.get(cur);
         if (!m) break;
-        if (m.role === 'group_leader') { groupLeaderName = m.name; break; }
-        cur = m.manager_id;
+        if (roleOf(cur) === 'group_leader') { groupLeaderName = m.name; break; }
+        cur = managerOf(cur);
       }
       return { supervisorName: user.name, groupLeaderName, agentName };
     }
 
     // صاحب الإنتاج نفسه رئيس مجموعة (إنتاج شخصي) فى تقرير مستخدم أعلى منه —
     // نفس الفكرة: اسمه فى عمود "رئيس المجموعة"، وعمود "الوكيل" = "إنتاج شخصي".
-    if (agent?.role === 'group_leader') {
+    if (agentRole === 'group_leader') {
       let supervisorName = '';
-      let cur = agent.manager_id;
+      let cur = managerOf(agentId);
       while (cur) {
         const m = usersMap.get(cur);
         if (!m) break;
-        if (!supervisorName && getRoleLevel(m.role) <= 4) supervisorName = m.name;
+        if (!supervisorName && getRoleLevel(roleOf(cur)) <= 4) supervisorName = m.name;
         if (cur === user.id) break;
-        cur = m.manager_id;
+        cur = managerOf(cur);
       }
       if (!supervisorName) supervisorName = user.name;
       return { supervisorName, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
@@ -388,14 +507,15 @@ export function buildMonthlyClosingSummary(
 
     let groupLeaderName = '';
     let supervisorName = '';
-    let cur = agent?.manager_id;
+    let cur = agent ? managerOf(agentId) : null;
     while (cur) {
       const m = usersMap.get(cur);
       if (!m) break;
-      if (!groupLeaderName && m.role === 'group_leader') groupLeaderName = m.name;
-      if (!supervisorName && m.role === 'supervisor') supervisorName = m.name;
+      const mRole = roleOf(cur);
+      if (!groupLeaderName && mRole === 'group_leader') groupLeaderName = m.name;
+      if (!supervisorName && mRole === 'supervisor') supervisorName = m.name;
       if (cur === user.id) break;
-      cur = m.manager_id;
+      cur = managerOf(cur);
     }
     if (!supervisorName) supervisorName = user.name;
     if (!groupLeaderName) groupLeaderName = 'وكلاء مباشرون';

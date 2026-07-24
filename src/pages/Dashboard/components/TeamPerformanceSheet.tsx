@@ -120,11 +120,17 @@ export function TeamPerformanceSheet({ stack, children, onSelectChild, onBack, o
               <TrendingUp className="w-5 h-5 text-warning-600 mx-auto mb-1.5" />
               <p className="text-sm font-bold text-secondary-900">{formatCurrency(current.newProduction)}</p>
               <p className="text-[11px] text-secondary-500 mt-0.5">المحقق من الإنتاج الجديد</p>
+              <p className="text-[11px] text-error-600 mt-1 pt-1 border-t border-secondary-100">
+                المتبقي من الجديد: {formatCurrency(current.remainingNewProduction)}
+              </p>
             </div>
             <div className="card p-3 text-center">
               <DollarSign className="w-5 h-5 text-primary-600 mx-auto mb-1.5" />
               <p className="text-sm font-bold text-secondary-900">{formatCurrency(current.collection)}</p>
               <p className="text-[11px] text-secondary-500 mt-0.5">المحقق من التحصيل</p>
+              <p className="text-[11px] text-error-600 mt-1 pt-1 border-t border-secondary-100">
+                المتبقي من التحصيل: {formatCurrency(current.remainingCollection)}
+              </p>
             </div>
           </div>
 

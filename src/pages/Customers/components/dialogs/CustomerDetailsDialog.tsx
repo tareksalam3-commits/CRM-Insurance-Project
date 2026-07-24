@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { format } from 'date-fns';
 import { X, Phone, User as UserIcon, FileText, ChevronDown, ShieldPlus, CreditCard, Edit2, Printer } from 'lucide-react';
-import { MARITAL_STATUS_LABELS, POLICY_STATUS_LABELS, POLICY_TYPE_LABELS } from '../../../../lib/supabase';
+import { MARITAL_STATUS_LABELS, PAYMENT_METHOD_LABELS, POLICY_STATUS_LABELS, POLICY_TYPE_LABELS } from '../../../../lib/supabase';
 import type { PolicyInstallmentSummary } from '../../../../features/installments/installmentsService';
 import type { CustomerPolicySummary, CustomerWithRelations } from '../../types';
 import { STATUS_BADGE_CLASS, STATUS_DOT_CLASS } from '../../constants';
@@ -104,10 +104,28 @@ export function CustomerDetailsDialog({
                   <p className="text-secondary-400 text-xs mb-1">المهنة</p>
                   <p className="text-secondary-800 font-medium">{customer.occupation || '-'}</p>
                 </div>
-                <div className="col-span-2">
+                <div>
                   <p className="text-secondary-400 text-xs mb-1">الحالة الاجتماعية</p>
                   <p className="text-secondary-800 font-medium">
                     {customer.marital_status ? MARITAL_STATUS_LABELS[customer.marital_status] : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-secondary-400 text-xs mb-1">مبلغ التأمين (طلب التأمين)</p>
+                  <p className="text-secondary-800 font-medium">
+                    {customer.insurance_amount != null ? formatCurrency(customer.insurance_amount) : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-secondary-400 text-xs mb-1">طريقة السداد (طلب التأمين)</p>
+                  <p className="text-secondary-800 font-medium">
+                    {customer.payment_method ? PAYMENT_METHOD_LABELS[customer.payment_method] : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-secondary-400 text-xs mb-1">العربون</p>
+                  <p className="text-secondary-800 font-medium">
+                    {customer.deposit_amount != null ? formatCurrency(customer.deposit_amount) : '-'}
                   </p>
                 </div>
               </div>
@@ -162,7 +180,7 @@ export function CustomerDetailsDialog({
                           </p>
                         </div>
                         <div>
-                          <p className="text-secondary-400 mb-0.5">قيمة القسط</p>
+                          <p className="text-secondary-400 mb-0.5">قيمة القسط الصافي</p>
                           <p className="font-medium text-secondary-800">{formatCurrency(policy.premium_amount)}</p>
                         </div>
                         <div>

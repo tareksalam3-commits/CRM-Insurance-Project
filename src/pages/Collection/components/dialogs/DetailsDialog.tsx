@@ -41,7 +41,7 @@ export function DetailsDialog({ installment, view, onClose }: DetailsDialogProps
               <DetailRow label="نوع الوثيقة" value={POLICY_TYPE_LABELS[policy.policy_type] || policy.policy_type} />
               <DetailRow label="تاريخ البداية" value={format(new Date(policy.start_date), 'dd/MM/yyyy')} />
               <DetailRow label="طريقة السداد" value={PAYMENT_METHOD_LABELS[policy.payment_method] || policy.payment_method} />
-              <DetailRow label="قيمة القسط" value={formatCurrency(policy.premium_amount)} />
+              <DetailRow label="قيمة القسط الصافي" value={formatCurrency(policy.premium_amount)} />
               <DetailRow label="حالة الوثيقة" value={policy.status === 'cancelled' ? 'ملغاة' : 'نشطة'} />
             </>
           )}

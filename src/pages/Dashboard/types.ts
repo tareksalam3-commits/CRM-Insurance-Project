@@ -50,4 +50,10 @@ export interface TeamMemberDetail {
   achieved: number;
   remaining: number;
   rate: number;
+  // المتبقي (غير المسدد) من مستحقات هذا الشهر، مقسّم حسب المصدر — إنتاج
+  // جديد / تحصيل دوري — لنفس فريق هذا الشخص (تجميع من الأسفل للأعلى مثل
+  // newProduction/collection أعلاه). يُحسب من أقساط هذا الشهر التي لم
+  // تُسدد بعد (pending/overdue)، وليس له علاقة بـ "الهدف" (target).
+  remainingNewProduction: number;
+  remainingCollection: number;
 }

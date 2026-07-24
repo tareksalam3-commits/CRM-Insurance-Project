@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
+import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 import {
   Search, X, CheckCircle, XCircle,
   History, Printer, Info,
@@ -7,14 +8,25 @@ import {
 import { format } from 'date-fns';
 import { Pagination } from '../../../components/ui/Pagination';
 
-import type { Year2EligiblePolicy, Year2Payment, Year2ReportRow, PrintPeriodType } from './types';
+import clsx from 'clsx';
+import type { Year2EligiblePolicy, Year2Payment, Year2ReportRow, PrintPeriodType, Year2QuickFilter } from './types';
+import { YEAR2_QUICK_FILTERS } from './types';
 import {
   fetchYear2EligiblePolicies, fetchYear2Payments, addYear2Payment, cancelYear2Payment,
   fetchYear2Report, getPrintRange,
 } from './year2CollectionService';
 import { PrintYear2Report } from './PrintYear2Report';
+import { printWithTitle } from '../../../lib/printWithTitle';
 
-export function Year2Collection() {
+interface Year2CollectionProps {
+  // الفرع الحالي المختار (BranchProvider العام، مُمرَّر من صفحة التحصيل
+  // الأب) — null يعني بدون فلترة إضافية (كل الفروع). لا يؤثر على أي شيء
+  // غير عرض/تحصيل وثائق هذا الفرع تحديداً، وما زالت الشاشة معزولة تماماً
+  // عن التارجت/المحقق/أي إحصائية أخرى بالنظام.
+  branchId?: string | null;
+}
+
+export function Year2Collection({ branchId = null }: Year2CollectionProps) {
   const { user } = useAuth();
   const [policies, setPolicies] = useState<Year2EligiblePolicy[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +35,7 @@ export function Year2Collection() {
   const [totalCount, setTotalCount] = useState(0);
   const [localSearch, setLocalSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [quickFilter, setQuickFilter] = useState<Year2QuickFilter>('month');
 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<Year2EligiblePolicy | null>(null);
@@ -46,7 +59,24 @@ export function Year2Collection() {
   const [printLabel, setPrintLabel] = useState('');
   const [printLoading, setPrintLoading] = useState(false);
 
-  useEffect(() => { loadPolicies(); }, [page, searchQuery]);
+  const loadPolicies = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { policies: results, totalCount: count, totalPages: pages } =
+        await fetchYear2EligiblePolicies({ page, searchQuery, branchId, quickFilter });
+      setPolicies(results);
+      setTotalCount(count);
+      setTotalPages(pages);
+    } catch (error) {
+      console.error('Error loading year2 policies:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, searchQuery, branchId, quickFilter]);
+
+  useEffect(() => { loadPolicies(); }, [loadPolicies]);
+
+  useReconnectRefetch(loadPolicies);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -58,19 +88,9 @@ export function Year2Collection() {
     return () => clearTimeout(timer);
   }, [localSearch]);
 
-  const loadPolicies = async () => {
-    setLoading(true);
-    try {
-      const { policies: results, totalCount: count, totalPages: pages } =
-        await fetchYear2EligiblePolicies({ page, searchQuery });
-      setPolicies(results);
-      setTotalCount(count);
-      setTotalPages(pages);
-    } catch (error) {
-      console.error('Error loading year2 policies:', error);
-    } finally {
-      setLoading(false);
-    }
+  const handleQuickFilterSelect = (id: Year2QuickFilter) => {
+    setQuickFilter(id);
+    setPage(1);
   };
 
   const formatCurrency = (value: number) =>
@@ -145,11 +165,11 @@ export function Year2Collection() {
     setPrintLoading(true);
     try {
       const referenceDate = new Date(printDateStr);
-      const rows = await fetchYear2Report(printPeriodType, referenceDate);
+      const rows = await fetchYear2Report(printPeriodType, referenceDate, branchId);
       const { label } = getPrintRange(printPeriodType, referenceDate);
       setPrintRows(rows);
       setPrintLabel(label);
-      setTimeout(() => window.print(), 100);
+      setTimeout(() => printWithTitle(`تحصيل-السنة-الثانية-${label}`), 100);
     } catch (error) {
       console.error(error);
       alert('حدث خطأ أثناء إعداد التقرير');
@@ -183,7 +203,7 @@ export function Year2Collection() {
       </div>
 
       <div className="card print:hidden">
-        <div className="mb-6">
+        <div className="mb-6 space-y-3">
           <div className="relative max-w-md">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-secondary-400" />
             <input
@@ -194,6 +214,25 @@ export function Year2Collection() {
               className="input-field pr-10"
             />
           </div>
+
+          {/* شرائح سريعة: المستحق / متأخر / تم السداد — بنفس منطق فلتر
+              السنة الأولى، محسوبة من آخر تحصيل فعلي لكل وثيقة */}
+          <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1 -mx-1 px-1">
+            {YEAR2_QUICK_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => handleQuickFilterSelect(f.id)}
+                className={clsx(
+                  'shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors',
+                  quickFilter === f.id
+                    ? 'bg-primary-600 border-primary-600 text-white'
+                    : 'bg-white border-secondary-200 text-secondary-600 hover:border-primary-300'
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
@@ -202,7 +241,11 @@ export function Year2Collection() {
           </div>
         ) : policies.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-secondary-500">لا توجد وثائق دخلت السنة الثانية بعد</p>
+            <p className="text-secondary-500">
+              {searchQuery || quickFilter !== 'month'
+                ? 'لا توجد وثائق مطابقة'
+                : 'لا توجد وثائق دخلت السنة الثانية بعد'}
+            </p>
           </div>
         ) : (
           <>

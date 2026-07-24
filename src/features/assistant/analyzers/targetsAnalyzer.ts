@@ -1,32 +1,16 @@
-import { supabase, User } from '../../../lib/supabase';
+import { User } from '../../../lib/supabase';
 import { startOfMonth, format } from 'date-fns';
-import { dalRead } from '../../../lib/dataAccessLayer';
 import type { AssistantAnswer } from '../types';
 import { formatCurrency } from '../helpers/formatters';
-import { getScopedUserIds, getScopedTeamAchievement } from '../helpers/scopeHelpers';
+import { getScopedUserIds, getScopedTeamAchievement, getSubtreeUserIds, getSubtreeScopedPayments } from '../helpers/scopeHelpers';
 
 /** كم المتبقي لتحقيق الهدف */
 export async function getRemainingTarget(user: User): Promise<AssistantAnswer> {
-  const userIds = await getScopedUserIds(user);
+  const subtreeIds = await getSubtreeUserIds(user);
   const monthStartStr = format(startOfMonth(new Date()), 'yyyy-MM-dd');
 
-  const result = await dalRead(
-    `assistant:remainingTarget:${userIds.slice().sort().join(',')}:${monthStartStr}`,
-    async () => {
-      const { data, error } = await supabase
-        .from('payments')
-        .select('amount, is_cancelled, installment:installment_id(policy:policy_id(owner_id))')
-        .eq('payment_month', monthStartStr)
-        .eq('is_cancelled', false);
-      if (error) throw error;
-      return data || [];
-    },
-    { emptyValue: [] as any[] },
-  );
-
-  const achieved = result.data
-    .filter((p: any) => userIds.includes(p.installment?.policy?.owner_id))
-    .reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const payments = await getSubtreeScopedPayments(subtreeIds, monthStartStr);
+  const achieved = payments.reduce((s: number, p) => s + p.amount, 0);
 
   const target = Number(user.target || 0);
   const remaining = Math.max(0, target - achieved);

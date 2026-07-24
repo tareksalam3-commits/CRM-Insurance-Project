@@ -15,6 +15,7 @@ import {
   getTodayTasks,
   getTodaySummary,
   getMonthlyProduction,
+  getMonthlyTrend,
   getYearlyProduction,
   getCancellationRate,
   getSupervisorsPerformance,
@@ -22,7 +23,8 @@ import {
   getGoalsAchievementOverview,
   getUnderperformingTeam,
   getDataQualityReview,
-  getCustomerDistribution
+  getCustomerDistribution,
+  getOrgStructureSnapshot
 } from './assistantData';
 
 // --------------------------------------------------------------------------
@@ -32,6 +34,18 @@ import {
 // مستقبلًا، يكفي إضافة عنصر جديد هنا بدون أي تعديل في منطق المطابقة نفسه.
 // الترتيب مهم: الأنماط الأكثر تحديدًا توضع أولًا لتفادي التصادم مع أنماط أعم.
 export const PATTERNS: QueryPattern[] = [
+  {
+    id: 'org_structure',
+    keywords: [
+      'الهيكل الوظيفي', 'الهيكل الاداري', 'الهيكل الإداري', 'مين تحت مين',
+      'مين تحت في', 'مين مرؤوسين', 'الدرجات الوظيفية', 'الدرجه الوظيفيه',
+      'مين مديري', 'مديري المباشر', 'تحت اشراف مين', 'تحت إشراف مين',
+      'شكل الفريق', 'ترتيب الفريق', 'مين تابع لمين', 'التسلسل الوظيفي',
+      'التسلسل الاداري', 'التسلسل الإداري', 'شجرة الفريق'
+    ],
+    examples: ['مين تحت مين في الفريق؟'],
+    run: getOrgStructureSnapshot
+  },
   {
     id: 'remaining_target',
     keywords: [
@@ -198,6 +212,17 @@ export const PATTERNS: QueryPattern[] = [
     run: getYearlyProduction
   },
   {
+    id: 'monthly_comparison',
+    keywords: [
+      'قارن', 'قارنلي', 'مقارنة الشهور', 'مقارنه الشهور', 'مقارنة بين الشهور',
+      'الفرق بين الشهور', 'اتجاه الأداء', 'اتجاه الاداء', 'اداء اخر شهور', 'أداء آخر شهور',
+      'آخر ٦ شهور', 'اخر 6 شهور', 'اخر ثلاث شهور', 'آخر ثلاثة شهور', 'كل شهر لوحده',
+      'مقارنة المدد', 'مقارنه المدد', 'مقارنة فترات', 'مقارنه بين فترات', 'تريند الاداء', 'تريند الأداء'
+    ],
+    examples: ['قارنلي أداء آخر 6 شهور'],
+    run: (u) => getMonthlyTrend(u)
+  },
+  {
     id: 'cancellation_rate',
     keywords: [
       'نسبة الالغاءات', 'نسبة الإلغاءات', 'نسبه الالغاءات', 'كام وثيقة اتلغت', 'كم وثيقة اُلغيت',
@@ -270,12 +295,3 @@ export const NORMALIZED_PATTERNS = PATTERNS.map((p) => ({
   keywords: p.keywords.map(normalizeArabic)
 }));
 
-// اقتراحات افتراضية تُعرض عندما يكون السؤال عامًا جدًا (زي "كام" لوحدها)
-// ولا يوجد أي كلمة مميزة تساعد في تحديد النية
-export const DEFAULT_SUGGESTIONS = [
-  'كم عدد الوكلاء؟',
-  'كم عدد العملاء؟',
-  'كم عدد الوثائق؟',
-  'كم المتبقي لتحقيق الهدف؟',
-  'كم التحصيل اليوم؟'
-];

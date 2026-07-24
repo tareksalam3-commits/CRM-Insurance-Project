@@ -22,6 +22,7 @@ export interface RawYear1Payment {
       payment_method: string;
       sum_assured: number | null;
       owner_id: string;
+      branch_id: string;
       customer: { name: string } | null;
     } | null;
   } | null;
@@ -37,6 +38,7 @@ export interface RawYear2Payment {
     payment_method: string;
     sum_assured: number | null;
     owner_id: string;
+    branch_id: string;
     customer: { name: string } | null;
   } | null;
 }
@@ -53,13 +55,14 @@ const EMPTY_COMMISSION_SOURCE: { year1Payments: RawYear1Payment[]; year2Payments
 
 export async function fetchCommissionSourceData(
   ownerId: string,
-  selectedMonthDate: Date
+  selectedMonthDate: Date,
+  branchId: string | null = null,
 ): Promise<{ year1Payments: RawYear1Payment[]; year2Payments: RawYear2Payment[] }> {
   const rangeStartMonth = format(startOfMonth(subMonths(selectedMonthDate, 1)), 'yyyy-MM-dd');
   const rangeEndMonth = format(startOfMonth(selectedMonthDate), 'yyyy-MM-dd');
 
   const result = await dalRead(
-    `commissions:source:${ownerId}:${rangeStartMonth}:${rangeEndMonth}`,
+    `commissions:source:${ownerId}:${rangeStartMonth}:${rangeEndMonth}:${branchId ?? 'none'}`,
     async () => {
       const [year1Res, year2Res] = await Promise.all([
         supabase
@@ -68,7 +71,7 @@ export async function fetchCommissionSourceData(
             id, amount, paid_at,
             installment:installment_id(
               policy:policy_id(
-                id, policy_number, payment_method, sum_assured, owner_id,
+                id, policy_number, payment_method, sum_assured, owner_id, branch_id,
                 customer:customer_id(name)
               )
             )
@@ -81,7 +84,7 @@ export async function fetchCommissionSourceData(
           .select(`
             id, amount, payment_date,
             policy:policy_id(
-              id, policy_number, payment_method, sum_assured, owner_id,
+              id, policy_number, payment_method, sum_assured, owner_id, branch_id,
               customer:customer_id(name)
             )
           `)
@@ -95,10 +98,12 @@ export async function fetchCommissionSourceData(
 
       const year1Payments = ((year1Res.data || []) as unknown as RawYear1Payment[]).filter(
         (p) => p.installment?.policy?.owner_id === ownerId
+          && (!branchId || p.installment?.policy?.branch_id === branchId)
       );
 
       const year2Payments = ((year2Res.data || []) as unknown as RawYear2Payment[]).filter(
         (p) => p.policy?.owner_id === ownerId
+          && (!branchId || p.policy?.branch_id === branchId)
       );
 
       return { year1Payments, year2Payments };

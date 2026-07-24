@@ -33,3 +33,16 @@ export type PrintPeriodType = 'month' | 'quarter' | 'year';
 export interface Year2ReportRow extends Year2Payment {
   policy: Policy & { customer: { name: string }; owner: { name: string } };
 }
+
+// فلتر سريع لتحصيلات السنة الثانية — بنفس أسماء وتسميات فلتر السنة الأولى
+// (راجع src/pages/Collection/types.ts) لكن الحساب هنا مبني على سجل
+// year2_payments نفسه (آخر شهر تم تحصيله فعلياً لكل وثيقة) بدل جدول أقساط
+// منفصل، لأن تحصيل السنة الثانية مفيهوش جدول جدولة مستقل. هذا الفلتر لا
+// يغيّر ولا يُستخدم في أي تارجت/محقق/إحصائية أخرى بالنظام.
+export type Year2QuickFilter = 'month' | 'overdue' | 'paid';
+
+export const YEAR2_QUICK_FILTERS: { id: Year2QuickFilter; label: string }[] = [
+  { id: 'month', label: 'المستحق' },
+  { id: 'overdue', label: 'متأخر' },
+  { id: 'paid', label: 'تم السداد' },
+];

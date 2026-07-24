@@ -42,7 +42,7 @@ function CollectionCardImpl({ installment, onPay, onCancel, onMore }: Collection
           <p className="text-secondary-800 font-medium truncate">{installment.policy.owner?.name || '-'}</p>
         </div>
         <div>
-          <p className="text-secondary-400 text-xs">قيمة القسط</p>
+          <p className="text-secondary-400 text-xs">قيمة القسط الصافي</p>
           <p className="text-secondary-800 font-semibold">{formatCurrency(installment.amount)}</p>
         </div>
         <div>

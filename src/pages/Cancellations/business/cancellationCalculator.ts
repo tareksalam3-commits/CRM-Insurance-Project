@@ -2,6 +2,7 @@ import { differenceInMonths } from 'date-fns';
 import type {
   RawCancelledPolicy, BasicHierarchyUser, CancellationDetailRow, CancellationSummary,
 } from '../types';
+import type { BranchRoleInfo } from '../../../lib/branchHierarchy';
 
 // حد أهلية الإلغاء لدخول المؤشر: أقل من 18 شهر من تاريخ بداية التأمين
 const ELIGIBILITY_MONTHS_THRESHOLD = 18;
@@ -58,22 +59,32 @@ export function resolveHierarchyNames(
   ownerId: string,
   usersMap: Map<string, BasicHierarchyUser>,
   viewer: { id: string; name: string; role: string },
+  branchRoles?: Map<string, BranchRoleInfo>,
 ): { agentName: string; groupLeaderName: string; supervisorName: string; generalSupervisorName: string } {
   const owner = usersMap.get(ownerId);
   const agentName = owner?.name || '';
+
+  // "درجة"/"مدير" أي شخص فى سياق الفرع المطلوب — بترجع تلقائيًا لقيمة
+  // users.role/users.manager_id العامة لو مفيش صف مطابق فى هذا الفرع (بما
+  // فى ذلك حالة عدم تمرير أي فرع أصلاً) — نفس السلوك القديم بالظبط لمن
+  // عنده وضع وظيفي واحد بس.
+  const roleOf = (id: string): string => branchRoles?.get(id)?.role ?? usersMap.get(id)?.role ?? '';
+  const managerOf = (id: string): string | null =>
+    branchRoles?.has(id) ? branchRoles.get(id)!.manager_id : (usersMap.get(id)?.manager_id ?? null);
 
   let groupLeaderName = '';
   let supervisorName = '';
   let generalSupervisorName = '';
 
-  let cur = owner?.manager_id || null;
+  let cur = owner ? managerOf(ownerId) : null;
   while (cur) {
     const m = usersMap.get(cur);
     if (!m) break;
-    if (!groupLeaderName && m.role === 'group_leader') groupLeaderName = m.name;
-    if (!supervisorName && m.role === 'supervisor') supervisorName = m.name;
-    if (!generalSupervisorName && m.role === 'general_supervisor') generalSupervisorName = m.name;
-    cur = m.manager_id;
+    const mRole = roleOf(cur);
+    if (!groupLeaderName && mRole === 'group_leader') groupLeaderName = m.name;
+    if (!supervisorName && mRole === 'supervisor') supervisorName = m.name;
+    if (!generalSupervisorName && mRole === 'general_supervisor') generalSupervisorName = m.name;
+    cur = managerOf(cur);
   }
 
   if (!groupLeaderName && viewer.role === 'group_leader') groupLeaderName = viewer.name;
@@ -92,10 +103,14 @@ export interface BuildCancellationSummaryParams {
   allYear1Payments: RawPaymentWithOwner[];
   allYear2Payments: RawYear2WithOwner[];
   userIds: string[];
+  // خريطة role/manager_id الخاصة بفرع معيّن (المرحلة 3) — اختيارية بالكامل؛
+  // من غيرها السلوك يرجع لبالظبط الاعتماد المباشر على users.manager_id القديم.
+  branchRoles?: Map<string, BranchRoleInfo>;
 }
 
 export function buildCancellationSummary({
   year, cancelledPolicies, users, viewer, paidForEligiblePolicies, allYear1Payments, allYear2Payments, userIds,
+  branchRoles,
 }: BuildCancellationSummaryParams): CancellationSummary {
   const usersMap = new Map<string, BasicHierarchyUser>(users.map((u) => [u.id, u]));
 
@@ -113,7 +128,7 @@ export function buildCancellationSummary({
 
   const rows: CancellationDetailRow[] = eligiblePolicies.map((policy) => {
     const { agentName, groupLeaderName, supervisorName, generalSupervisorName } =
-      resolveHierarchyNames(policy.owner_id, usersMap, viewer);
+      resolveHierarchyNames(policy.owner_id, usersMap, viewer, branchRoles);
 
     return {
       policyId: policy.id,

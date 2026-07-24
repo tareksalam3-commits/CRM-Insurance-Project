@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
 import {
   type Installment,
   POLICY_TYPE_LABELS,
@@ -74,6 +75,8 @@ export function PolicyDetail() {
       loadPolicy();
     }
   }, [id, user]);
+
+  useReconnectRefetch(() => { if (id && user) loadPolicy(); });
 
   const loadPolicy = async () => {
     setLoading(true);
@@ -360,7 +363,7 @@ export function PolicyDetail() {
           </div>
           <div>
             <p className="text-secondary-500 mb-1 flex items-center gap-1">
-              <DollarSign className="w-3.5 h-3.5" /> قيمة القسط
+              <DollarSign className="w-3.5 h-3.5" /> قيمة القسط الصافي
             </p>
             <p className="font-medium text-secondary-900">
               {formatCurrency(policy.premium_amount)}

@@ -1,6 +1,33 @@
 import { isWithinInterval } from 'date-fns';
 import type { UserRole } from '../../../lib/supabase';
 import type { DashboardStats, TeamPerformance, TeamMemberDetail } from '../types';
+import type { BranchRoleInfo } from '../../../lib/branchHierarchy';
+
+// خريطة (manager_id → [children]) لأي مجموعة مستخدمين — تاخد خريطة role/
+// manager_id خاصة بفرع معيّن (المرحلة 3) اختياريًا؛ لو اتمررت، بتتفوّق على
+// manager_id/role العامين لكل مستخدم موجود فيها. من غيرها (أو لمستخدم مش
+// موجود فيها) السلوك يرجع لاعتماد users.manager_id/users.role القديم مباشرة
+// — بالظبط نفس النتيجة لمستخدم بوضع وظيفي واحد بس.
+export function buildBranchAwareChildrenMap<T extends { id: string; manager_id: string | null }>(
+  teamUsers: T[],
+  branchRoles?: Map<string, BranchRoleInfo>,
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  teamUsers.forEach((u) => {
+    const mgr = branchRoles?.has(u.id) ? branchRoles.get(u.id)!.manager_id : u.manager_id;
+    if (!mgr) return;
+    const list = map.get(mgr) || [];
+    list.push(u.id);
+    map.set(mgr, list);
+  });
+  return map;
+}
+
+const roleOfIn = (
+  branchRoles: Map<string, BranchRoleInfo> | undefined,
+  id: string,
+  fallback: string,
+): string => branchRoles?.get(id)?.role ?? fallback;
 
 export interface ComputeStatsParams {
   customersCount: number;
@@ -82,6 +109,7 @@ export function computeTeamPerformance(
   teamUsers: { id: string; name: string; role: string; target: number | null; manager_id: string | null; is_active: boolean }[],
   payments: any[],
   viewerRole: UserRole | undefined,
+  branchRoles?: Map<string, BranchRoleInfo>,
 ): TeamPerformance[] {
   // Sum production directly owned by each user (policies registered under their own owner_id)
   const directAchieved = new Map<string, number>();
@@ -92,14 +120,9 @@ export function computeTeamPerformance(
   });
 
   // Build a map of manager_id -> direct subordinate ids (within the currently visible subtree)
-  const childrenMap = new Map<string, string[]>();
-  teamUsers.forEach((u) => {
-    if (u.manager_id) {
-      const list = childrenMap.get(u.manager_id) || [];
-      list.push(u.id);
-      childrenMap.set(u.manager_id, list);
-    }
-  });
+  // بيبني الهرم من user_branch_roles الخاصة بفرع معيّن لو اتمرر branchRoles،
+  // وإلا بيرجع لاعتماد users.manager_id العام مباشرة (نفس السلوك القديم).
+  const childrenMap = buildBranchAwareChildrenMap(teamUsers, branchRoles);
 
   // A manager/supervisor's achievement = their own direct production + the rolled-up
   // production of everyone below them in the hierarchy (so a supervisor sees credit
@@ -137,11 +160,11 @@ export function computeTeamPerformance(
 
   const performance: TeamPerformance[] = teamUsers
     .filter((u) => u.is_active)
-    .filter((u) => (allowedRoles ? allowedRoles.includes(u.role as UserRole) : true))
+    .filter((u) => (allowedRoles ? allowedRoles.includes(roleOfIn(branchRoles, u.id, u.role) as UserRole) : true))
     .map((u) => ({
       id: u.id,
       name: u.name,
-      role: u.role as UserRole,
+      role: roleOfIn(branchRoles, u.id, u.role) as UserRole,
       achieved: getRolledUpAchieved(u.id),
       target: u.target || 0
     }));
@@ -162,6 +185,13 @@ export function computeTeamPerformance(
 export function computeTeamAchievementDetails(
   teamUsers: { id: string; name: string; role: string; target: number | null; manager_id: string | null; is_active: boolean }[],
   payments: any[],
+  // أقساط "المستحق هذا الشهر" (pending/overdue) — اختيارية حتى لا تنكسر أي
+  // استدعاءات قديمة للدالة؛ تُستخدم فقط لحساب remainingNewProduction/
+  // remainingCollection أدناه. بنفس شكل installmentsRaw فى dashboardCalculator
+  // (id, amount, due_date, is_first, policy.owner_id).
+  dueInstallments: any[] = [],
+  // خريطة role/manager_id الخاصة بفرع معيّن (المرحلة 3) — اختيارية بالكامل.
+  branchRoles?: Map<string, BranchRoleInfo>,
 ): Map<string, TeamMemberDetail> {
   const directNewProduction = new Map<string, number>();
   const directCollection = new Map<string, number>();
@@ -175,47 +205,61 @@ export function computeTeamAchievementDetails(
     }
   });
 
-  const childrenMap = new Map<string, string[]>();
-  teamUsers.forEach((u) => {
-    if (u.manager_id) {
-      const list = childrenMap.get(u.manager_id) || [];
-      list.push(u.id);
-      childrenMap.set(u.manager_id, list);
+  // نفس فكرة direct*/collection أعلاه لكن للمتبقي غير المسدد من مستحقات
+  // هذا الشهر (كل عنصر فى dueInstallments أصلاً لسه مش متسدد، status
+  // pending/overdue، ومُفلتر على due_date ضمن الشهر الحالي من المستدعي).
+  const directRemainingNewProduction = new Map<string, number>();
+  const directRemainingCollection = new Map<string, number>();
+  dueInstallments.forEach((i: any) => {
+    const ownerId = i.policy?.owner_id;
+    if (!ownerId) return;
+    if (i.is_first) {
+      directRemainingNewProduction.set(ownerId, (directRemainingNewProduction.get(ownerId) || 0) + Number(i.amount));
+    } else {
+      directRemainingCollection.set(ownerId, (directRemainingCollection.get(ownerId) || 0) + Number(i.amount));
     }
   });
 
-  const cache = new Map<string, { newProduction: number; collection: number }>();
-  const getRolledUp = (userId: string): { newProduction: number; collection: number } => {
+  const childrenMap = buildBranchAwareChildrenMap(teamUsers, branchRoles);
+
+  const cache = new Map<string, { newProduction: number; collection: number; remainingNewProduction: number; remainingCollection: number }>();
+  const getRolledUp = (userId: string): { newProduction: number; collection: number; remainingNewProduction: number; remainingCollection: number } => {
     if (cache.has(userId)) return cache.get(userId)!;
     let newProduction = directNewProduction.get(userId) || 0;
     let collection = directCollection.get(userId) || 0;
+    let remainingNewProduction = directRemainingNewProduction.get(userId) || 0;
+    let remainingCollection = directRemainingCollection.get(userId) || 0;
     const children = childrenMap.get(userId) || [];
     for (const childId of children) {
       const rolledUp = getRolledUp(childId);
       newProduction += rolledUp.newProduction;
       collection += rolledUp.collection;
+      remainingNewProduction += rolledUp.remainingNewProduction;
+      remainingCollection += rolledUp.remainingCollection;
     }
-    const result = { newProduction, collection };
+    const result = { newProduction, collection, remainingNewProduction, remainingCollection };
     cache.set(userId, result);
     return result;
   };
 
   const result = new Map<string, TeamMemberDetail>();
   teamUsers.forEach((u) => {
-    const { newProduction, collection } = getRolledUp(u.id);
+    const { newProduction, collection, remainingNewProduction, remainingCollection } = getRolledUp(u.id);
     const achieved = newProduction + collection;
     const target = u.target || 0;
     result.set(u.id, {
       id: u.id,
       name: u.name,
-      role: u.role as UserRole,
-      managerId: u.manager_id,
+      role: roleOfIn(branchRoles, u.id, u.role) as UserRole,
+      managerId: branchRoles?.has(u.id) ? branchRoles.get(u.id)!.manager_id : u.manager_id,
       target,
       newProduction,
       collection,
       achieved,
       remaining: Math.max(0, target - achieved),
       rate: target > 0 ? Math.round((achieved / target) * 100) : 0,
+      remainingNewProduction,
+      remainingCollection,
     });
   });
 

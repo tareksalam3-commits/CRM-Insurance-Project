@@ -14,6 +14,11 @@ export interface FetchPoliciesParams {
   typeFilter?: string;
   // الشهر بصيغة yyyy-MM — يُطبَّق على تاريخ بداية الوثيقة (start_date)، 'all' يعني بدون فلترة
   monthFilter?: string;
+  // الفرع الحالي المختار (BranchProvider العام) — فاضي/null يعني بدون فلترة
+  // إضافية (وضع وظيفي واحد بس، السلوك القديم زي ما هو). لو موجود، بيقيّد
+  // القائمة على وثائق الفرع ده بس، عن طريق عمود policies.branch_id الفعلي
+  // (migration 060) — كل وثيقة مربوطة بفرع واحد ثابت.
+  branchId?: string | null;
 }
 
 interface PoliciesPageResult {
@@ -29,9 +34,10 @@ export async function fetchPoliciesPage({
   searchQuery,
   statusFilter,
   typeFilter = 'all',
-  monthFilter = 'all'
+  monthFilter = 'all',
+  branchId = null,
 }: FetchPoliciesParams): Promise<PoliciesPageResult> {
-  const cacheKey = `policies:page:${page}:${searchQuery.trim()}:${statusFilter}:${typeFilter}:${monthFilter}`;
+  const cacheKey = `policies:page:${page}:${searchQuery.trim()}:${statusFilter}:${typeFilter}:${monthFilter}:${branchId ?? 'none'}`;
 
   const result = await dalRead(
     cacheKey,
@@ -40,6 +46,10 @@ export async function fetchPoliciesPage({
         .from('policies')
         .select('*, customer:customer_id(*), owner:owner_id(id, name)', { count: 'exact' })
         .order('created_at', { ascending: false });
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
 
       if (searchQuery.trim()) {
         // ملحوظة: Supabase/PostgREST لا يدعم الفلترة بـ or() مباشرة على عمود
@@ -105,23 +115,27 @@ export interface PolicyStats {
 // القائمة، ومقيّد تلقائياً بنفس صلاحيات RLS المطبقة على جدول policies
 const EMPTY_POLICY_STATS: PolicyStats = { total: 0, active: 0, cancelled: 0, issuedThisMonth: 0 };
 
-export async function fetchPolicyStats(): Promise<PolicyStats> {
+export async function fetchPolicyStats(branchId: string | null = null): Promise<PolicyStats> {
   const now = new Date();
   const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
   const monthEnd = format(new Date(now.getFullYear(), now.getMonth() + 1, 1), 'yyyy-MM-dd');
 
+  const withBranch = (q: any) => (branchId ? q.eq('branch_id', branchId) : q);
+
   const result = await dalRead(
-    `policies:stats:${monthStart}`,
+    `policies:stats:${monthStart}:${branchId ?? 'none'}`,
     async () => {
       const [totalRes, activeRes, cancelledRes, issuedRes] = await Promise.all([
-        supabase.from('policies').select('id', { count: 'exact', head: true }),
-        supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-        supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'cancelled'),
-        supabase
-          .from('policies')
-          .select('id', { count: 'exact', head: true })
-          .gte('created_at', monthStart)
-          .lt('created_at', monthEnd),
+        withBranch(supabase.from('policies').select('id', { count: 'exact', head: true })),
+        withBranch(supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'active')),
+        withBranch(supabase.from('policies').select('id', { count: 'exact', head: true }).eq('status', 'cancelled')),
+        withBranch(
+          supabase
+            .from('policies')
+            .select('id', { count: 'exact', head: true })
+            .gte('created_at', monthStart)
+            .lt('created_at', monthEnd)
+        ),
       ]);
 
       if (totalRes.error) throw totalRes.error;
@@ -142,14 +156,22 @@ export async function fetchPolicyStats(): Promise<PolicyStats> {
 }
 
 export async function fetchPolicyById(id: string): Promise<Policy> {
-  const { data, error } = await supabase
-    .from('policies')
-    .select('*, customer:customer_id(*), owner:owner_id(id, name)')
-    .eq('id', id)
-    .single();
+  const result = await dalRead(
+    `policies:byId:${id}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('policies')
+        .select('*, customer:customer_id(*), owner:owner_id(id, name)')
+        .eq('id', id)
+        .single();
 
-  if (error) throw error;
-  return data as Policy;
+      if (error) throw error;
+      return data as Policy;
+    },
+    { emptyValue: null as unknown as Policy },
+  );
+  if (!result.data) throw new Error('تعذر تحميل بيانات الوثيقة');
+  return result.data;
 }
 
 // ملحوظة: العميل ممكن يكون له أكتر من وثيقة فى نفس الوقت، فالقائمة بترجع كل
@@ -184,6 +206,10 @@ export interface CustomerPickerItem {
   created_at: string;
   // رقم أحدث وثيقة للعميل (إن وجدت) — لعرضها فقط، بدون أي تأثير على منطق الإصدار
   current_policy_number?: string;
+  // بيانات "طلب التأمين" المسجلة مع العميل — تُستخدم لتعبئة مبلغ التأمين
+  // وطريقة السداد تلقائياً وقفلهما عند إصدار وثيقة جديدة له (usePolicyActions)
+  insurance_amount?: number;
+  payment_method?: string;
 }
 
 const CUSTOMER_PICKER_RESULT_LIMIT = 30;
@@ -191,46 +217,61 @@ const CUSTOMER_PICKER_RESULT_LIMIT = 30;
 // يجيب أحدث وثيقة لكل عميل من مجموعة أرقام عملاء — يُستخدم فقط لعرض "رقم
 // الوثيقة الحالية" فى نافذة اختيار العميل، ومفيهوش أي تأثير على منطق الإصدار
 async function fetchLatestPolicyNumbersByCustomer(customerIds: string[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
-  if (customerIds.length === 0) return result;
+  if (customerIds.length === 0) return new Map<string, string>();
 
-  const { data, error } = await supabase
-    .from('policies')
-    .select('customer_id, policy_number, created_at')
-    .in('customer_id', customerIds)
-    .order('created_at', { ascending: false });
+  const result = await dalRead(
+    `policies:latestNumbersByCustomer:${customerIds.slice().sort().join(',')}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('policies')
+        .select('customer_id, policy_number, created_at')
+        .in('customer_id', customerIds)
+        .order('created_at', { ascending: false });
 
-  if (error) throw error;
+      if (error) throw error;
 
-  for (const row of (data as any[]) || []) {
-    if (!result.has(row.customer_id)) {
-      result.set(row.customer_id, row.policy_number);
-    }
-  }
-  return result;
+      const map: Record<string, string> = {};
+      for (const row of (data as any[]) || []) {
+        if (!map[row.customer_id]) {
+          map[row.customer_id] = row.policy_number;
+        }
+      }
+      return map;
+    },
+    { emptyValue: {} as Record<string, string> },
+  );
+  return new Map(Object.entries(result.data));
 }
 
 // بحث لحظي عن العملاء لنافذة اختيار العميل داخل نموذج إصدار الوثيقة — يبحث فى
 // الاسم/الهاتف/الرقم القومي، ومرتّب دائماً من الأحدث إضافةً للأقدم، ومحدود
 // بعدد نتائج معقول (بدل تحميل آلاف العملاء دفعة واحدة) للحفاظ على الأداء
 export async function searchCustomersForPicker(searchTerm: string): Promise<CustomerPickerItem[]> {
-  let query = supabase
-    .from('customers')
-    .select('id, name, phone, national_id, owner_id, created_at, owner:owner_id(name)')
-    .order('created_at', { ascending: false })
-    .limit(CUSTOMER_PICKER_RESULT_LIMIT);
-
   const term = searchTerm.trim();
-  if (term) {
-    query = query.or(
-      `name.ilike.%${term}%,phone.ilike.%${term}%,national_id.ilike.%${term}%`
-    );
-  }
 
-  const { data, error } = await query;
-  if (error) throw error;
+  const result = await dalRead(
+    `policies:customerPicker:search:${term}`,
+    async () => {
+      let query = supabase
+        .from('customers')
+        .select('id, name, phone, national_id, owner_id, created_at, insurance_amount, payment_method, owner:owner_id(name)')
+        .order('created_at', { ascending: false })
+        .limit(CUSTOMER_PICKER_RESULT_LIMIT);
 
-  const customersData = (data as any[]) || [];
+      if (term) {
+        query = query.or(
+          `name.ilike.%${term}%,phone.ilike.%${term}%,national_id.ilike.%${term}%`
+        );
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data as any[]) || [];
+    },
+    { emptyValue: [] as any[] },
+  );
+
+  const customersData = result.data;
   const customerIds = customersData.map((c) => c.id);
   const latestPolicyByCustomer = await fetchLatestPolicyNumbersByCustomer(customerIds);
 
@@ -242,20 +283,30 @@ export async function searchCustomersForPicker(searchTerm: string): Promise<Cust
     owner_id: c.owner_id,
     owner_name: c.owner?.name,
     created_at: c.created_at,
-    current_policy_number: latestPolicyByCustomer.get(c.id)
+    current_policy_number: latestPolicyByCustomer.get(c.id),
+    insurance_amount: c.insurance_amount ?? undefined,
+    payment_method: c.payment_method ?? undefined
   }));
 }
 
 // بيانات عميل واحد بنفس شكل نافذة اختيار العميل — تُستخدم لعرض العميل
 // المُثبَّت مسبقاً (تعديل وثيقة، أو دخول من صفحة العميل) بدون تحميل القائمة كاملة
 export async function fetchCustomerForPicker(customerId: string): Promise<CustomerPickerItem | null> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('id, name, phone, national_id, owner_id, created_at, owner:owner_id(name)')
-    .eq('id', customerId)
-    .maybeSingle();
+  const result = await dalRead(
+    `policies:customerPicker:byId:${customerId}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, phone, national_id, owner_id, created_at, insurance_amount, payment_method, owner:owner_id(name)')
+        .eq('id', customerId)
+        .maybeSingle();
 
-  if (error) throw error;
+      if (error) throw error;
+      return data;
+    },
+    { emptyValue: null as any },
+  );
+  const data = result.data;
   if (!data) return null;
 
   const latestPolicyByCustomer = await fetchLatestPolicyNumbersByCustomer([data.id]);
@@ -268,17 +319,27 @@ export async function fetchCustomerForPicker(customerId: string): Promise<Custom
     owner_id: (data as any).owner_id,
     owner_name: (data as any).owner?.name,
     created_at: (data as any).created_at,
-    current_policy_number: latestPolicyByCustomer.get(data.id)
+    current_policy_number: latestPolicyByCustomer.get(data.id),
+    insurance_amount: (data as any).insurance_amount ?? undefined,
+    payment_method: (data as any).payment_method ?? undefined
   };
 }
 
 export async function countPaidInstallments(policyId: string): Promise<number> {
-  const { count } = await supabase
-    .from('installments')
-    .select('id', { count: 'exact', head: true })
-    .eq('policy_id', policyId)
-    .eq('status', 'paid');
-  return count || 0;
+  const result = await dalRead(
+    `policies:paidInstallmentsCount:${policyId}`,
+    async () => {
+      const { count, error } = await supabase
+        .from('installments')
+        .select('id', { count: 'exact', head: true })
+        .eq('policy_id', policyId)
+        .eq('status', 'paid');
+      if (error) throw error;
+      return count || 0;
+    },
+    { emptyValue: 0 },
+  );
+  return result.data;
 }
 
 // نستخدم دالة update_policy_op الموجودة بالفعل: بتعمل التحديث وتسجيل النشاط
@@ -364,34 +425,44 @@ export async function computeDeletablePolicyIds(policyList: Policy[]): Promise<S
   const policyIds = policyList.map((p) => p.id);
   const currentMonth = format(new Date(), 'yyyy-MM-01');
 
-  // نجيب كل الدفعات الغير ملغاة المرتبطة بهذه الوثائق (عبر installments)
-  const { data: installmentsData } = await supabase
-    .from('installments')
-    .select('id, policy_id')
-    .in('policy_id', policyIds);
+  const result = await dalRead(
+    `policies:deletableIds:${currentMonth}:${policyIds.slice().sort().join(',')}`,
+    async () => {
+      // نجيب كل الدفعات الغير ملغاة المرتبطة بهذه الوثائق (عبر installments)
+      const { data: installmentsData, error: instError } = await supabase
+        .from('installments')
+        .select('id, policy_id')
+        .in('policy_id', policyIds);
+      if (instError) throw instError;
 
-  const installmentToPolicy = new Map<string, string>(
-    (installmentsData || []).map((i: any) => [i.id, i.policy_id])
+      const installmentToPolicy = new Map<string, string>(
+        (installmentsData || []).map((i: any) => [i.id, i.policy_id])
+      );
+      const installmentIds = (installmentsData || []).map((i: any) => i.id);
+
+      const hasOldPaymentPolicyIds = new Set<string>();
+
+      if (installmentIds.length > 0) {
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('payments')
+          .select('installment_id, payment_month')
+          .in('installment_id', installmentIds)
+          .eq('is_cancelled', false)
+          .neq('payment_month', currentMonth);
+        if (paymentsError) throw paymentsError;
+
+        for (const p of paymentsData || []) {
+          const policyId = installmentToPolicy.get((p as any).installment_id);
+          if (policyId) hasOldPaymentPolicyIds.add(policyId);
+        }
+      }
+
+      return policyIds.filter((id) => !hasOldPaymentPolicyIds.has(id));
+    },
+    { emptyValue: [] as string[] },
   );
-  const installmentIds = (installmentsData || []).map((i: any) => i.id);
 
-  const hasOldPaymentPolicyIds = new Set<string>();
-
-  if (installmentIds.length > 0) {
-    const { data: paymentsData } = await supabase
-      .from('payments')
-      .select('installment_id, payment_month')
-      .in('installment_id', installmentIds)
-      .eq('is_cancelled', false)
-      .neq('payment_month', currentMonth);
-
-    for (const p of paymentsData || []) {
-      const policyId = installmentToPolicy.get((p as any).installment_id);
-      if (policyId) hasOldPaymentPolicyIds.add(policyId);
-    }
-  }
-
-  return new Set(policyIds.filter((id) => !hasOldPaymentPolicyIds.has(id)));
+  return new Set(result.data);
 }
 
 export async function deletePolicySafe(policyId: string, oldData: Policy): Promise<{ error?: string }> {

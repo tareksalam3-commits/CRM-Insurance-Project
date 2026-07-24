@@ -1,6 +1,7 @@
 import { supabase } from '../../../lib/supabase';
 import { format, startOfMonth } from 'date-fns';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware, fetchBranchRoleMap } from '../../../lib/branchHierarchy';
 
 // ===================================
 // كل دوال القراءة هنا بقت تمر من dalRead (طبقة الوصول الموحدة للبيانات):
@@ -9,18 +10,15 @@ import { dalRead } from '../../../lib/dataAccessLayer';
 // ما تعلّق الصفحة فى Loading أو تنهار. راجع lib/dataAccessLayer.ts.
 // ===================================
 
-export async function fetchUserSubtreeIds(userId: string): Promise<string[]> {
-  const result = await dalRead(
-    `dashboard:subtree:${userId}`,
-    async () => {
-      const { data: subtree, error } = await supabase.rpc('get_user_subtree', { user_id: userId });
-      if (error) throw error;
-      return (subtree as string[]) || [userId];
-    },
-    { emptyValue: [userId] },
-  );
-  return result.data;
+// نطاق المستخدم (نفسه + كل من تحته)، فى سياق فرع معيّن (المرحلة 3) لو
+// اتمرر branchId، وإلا نفس السلوك القديم العابر للفروع بالظبط.
+export async function fetchUserSubtreeIds(userId: string, branchId?: string | null): Promise<string[]> {
+  return fetchUserSubtreeIdsBranchAware('dashboard', userId, branchId);
 }
+
+// خريطة role/manager_id الخاصة بنفس الفرع — تُستخدم فى بناء هرم "أداء
+// الفريق" داخل dashboardCalculator بدل users.manager_id/users.role العامين.
+export { fetchBranchRoleMap };
 
 // نفس شكل النتيجة الأصلي بالظبط (customersRes/policiesRes/installmentsRes/paymentsRes
 // بحقول data/count) حتى لا نحتاج نغيّر أي كود فى Dashboard/index.tsx —

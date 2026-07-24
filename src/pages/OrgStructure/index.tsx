@@ -8,7 +8,10 @@ import { LoadingState } from './components/LoadingState';
 import { EmptyState } from './components/EmptyState';
 import { OrgStats } from './components/OrgStats';
 import { OrgActions } from './components/OrgActions';
-import { OrgTree } from './components/OrgTree';
+import { OrgBreadcrumb } from './components/OrgBreadcrumb';
+import { OrgCurrentCard } from './components/OrgCurrentCard';
+import { OrgChildrenList } from './components/OrgChildrenList';
+import { OrgSearchResults } from './components/OrgSearchResults';
 
 export type { RosterUser } from './types';
 
@@ -19,10 +22,13 @@ export function OrgStructure() {
     canView,
     loading,
     roster,
-    expanded,
+    childrenMap,
     production,
     loadingIds,
-    expandingAll,
+    path,
+    navigateInto,
+    navigateToIndex,
+    goBack,
     searchQuery,
     setSearchQuery,
     roleFilter,
@@ -31,23 +37,22 @@ export function OrgStructure() {
     setShowDownloadModal,
     formationPreview,
     setFormationPreview,
-    childrenMap,
-    toggle,
-    expandAll,
-    collapseAll,
     matches,
-    highlightIds,
+    selectSearchResult,
     stats,
-    registerRef,
   } = useOrgStructure();
 
   if (!canView) {
     return <AccessDenied />;
   }
 
+  const currentId = path[path.length - 1];
+  const currentNode = currentId ? roster.get(currentId) : undefined;
+  const isSearching = matches !== null;
+
   return (
     <>
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-4 animate-fadeIn">
       <OrgHeader />
 
       {loading ? (
@@ -56,35 +61,44 @@ export function OrgStructure() {
         <EmptyState />
       ) : (
         <>
-          {/* إحصائيات سريعة */}
           <OrgStats stats={stats} currentUserRole={user!.role} />
 
-          {/* أدوات البحث والفلترة */}
           <OrgActions
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             roleFilter={roleFilter}
             setRoleFilter={setRoleFilter}
-            expandAll={expandAll}
-            expandingAll={expandingAll}
-            collapseAll={collapseAll}
             onDownloadClick={() => setShowDownloadModal(true)}
-            matches={matches}
             currentUserRole={user!.role}
           />
 
-          {/* الهيكل */}
-          <OrgTree
-            rootId={user!.id}
-            roster={roster}
-            childrenMap={childrenMap}
-            expanded={expanded}
-            production={production}
-            loadingIds={loadingIds}
-            highlightIds={highlightIds}
-            onToggle={toggle}
-            registerRef={registerRef}
-          />
+          {isSearching ? (
+            <OrgSearchResults matches={matches!} roster={roster} onSelect={selectSearchResult} />
+          ) : currentNode ? (
+            <div className="space-y-3">
+              <OrgBreadcrumb path={path} roster={roster} onNavigate={navigateToIndex} onBack={goBack} />
+              <OrgCurrentCard
+                node={currentNode}
+                directChildrenCount={(childrenMap.get(currentId) || []).filter((cid) => roster.get(cid)?.is_active !== false).length}
+                production={production.get(currentId)}
+                isLoadingProd={loadingIds.has(currentId)}
+              />
+              <OrgChildrenList
+                childIds={(childrenMap.get(currentId) || []).filter((cid) => {
+                  const c = roster.get(cid);
+                  if (!c) return true;
+                  const isAgentRole = c.role === 'agent' || c.role === 'premium_agent';
+                  return !(isAgentRole && !c.is_active);
+                })}
+                roster={roster}
+                childrenMap={childrenMap}
+                production={production}
+                loadingIds={loadingIds}
+                currentUserRole={user!.role}
+                onOpen={navigateInto}
+              />
+            </div>
+          ) : null}
         </>
       )}
     </div>

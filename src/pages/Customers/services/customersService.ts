@@ -3,25 +3,34 @@ import { format } from 'date-fns';
 import type { CustomerFormData, CustomerWithRelations } from '../types';
 import { withOfflineQueue } from '../../../lib/offlineQueue';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware } from '../../../lib/branchHierarchy';
 
 const PAGE_SIZE = 12;
 
-export async function fetchAgentsForCurrentUser(user: User): Promise<any[]> {
+// نطاق "الوكلاء" الخاص بفرع معيّن — لو branchId فاضي (وضع وظيفي واحد بس)
+// بترجع null عمداً، وأي كود بيستخدمها لازم يتجاهل فلترة owner_id تمامًا فى
+// هذه الحالة (نفس السلوك القديم بالكامل، معتمد على RLS العادي فقط). لو
+// branchId موجود، بترجع نطاق (هو + فريقه) الخاص بنفس الفرع ده بس، ونستخدمها
+// لتقييد كل استعلامات customers/policies/installments بعمود owner_id، عشان
+// عملاء الفرع المختار بس هما اللي يظهروا (شامل عملاء "طلبات الإصدار" اللي
+// لسه معندهمش أي وثيقة، ومش ممكن نفلترهم بعمود policies.branch_id).
+async function getScopedOwnerIds(userId: string, branchId: string | null | undefined): Promise<string[] | null> {
+  if (!branchId) return null;
+  return fetchUserSubtreeIdsBranchAware('customers', userId, branchId);
+}
+
+export async function fetchAgentsForCurrentUser(user: User, branchId: string | null = null): Promise<any[]> {
   // لو المستخدم وكيل، مش محتاج يشوف قائمة وكلاء أصلاً (هيتسجل عليه تلقائياً)
   if (user.role === 'agent' || user.role === 'premium_agent') {
     return [];
   }
 
   const result = await dalRead(
-    `customers:agentsList:${user.id}`,
+    `customers:agentsList:${user.id}:${branchId ?? 'none'}`,
     async () => {
-      // نجيب المستخدم الحالي + كل من هو تحته في الهيكل الإداري (فريقه)
-      const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
-        user_id: user.id
-      });
-      if (subtreeError) throw subtreeError;
-
-      const allIds: string[] = subtreeIds && subtreeIds.length > 0 ? subtreeIds : [user.id];
+      // نجيب المستخدم الحالي + كل من هو تحته في الهيكل الإداري (فريقه) —
+      // فى نطاق الفرع الحالي المختار لو موجود
+      const allIds = await fetchUserSubtreeIdsBranchAware('customers', user.id, branchId);
 
       const { data, error } = await supabase
         .from('users')
@@ -55,22 +64,39 @@ export interface CustomerStats {
 
 // عملاء لديهم وثيقة واحدة على الأقل بحالة "نشط" — نفس التعريف المستخدم فى
 // كل من بطاقة الإحصائية وفلتر "حالة العميل" حتى تتطابق الأرقام دايماً
-async function getActiveCustomerIds(): Promise<string[]> {
-  const { data, error } = await supabase
+async function getActiveCustomerIds(ownerIds: string[] | null = null): Promise<string[]> {
+  let query = supabase
     .from('policies')
     .select('customer_id')
     .eq('status', 'active');
+  if (ownerIds) query = query.in('owner_id', ownerIds);
+  const { data, error } = await query;
+  if (error) throw error;
+  return Array.from(new Set((data || []).map((p: any) => p.customer_id)));
+}
+
+// عملاء ليس لديهم أي وثيقة على الإطلاق — تُستخدم فى فلتر "طلبات الإصدار"
+// الثابت أعلى قائمة العملاء (عملاء عندهم بيانات طلب تأمين لكن لسه محدش أصدر
+// لهم وثيقة فعلية)
+async function getCustomerIdsWithAnyPolicy(ownerIds: string[] | null = null): Promise<string[]> {
+  let query = supabase
+    .from('policies')
+    .select('customer_id');
+  if (ownerIds) query = query.in('owner_id', ownerIds);
+  const { data, error } = await query;
   if (error) throw error;
   return Array.from(new Set((data || []).map((p: any) => p.customer_id)));
 }
 
 // عملاء لديهم قسط واحد على الأقل بحالة "متأخر" (نفس حالة overdue المحسوبة
 // أصلاً فى قاعدة البيانات — لا تغيير فى منطق تحديد التأخير)
-async function getCustomerIdsWithOverdueInstallments(): Promise<string[]> {
-  const { data, error } = await supabase
+async function getCustomerIdsWithOverdueInstallments(ownerIds: string[] | null = null): Promise<string[]> {
+  let query = supabase
     .from('installments')
-    .select('policy:policy_id(customer_id)')
+    .select(ownerIds ? 'policy:policy_id!inner(customer_id, owner_id)' : 'policy:policy_id(customer_id)')
     .eq('status', 'overdue');
+  if (ownerIds) query = query.in('policy.owner_id', ownerIds);
+  const { data, error } = await query;
   if (error) throw error;
 
   const ids = new Set<string>();
@@ -85,23 +111,32 @@ async function getCustomerIdsWithOverdueInstallments(): Promise<string[]> {
 // القائمة، ومقيّد تلقائياً بنفس صلاحيات RLS المطبقة على جداول customers/policies/installments
 const EMPTY_CUSTOMER_STATS: CustomerStats = { total: 0, active: 0, withDueInstallments: 0, newThisMonth: 0 };
 
-export async function fetchCustomerStats(): Promise<CustomerStats> {
+export async function fetchCustomerStats(userId: string, branchId: string | null = null): Promise<CustomerStats> {
   const now = new Date();
   const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
   const monthEnd = format(new Date(now.getFullYear(), now.getMonth() + 1, 1), 'yyyy-MM-dd');
 
   const result = await dalRead(
-    `customers:stats:${monthStart}`,
+    `customers:stats:${monthStart}:${branchId ?? 'none'}`,
     async () => {
+      const ownerIds = await getScopedOwnerIds(userId, branchId);
+
+      let totalQuery = supabase.from('customers').select('id', { count: 'exact', head: true });
+      let newQuery = supabase
+        .from('customers')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', monthStart)
+        .lt('created_at', monthEnd);
+      if (ownerIds) {
+        totalQuery = totalQuery.in('owner_id', ownerIds);
+        newQuery = newQuery.in('owner_id', ownerIds);
+      }
+
       const [totalRes, newRes, activeIds, overdueIds] = await Promise.all([
-        supabase.from('customers').select('id', { count: 'exact', head: true }),
-        supabase
-          .from('customers')
-          .select('id', { count: 'exact', head: true })
-          .gte('created_at', monthStart)
-          .lt('created_at', monthEnd),
-        getActiveCustomerIds(),
-        getCustomerIdsWithOverdueInstallments(),
+        totalQuery,
+        newQuery,
+        getActiveCustomerIds(ownerIds),
+        getCustomerIdsWithOverdueInstallments(ownerIds),
       ]);
 
       if (totalRes.error) throw totalRes.error;
@@ -127,6 +162,14 @@ export interface FetchCustomersParams {
   statusFilter?: string; // 'all' | 'active' | 'inactive'
   agentFilter?: string;  // 'all' | <owner_id>
   monthFilter?: string;  // 'all' | 'yyyy-MM' (شهر تسجيل العميل)
+  // فلتر ثابت "طلبات الإصدار": عملاء بدون أي وثيقة، بغض النظر عن حالة/فلتر
+  // حالة العميل (statusFilter) — لو مفعّل بيتجاهل statusFilter تماماً
+  noPolicyOnly?: boolean;
+  // المستخدم الحالي + الفرع المختار (BranchProvider العام) — لازمين مع بعض
+  // لحساب نطاق "الوكلاء" الخاص بالفرع ده (getScopedOwnerIds). branchId فاضي
+  // = بدون فلترة إضافية (السلوك القديم، معتمد على RLS بس).
+  userId?: string;
+  branchId?: string | null;
 }
 
 interface CustomersPageResult {
@@ -143,12 +186,17 @@ export async function fetchCustomersPage({
   statusFilter = 'all',
   agentFilter = 'all',
   monthFilter = 'all',
+  noPolicyOnly = false,
+  userId,
+  branchId = null,
 }: FetchCustomersParams): Promise<CustomersPageResult> {
-  const cacheKey = `customers:page:${page}:${searchQuery.trim()}:${statusFilter}:${agentFilter}:${monthFilter}`;
+  const cacheKey = `customers:page:${page}:${searchQuery.trim()}:${statusFilter}:${agentFilter}:${monthFilter}:${noPolicyOnly ? 'req' : ''}:${branchId ?? 'none'}`;
 
   const result = await dalRead(
     cacheKey,
     async () => {
+      const ownerIds = userId ? await getScopedOwnerIds(userId, branchId) : null;
+
       let query = supabase
         .from('customers')
         .select(
@@ -156,6 +204,10 @@ export async function fetchCustomersPage({
           { count: 'exact' }
         )
         .order('created_at', { ascending: false });
+
+      if (ownerIds) {
+        query = query.in('owner_id', ownerIds);
+      }
 
       if (searchQuery.trim()) {
         // ملحوظة: Supabase/PostgREST لا يدعم الفلترة بـ or() مباشرة على عمود من
@@ -184,8 +236,16 @@ export async function fetchCustomersPage({
         query = query.or(orParts.join(','));
       }
 
-      if (statusFilter === 'active' || statusFilter === 'inactive') {
-        const activeIds = await getActiveCustomerIds();
+      if (noPolicyOnly) {
+        // فلتر "طلبات الإصدار": عملاء ليس لهم أي وثيقة على الإطلاق، بترتيب
+        // الأحدث أولاً دايماً (نفس ترتيب query الافتراضي created_at desc
+        // أعلاه، بدون أي تغيير عليه)
+        const idsWithPolicies = await getCustomerIdsWithAnyPolicy(ownerIds);
+        if (idsWithPolicies.length > 0) {
+          query = query.not('id', 'in', `(${idsWithPolicies.join(',')})`);
+        }
+      } else if (statusFilter === 'active' || statusFilter === 'inactive') {
+        const activeIds = await getActiveCustomerIds(ownerIds);
         if (statusFilter === 'active') {
           if (activeIds.length === 0) {
             return { customers: [] as CustomerWithRelations[], totalPages: 1, totalCount: 0 };
@@ -259,6 +319,9 @@ export async function updateCustomer(customerId: string, data: CustomerFormData,
     p_occupation: customerData.occupation || null,
     p_marital_status: customerData.marital_status || null,
     p_owner_id: finalOwnerId || oldData.owner_id,
+    p_insurance_amount: customerData.insurance_amount ?? null,
+    p_payment_method: customerData.payment_method || null,
+    p_deposit_amount: customerData.deposit_amount ?? null,
   });
 
   if (error) throw error;
@@ -307,6 +370,9 @@ export async function createCustomerOnline(
     p_occupation: customerData.occupation || null,
     p_marital_status: customerData.marital_status || null,
     p_owner_id: finalOwnerId,
+    p_insurance_amount: customerData.insurance_amount ?? null,
+    p_payment_method: customerData.payment_method || null,
+    p_deposit_amount: customerData.deposit_amount ?? null,
   });
 
   if (error) throw error;
@@ -326,13 +392,21 @@ export async function computeDeletableCustomerIds(customerList: Customer[]): Pro
   if (customerList.length === 0) return new Set();
 
   const customerIds = customerList.map((c) => c.id);
-  const { data: policiesData } = await supabase
-    .from('policies')
-    .select('customer_id')
-    .in('customer_id', customerIds);
+  const result = await dalRead(
+    `customers:deletableIds:${customerIds.slice().sort().join(',')}`,
+    async () => {
+      const { data: policiesData, error } = await supabase
+        .from('policies')
+        .select('customer_id')
+        .in('customer_id', customerIds);
+      if (error) throw error;
 
-  const idsWithPolicies = new Set((policiesData || []).map((p: any) => p.customer_id));
-  return new Set(customerIds.filter((id) => !idsWithPolicies.has(id)));
+      const idsWithPolicies = new Set((policiesData || []).map((p: any) => p.customer_id));
+      return customerIds.filter((id) => !idsWithPolicies.has(id));
+    },
+    { emptyValue: [] as string[] },
+  );
+  return new Set(result.data);
 }
 
 export async function deleteCustomer(id: string): Promise<{ error?: string }> {

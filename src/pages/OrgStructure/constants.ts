@@ -20,6 +20,13 @@ export const ROLE_FILTER_OPTIONS: { value: UserRole | 'all'; label: string }[] =
   { value: 'premium_agent',        label: ROLE_LABELS.premium_agent },
 ];
 
+// كل الدرجات مرتبة من الأعلى للأقل — تُستخدم فى مفتاح الألوان (Legend) فوق
+// الشجرة عشان توضح معنى كل لون من أول نظرة قبل ما المستخدم يدخل فى التفاصيل
+export const ROLE_ORDER: UserRole[] = [
+  'super_admin', 'development_manager', 'general_supervisor',
+  'supervisor', 'group_leader', 'agent', 'premium_agent',
+];
+
 // خيارات فلترة الدرجة الوظيفية المتاحة للمستخدم الحالي فقط (نظام هرمي) —
 // إخفاء أي درجة أعلى منه، لأنها أصلاً مش موجودة فى نطاقه الإداري.
 export function getVisibleRoleFilterOptions(currentUserRole: UserRole) {

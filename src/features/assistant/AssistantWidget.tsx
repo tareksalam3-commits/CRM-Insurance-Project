@@ -3,6 +3,7 @@ import { Sparkles, X, Send, Loader2, Lightbulb, Trash2, Copy, Check } from 'luci
 import { useAuth } from '../../hooks/useAuth';
 import { QUICK_COMMANDS, runQuickCommand, parseAndAnswer } from './assistantEngine';
 import { AssistantAnswer, getDailyTip } from './assistantData';
+import type { AIChatMessage } from '../../lib/aiService';
 
 interface ChatMessage {
   id: string;
@@ -10,7 +11,6 @@ interface ChatMessage {
   text?: string;
   title?: string;
   lines?: string[];
-  suggestions?: string[];
 }
 
 let idCounter = 0;
@@ -134,20 +134,34 @@ export function AssistantWidget() {
         id: nextId(),
         role: 'assistant',
         title: answer.title,
-        lines: answer.lines,
-        suggestions: answer.suggestions
+        lines: answer.lines
       }
     ]);
   };
 
+  // بناء سياق المحادثة (History) من الرسائل اللي فاتت في نفس الجلسة، عشان
+  // الذكاء الاصطناعي يقدر يفهم أسئلة متابعة زي "ليه؟" أو "وضّح أكتر" أو أي
+  // إشارة لرد سابق - قبل كده كل سؤال كان بيتبعت لوحده من غير أي ذاكرة
+  // للمحادثة. بنكتفي بآخر 10 رسائل (5 تبادلات) لتفادي تضخيم الطلب.
+  const MAX_HISTORY_MESSAGES = 10;
+  const buildHistory = (): AIChatMessage[] =>
+    messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-MAX_HISTORY_MESSAGES)
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.role === 'user' ? m.text || '' : [m.title, ...(m.lines || [])].filter(Boolean).join('\n')
+      }));
+
   const ask = async (text: string) => {
     const clean = text.trim();
     if (!clean || loading) return;
+    const history = buildHistory();
     pushUserMessage(clean);
     setQuery('');
     setLoading(true);
     try {
-      const result = await parseAndAnswer(clean, user);
+      const result = await parseAndAnswer(clean, user, history);
       pushAnswer(result);
     } finally {
       setLoading(false);
@@ -346,7 +360,6 @@ export function AssistantWidget() {
                 <MessageBubble
                   key={m.id}
                   message={m}
-                  onSuggestion={ask}
                   onCopy={handleCopy}
                   copied={copiedId === m.id}
                 />
@@ -354,26 +367,6 @@ export function AssistantWidget() {
 
               {loading && <TypingIndicator />}
             </div>
-
-            {/* شريط الأوامر السريعة - يظهر أثناء المحادثة كمان لسهولة الوصول */}
-            {messages.length > 0 && (
-              <div className="px-4 pt-2 flex-shrink-0 border-t border-secondary-100">
-                <div className="flex gap-2 overflow-x-auto py-2">
-                  {QUICK_COMMANDS.map((cmd) => (
-                    <button
-                      key={cmd.id}
-                      onClick={() => handleQuickCommand(cmd.id, cmd.label)}
-                      disabled={loading}
-                      className="rounded-full bg-secondary-100 text-secondary-700 hover:bg-secondary-200
-                                 px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50
-                                 whitespace-nowrap flex-shrink-0"
-                    >
-                      {cmd.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* مربع الإدخال */}
             <form onSubmit={handleSubmit} className="flex gap-2 p-3 border-t border-secondary-200 flex-shrink-0 safe-area-bottom">
@@ -409,12 +402,10 @@ export function AssistantWidget() {
 // --------------------------------------------------------------------------
 function MessageBubble({
   message,
-  onSuggestion,
   onCopy,
   copied
 }: {
   message: ChatMessage;
-  onSuggestion: (text: string) => void | Promise<void>;
   onCopy: (id: string, text: string) => void;
   copied: boolean;
 }) {
@@ -445,29 +436,14 @@ function MessageBubble({
       <div className="max-w-[90%] bg-primary-50/70 border border-primary-100 rounded-2xl rounded-ss-sm px-4 py-3 relative">
         {message.title && <p className="font-bold text-primary-700 text-sm mb-1.5 pe-5">{message.title}</p>}
 
-        {message.suggestions && message.suggestions.length > 0 ? (
-          <div className="flex flex-col gap-1.5 mt-1">
-            {message.suggestions.map((s, idx) => (
-              <button
-                key={idx}
-                onClick={() => onSuggestion(s)}
-                className="text-start text-xs bg-white hover:bg-primary-100/60 border border-primary-200
-                           text-primary-700 rounded-lg px-3 py-1.5 transition-colors"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <ul className="space-y-1">
-            {message.lines?.map((line, idx) => (
-              <li key={idx} className="text-sm text-secondary-700 leading-relaxed flex items-start gap-1.5">
-                <span className="mt-2 w-1 h-1 rounded-full bg-primary-400 flex-shrink-0" />
-                <span>{line}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="space-y-1">
+          {message.lines?.map((line, idx) => (
+            <li key={idx} className="text-sm text-secondary-700 leading-relaxed flex items-start gap-1.5">
+              <span className="mt-2 w-1 h-1 rounded-full bg-primary-400 flex-shrink-0" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
 
         {copyText && (
           <button

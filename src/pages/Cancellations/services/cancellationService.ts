@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import type { RawCancelledPolicy, BasicHierarchyUser } from '../types';
 import { buildCancellationSummary } from '../business/cancellationCalculator';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware, fetchBranchRoleMap } from '../../../lib/branchHierarchy';
 
 // ===================================
 // كل دوال القراءة هنا بقت تمر من dalRead (طبقة الوصول الموحدة للبيانات):
@@ -11,18 +12,10 @@ import { dalRead } from '../../../lib/dataAccessLayer';
 // ما تعلّق الصفحة فى Loading أو تنهار. راجع lib/dataAccessLayer.ts.
 // ===================================
 
-// نفس نمط باقي الصفحات: نطاق المستخدم (نفسه + كل من تحته في التسلسل الإداري)
-export async function fetchUserSubtreeIds(userId: string): Promise<string[]> {
-  const result = await dalRead(
-    `cancellations:subtree:${userId}`,
-    async () => {
-      const { data: subtree, error } = await supabase.rpc('get_user_subtree', { user_id: userId });
-      if (error) throw error;
-      return (subtree as string[]) || [userId];
-    },
-    { emptyValue: [userId] },
-  );
-  return result.data;
+// نطاق المستخدم (نفسه + كل من تحته)، فى سياق فرع معيّن (المرحلة 3) لو
+// اتمرر branchId، وإلا نفس السلوك القديم العابر للفروع بالظبط.
+export async function fetchUserSubtreeIds(userId: string, branchId?: string | null): Promise<string[]> {
+  return fetchUserSubtreeIdsBranchAware('cancellations', userId, branchId);
 }
 
 export async function fetchSubtreeUsers(userIds: string[]): Promise<BasicHierarchyUser[]> {
@@ -169,21 +162,26 @@ export const getPeriodEndStr = (periodEnd: Date) => format(periodEnd, 'yyyy-MM-d
 export const getYearStartStr = (yearStart: Date) => format(yearStart, 'yyyy-MM-dd');
 
 // دالة تجميعية واحدة (جلب + حساب) تُستخدم من Dashboard وReports وصفحة تفاصيل
-// الإلغاءات، حتى لا يتكرر نفس التسلسل في أكثر من مكان.
-export async function loadCancellationSummary(viewer: { id: string; name: string; role: string }) {
+// الإلغاءات، حتى لا يتكرر نفس التسلسل في أكثر من مكان. branchId اختياري
+// (المرحلة 3): من غيره السلوك يرجع بالظبط لسلوك ما قبل دعم تعدد الفروع.
+export async function loadCancellationSummary(
+  viewer: { id: string; name: string; role: string },
+  branchId?: string | null,
+) {
   const now = new Date();
   const yearStart = getYearStart();
   const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   const yearStartStr = getYearStartStr(yearStart);
   const periodEndStr = getPeriodEndStr(periodEnd);
 
-  const userIds = await fetchUserSubtreeIds(viewer.id);
+  const userIds = await fetchUserSubtreeIds(viewer.id, branchId);
 
-  const [cancelledPolicies, users, { year1Payments: allYear1Payments, year2Payments: allYear2Payments }] =
+  const [cancelledPolicies, users, { year1Payments: allYear1Payments, year2Payments: allYear2Payments }, branchRoles] =
     await Promise.all([
       fetchCancelledPoliciesInYear(userIds, yearStart, periodEnd),
       fetchSubtreeUsers(userIds),
       fetchAllCollectedInPeriod(yearStartStr, periodEndStr),
+      fetchBranchRoleMap(branchId, userIds),
     ]);
 
   const eligiblePolicyIds = cancelledPolicies
@@ -201,5 +199,6 @@ export async function loadCancellationSummary(viewer: { id: string; name: string
     allYear1Payments,
     allYear2Payments,
     userIds,
+    branchRoles,
   });
 }

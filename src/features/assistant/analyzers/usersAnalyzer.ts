@@ -1,7 +1,71 @@
-import { User } from '../../../lib/supabase';
+import { User, ROLE_LABELS, supabase } from '../../../lib/supabase';
+import { dalRead } from '../../../lib/dataAccessLayer';
 import type { AssistantAnswer } from '../types';
 import { formatCurrency } from '../helpers/formatters';
 import { getScopedUserIds, getScopedTeamAchievement } from '../helpers/scopeHelpers';
+
+/**
+ * لقطة من الهيكل الوظيفي الفعلي (مين تحت مين، ودرجة كل شخص) ضمن نطاق
+ * التحليل الخاص بالمستخدم - بأسماء حقيقية مش وصف عام.
+ *
+ * ليه الدالة دي محتاجة: المؤشرات التانية بترجع "role" كنص إنجليزي خام
+ * (زي 'group_leader') و"manager_id" كمعرّف، وده مش كافي للذكاء الاصطناعي
+ * يفهم بيه شكل الهيكل الوظيفي الحقيقي أو يجاوب على أسئلة زي "مين تحت
+ * فلان؟" أو "فلان درجته ايه؟". الدالة دي بتحوّلهم لأسماء ودرجات وعلاقات
+ * مدير/مرؤوس مفهومة، وبتترفق كجزء من نظرة النظام الشاملة (getFullSystemOverview)
+ * عشان تبقى موجودة مع أي سؤال بغض النظر عن تصنيفه.
+ */
+export async function getOrgStructureSnapshot(user: User): Promise<AssistantAnswer> {
+  const userIds = await getScopedUserIds(user);
+
+  const teamUsers = await dalRead(
+    `assistant:orgStructure:${userIds.slice().sort().join(',')}`,
+    async () => {
+      const { data, error } = await supabase.rpc('assistant_scoped_users');
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+    { emptyValue: [] as any[] },
+  ).then((r) => r.data);
+
+  const nameById = new Map<string, string>(teamUsers.map((u: any) => [u.id, u.name]));
+  // لو مديره المباشر مش ضمن نطاق التحليل (مثلاً هو نفسه أعلى نقطة في
+  // النطاق)، على الأقل نعرض اسمه ودرجته من بيانات المستخدم الحالي.
+  nameById.set(user.id, user.name);
+
+  const activeUsers = teamUsers.filter((u: any) => u.is_active);
+
+  const roleOrder: string[] = [
+    'super_admin', 'development_manager', 'general_supervisor',
+    'supervisor', 'group_leader', 'agent', 'premium_agent'
+  ];
+
+  const sorted = [...activeUsers].sort(
+    (a: any, b: any) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role)
+  );
+
+  const lines = sorted.map((u: any) => {
+    const roleLabel = ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] || u.role;
+    const managerName = u.manager_id ? nameById.get(u.manager_id) : null;
+    const managerPart = managerName ? ` (تحت إشراف: ${managerName})` : '';
+    const selfTag = u.id === user.id ? ' [أنت]' : '';
+    return `- ${u.name}${selfTag}: ${roleLabel}${managerPart}`;
+  });
+
+  // كابّ الحجم لو النطاق كبير جدًا (مثلاً مدير فرع بيشرف على فرع كامل)،
+  // عشان منضخّمش سياق كل سؤال بلا داعي - المدراء والقيادات دايمًا في
+  // أول الترتيب (roleOrder) فبيفضلوا ظاهرين، والباقي بيتلخّص برقم.
+  const MAX_LINES = 60;
+  const cappedLines =
+    lines.length > MAX_LINES
+      ? [...lines.slice(0, MAX_LINES), `... و${lines.length - MAX_LINES} عضو آخر ضمن نطاقك (الأسماء الكاملة متاحة في صفحة الهيكل الوظيفي)`]
+      : lines;
+
+  return {
+    title: '🧩 الهيكل الوظيفي ضمن نطاقك',
+    lines: cappedLines.length === 0 ? ['لا يوجد أعضاء فريق ضمن نطاقك حاليًا'] : cappedLines
+  };
+}
 
 /** أفضل / أقل الوكلاء */
 export async function getAgentsRanking(user: User, direction: 'top' | 'bottom', count = 5): Promise<AssistantAnswer> {

@@ -58,6 +58,12 @@ export type Customer = {
   occupation?: string;
   marital_status?: MaritalStatus;
   owner_id: string;
+  // بيانات "طلب التأمين" الأولية عند تسجيل العميل — تُستخدم لاحقاً لتعبئة
+  // مبلغ التأمين وطريقة السداد تلقائياً عند إصدار وثيقة له (راجع
+  // pages/Policies/hooks/usePolicyActions.ts)، والعربون لعرضه فقط مع بيانات العميل
+  insurance_amount?: number;
+  payment_method?: PaymentMethod;
+  deposit_amount?: number;
   created_at: string;
   updated_at: string;
 };
@@ -240,7 +246,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   supervisor: 'المراقب',
   group_leader: 'رئيس المجموعة',
   agent: 'وكيل',
-  premium_agent: 'وكيل مميز'
+  premium_agent: 'وسيط حر'
 };
 
 export const POLICY_TYPE_LABELS: Record<PolicyType, string> = {
@@ -320,3 +326,19 @@ export function canViewOrgStructure(role: UserRole): boolean {
 export function canViewSettings(role: UserRole): boolean {
   return role === 'super_admin';
 }
+
+// إدارة الفروع (إضافة/تعطيل فرع، وربط مستخدم بوضع وظيفي إضافي فى فرع تاني):
+// Super Admin بس — نفس منطق تعديل جداول branches / user_branch_roles على
+// مستوى RLS (راجع migration 056_branches_admin_super_admin_only).
+export function canManageBranches(role: UserRole): boolean {
+  return role === 'super_admin';
+}
+
+// إدخال إحصائيات العمل اليومية المجمّعة لكل فرد فى الفريق: رئيس المجموعة
+// فقط (راجع صفحة DailyReports ونظام daily_agent_stats — رئيس المجموعة يدخل
+// الأرقام بعد استلام التقرير الورقي من الإيجنت، ولا يوجد إدخال من الإيجنت
+// نفسه ولا "حالة اعتماد" منفصلة).
+export function canEnterDailyAgentStats(role: UserRole): boolean {
+  return role === 'group_leader';
+}
+

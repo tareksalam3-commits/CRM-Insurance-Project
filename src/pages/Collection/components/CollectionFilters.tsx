@@ -30,7 +30,6 @@ export function CollectionFilters({
   onQuickFilterSelect,
   showFilters,
   quickFilterDraft,
-  onQuickFilterDraftChange,
   subTypeDraft,
   onSubTypeDraftChange,
   teamMembers,
@@ -65,25 +64,6 @@ export function CollectionFilters({
 
       {showFilters && (
         <div className="pt-3 border-t border-secondary-200 space-y-3 animate-fadeIn">
-          <div>
-            <label className="input-label">الفلتر</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {QUICK_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => onQuickFilterDraftChange(f.id)}
-                  className={clsx(
-                    'px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
-                    quickFilterDraft === f.id
-                      ? 'bg-primary-50 border-primary-500 text-primary-700'
-                      : 'bg-white border-secondary-200 text-secondary-600'
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
           {(quickFilterDraft === 'month' || quickFilterDraft === 'paid') && (
             <div>
               <label className="input-label">النوع</label>

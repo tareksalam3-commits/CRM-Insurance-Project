@@ -119,7 +119,7 @@ async function callOpenAICompatibleChat(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 1700 }),
     signal,
   });
   if (!res.ok) {
@@ -186,7 +186,7 @@ async function callOpenRouter(apiKey: string, model: string, messages: ChatMessa
       "HTTP-Referer": "https://crm-insurance-project.app",
       "X-Title": "CRM Insurance Assistant",
     },
-    body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 1200 }),
+    body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 1700 }),
     signal,
   });
   if (!res.ok) {
@@ -724,7 +724,44 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+// بيانات dataContext بتوصل بالشكل: { role, name, intent, data: [{title, lines}, ...] }
+// (زي ما بيبنيها assistantEngine.ts في الفرونت). قبل كده كانت بتتحط هنا كـ
+// JSON.stringify خام - سهل على الموديلات القوية إنها تفهمه، لكن صعب وغير
+// موثوق مع الموديلات المجانية/الأضعف اللي النظام بيعتمد عليها فعليًا
+// (OpenRouter free models في الأغلب) - ممكن يسرح، يقرا غلط، أو يهلوس حوالين
+// بنية الـ JSON. تحويله لنص عادي منظّم بعناوين وبنود بسيطة (من غير أي رمز
+// Markdown، عشان الموديل ميقلّدش الشكل ده في رده للمستخدم) بيدّي فهم أدق
+// وأوضح بكتير لأي موديل، قوي أو ضعيف.
+function formatDataContext(dataContext: unknown): string | null {
+  if (!dataContext || typeof dataContext !== "object") return null;
+  const ctx = dataContext as { role?: string; name?: string; intent?: string; data?: { title?: string; lines?: string[] }[] };
+
+  const parts: string[] = [];
+  if (ctx.role || ctx.name) {
+    parts.push(`دور المستخدم الحالي: ${ctx.role || "غير محدد"} - الاسم: ${ctx.name || "غير محدد"}`);
+  }
+  if (ctx.intent) {
+    parts.push(`نوع السؤال المصنّف تلقائيًا (لتحديد البيانات المرفقة فقط، مش بالضرورة دقيق 100%): ${ctx.intent}`);
+  }
+
+  if (Array.isArray(ctx.data) && ctx.data.length > 0) {
+    parts.push("");
+    parts.push("بيانات النظام المرفقة (كل قسم بعنوانه، والبنود اللي تحته حقائق فعلية من قاعدة البيانات):");
+    for (const section of ctx.data) {
+      if (!section || (!section.title && !section.lines)) continue;
+      parts.push("");
+      parts.push(`القسم: ${section.title || "بدون عنوان"}`);
+      for (const line of section.lines || []) {
+        parts.push(`- ${line}`);
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
 function buildSystemPrompt(systemContext: unknown, dataContext: unknown): string {
+  const formattedData = formatDataContext(dataContext);
   return [
     "انت مساعد ذكاء اصطناعي احترافي داخل نظام CRM لشركة تأمين على الحياة في مصر.",
     "دورك: تجاوب على أسئلة المستخدم، تحلل بياناته، تقدّم اقتراحات عملية، وتساعده في كتابة محتوى (رسائل، تقارير، خطابات...).",
@@ -738,7 +775,7 @@ function buildSystemPrompt(systemContext: unknown, dataContext: unknown): string
     "- متكررش نفس بيانات السياق حرفياً، لخصها بأسلوبك.",
     "",
     systemContext ? `سياق الصفحة الحالية: ${systemContext}` : "",
-    dataContext ? `بيانات النظام المتاحة حالياً (بصلاحية المستخدم الحالي فقط):\n${JSON.stringify(dataContext)}` : "لا توجد بيانات نظام مرفقة مع هذا السؤال.",
+    formattedData ? `بيانات النظام المتاحة حالياً (بصلاحية المستخدم الحالي فقط):\n${formattedData}` : "لا توجد بيانات نظام مرفقة مع هذا السؤال.",
   ]
     .filter(Boolean)
     .join("\n");

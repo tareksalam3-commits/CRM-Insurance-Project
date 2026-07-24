@@ -229,7 +229,7 @@ export async function parseWorkbookFile(file: File): Promise<ParseResult> {
   if (premiumColumnIndices.length === 0) {
     return {
       rows: [],
-      headerError: 'الملف لا يحتوي على أي عمود يمثل قيمة القسط (مثال: "قيمة القسط" أو "القسط الصافي")'
+      headerError: 'الملف لا يحتوي على أي عمود يمثل قيمة القسط الصافي (مثال: "قيمة القسط الصافي" أو "القسط الصافي")'
     };
   }
 
@@ -283,7 +283,7 @@ export async function parseWorkbookFile(file: File): Promise<ParseResult> {
     const premiumAmount = extractPremiumAmount(rowFormatted, premiumColumnIndices, premiumNetIndex);
     raw['premium_amount'] = premiumAmount;
     if (premiumAmount === null) {
-      errors.push('قيمة القسط مطلوبة (لم يتم العثور على قيمة صحيحة في أي عمود يمثل القسط)');
+      errors.push('قيمة القسط الصافي مطلوبة (لم يتم العثور على قيمة صحيحة في أي عمود يمثل القسط)');
     }
 
     const startDateRaw = getRaw('start_date');

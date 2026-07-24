@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useBranchContext } from '../../lib/branchContext';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
 import { Wallet, CalendarClock, CalendarCheck2, Percent, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -18,6 +20,7 @@ import {
 // للتجديد). كل مستخدم يرى فقط عمولات الوثائق التي هو owner_id لها.
 export function Commissions() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
 
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState<string>(
@@ -37,7 +40,7 @@ export function Commissions() {
       const [year, month] = selectedMonth.split('-').map(Number);
       const selectedMonthDate = new Date(year, month - 1, 1);
 
-      const { year1Payments, year2Payments } = await fetchCommissionSourceData(user.id, selectedMonthDate);
+      const { year1Payments, year2Payments } = await fetchCommissionSourceData(user.id, selectedMonthDate, currentBranchId);
       const { rows: computedRows, missingSumAssuredCount: missingCount } = computeCommissionRows(
         year1Payments,
         year2Payments,
@@ -55,11 +58,13 @@ export function Commissions() {
     } finally {
       setLoading(false);
     }
-  }, [user, selectedMonth]);
+  }, [user, selectedMonth, currentBranchId]);
 
   useEffect(() => {
     loadCommissions();
   }, [loadCommissions]);
+
+  useReconnectRefetch(loadCommissions);
 
   const summary = computeSummary(rows);
 

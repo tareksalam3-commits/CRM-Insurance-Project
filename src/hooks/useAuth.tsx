@@ -3,6 +3,7 @@ import { Session, User as AuthUser } from '@supabase/supabase-js';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { supabase, User, WEBAUTHN_FUNCTIONS_URL } from '../lib/supabase';
 import { clearAllDataCache } from '../lib/dataCache';
+import { dalRead } from '../lib/dataAccessLayer';
 
 interface AuthContextType {
   session: Session | null;
@@ -29,19 +30,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // الحدث ده لنفس المستخدم أو لمستخدم مختلف فعلاً
   const currentUserIdRef = useRef<string | null>(null);
 
+  // ملحوظة: هذه القراءة تمر من DAL عمداً (بعكس ما كانت عليه قبل الإصلاح) —
+  // بدونها، أي إعادة فتح للتطبيق أثناء انقطاع الإنترنت كانت ترجّع "null"
+  // بصمت (فشل شبكة)، فيعتبر App.tsx المستخدم غير مسجل دخوله ويعرض شاشة
+  // تسجيل الدخول رغم وجود جلسة صالحة فعلاً (وبالتالي توقف المزامنة كمان
+  // لأنها بتعتمد على وجود user.id). دلوقتي: لو فيه نسخة محفوظة من نفس
+  // البروفايل، بيتم استخدامها بدل ما يُعتبر المستخدم خرج من النظام.
   const fetchUserProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .is('deleted_at', null) // مستخدم محذوف (Soft Delete) لا يستطيع الدخول للنظام
-      .maybeSingle();
+    const result = await dalRead<User | null>(
+      `auth:profile:${userId}`,
+      async () => {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .is('deleted_at', null) // مستخدم محذوف (Soft Delete) لا يستطيع الدخول للنظام
+          .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching user profile:', error);
-      return null;
+        if (error) throw error;
+        return data as User | null;
+      },
+      { emptyValue: null as User | null },
+    );
+    if (result.errorMessage && result.status === 'error') {
+      console.error('Error fetching user profile:', result.errorMessage);
     }
-    return data as User | null;
+    return result.data;
   };
 
   const refreshUser = async () => {

@@ -17,9 +17,12 @@ import {
   getRemainingTarget,
   getGoalsAchievementOverview,
   getMonthlyProduction,
+  getMonthlyTrend,
   getYearlyProduction,
   getCancellationRate,
   getDocumentsCount,
+  getFullSystemOverview,
+  getOrgStructureSnapshot,
   AssistantAnswer
 } from '../features/assistant/assistantData';
 
@@ -79,9 +82,11 @@ const PATTERN_TO_INTENT: Record<string, AIIntent> = {
   group_leaders: 'group_performance',
   supervisors_performance: 'group_performance',
   general_supervisors_performance: 'group_performance',
+  org_structure: 'group_performance',
   remaining_target: 'targets',
   goals_overview: 'targets',
   monthly_production: 'reports',
+  monthly_comparison: 'reports',
   yearly_production: 'reports',
   cancellation_rate: 'reports',
   documents_count: 'reports',
@@ -110,27 +115,24 @@ const INTENT_FETCHERS: Record<AIIntent, Fetcher[]> = {
   ],
   group_performance: [getGroupLeadersPerformance, getSupervisorsPerformance, getGeneralSupervisorsPerformance],
   targets: [getRemainingTarget, getGoalsAchievementOverview],
-  reports: [getMonthlyProduction, getYearlyProduction, getCancellationRate, getDocumentsCount],
+  reports: [getMonthlyProduction, getMonthlyTrend, getYearlyProduction, getCancellationRate, getDocumentsCount],
   // Intent قابل للتوسع مستقبلاً (مثلاً: بحث باسم عميل/وكيل معيّن) - حاليًا
   // بيرجع بدون بيانات إضافية، الذكاء الاصطناعي بيرد بشكل عام أو بيوجّه
   // المستخدم للصفحة المناسبة.
   search: [],
   // الأسئلة الحرة غير المصنّفة (زي "اقترح أنشطة أحفز بيها الفريق النهارده")
-  // هي الأكثر شيوعًا والأصعب - غالبًا محتاجة نظرة شاملة على الفرع مش بيانات
-  // نطاق ضيق واحد بس. لو سابناها من غير بيانات (زي ما كانت قبل كده)، الذكاء
-  // الاصطناعي بيضطر يرد بنصايح عامة مش مبنية على حاجة حقيقية - وده بالظبط
-  // المشكلة اللي المفروض نحلها. فبنجمّعلها Snapshot افتراضي شامل (أداء
-  // الفريق، الهدف والمتبقي، التحصيل، العملاء المتأخرين، مهام اليوم، أفضل/أضعف
-  // الوكلاء) عشان يكون عنده أرضية حقيقية يبني عليها أي إجابة، مهما كان شكل
-  // السؤال. لسه أرخص بكتير من استدعاء AI إضافي للتصنيف.
+  // هي الأكثر شيوعًا والأصعب. دلوقتي getFullSystemOverview و
+  // getOrgStructureSnapshot بيترفقوا مع كل سؤال تلقائيًا (زي ما هو موضّح في
+  // getAIContext تحت)، فبيغطوا الأرقام الأساسية والهيكل الوظيفي بالفعل -
+  // مفيش داعي نكرر نفس المعنى تاني هنا (زي getBranchSummary أو getTodaySummary
+  // اللي بيجيبوا نفس أرقام الوثائق/المدفوعات تقريبًا). اللي متبقي وليه قيمة
+  // حقيقية هنا هو التفاصيل "على مستوى الأفراد والمهام" اللي مش موجودة في
+  // النظرة الشاملة: مين محتاج متابعة، مين أفضل/أضعف أداء، مين مستحق عليه
+  // حاجة النهارده. ده كمان بيقلل عدد الاستعلامات (وبالتالي زمن الاستجابة)
+  // بدل ما نجيب 10 مصادر بيانات نص متكرر.
   general_question: [
-    getBranchSummary,
-    getTodaySummary,
-    getRemainingTarget,
-    getGoalsAchievementOverview,
-    getTodayCollection,
-    getOverdueCustomers,
     getTodayTasks,
+    getOverdueCustomers,
     (u) => getAgentsRanking(u, 'top', 5),
     (u) => getAgentsRanking(u, 'bottom', 5),
     getUnderperformingTeam
@@ -144,11 +146,26 @@ export interface AIContext {
 
 /**
  * نقطة الدخول الوحيدة: بتاخد Intent (متحدد مسبقًا محليًا أو من الذكاء
- * الاصطناعي) + المستخدم الحالي، وترجع أقل بيانات كافية للتحليل، بدون أي
- * بيانات زيادة عن الحاجة.
+ * الاصطناعي) + المستخدم الحالي، وترجع البيانات الكافية للتحليل.
+ *
+ * ملاحظة مهمة: getFullSystemOverview و getOrgStructureSnapshot بيترجعوا مع
+ * كل سؤال (بغض النظر عن الـ Intent)، لأن تصنيف النية محلي (Pattern matching)
+ * بيغلط أحيانًا أو مبيلاقيش نمط واضح أصلاً - قبل كده في الحالة دي كان الذكاء
+ * الاصطناعي بيرد من غير أي بيانات حقيقية، وكمان مكانش عنده أي فكرة عن الهيكل
+ * الوظيفي (مين تحت مين، درجة كل شخص) لأن ده معلومة مطلوبة في شبه كل سؤال
+ * إداري/تحليلي مش بس أسئلة الهيكل المباشرة. دلوقتي عنده دايمًا صورة شاملة
+ * (وثائق/مسدد/غير مسدد/تحصيل/إنتاج جديد/إلغاءات + الهيكل الوظيفي بأسماء
+ * حقيقية) كأرضية ثابتة، وفوقها بيانات الـ Intent المحدد (لو الأنماط عرفت
+ * تصنف السؤال صح) بتضيف تفاصيل أدق (ترتيب وكلاء، توزيع عملاء، إلخ). التكلفة
+ * بسيطة جدًا لأن الدالتين مبنيين على نفس الـ cache (dalRead) وبيتقروا مرة
+ * واحدة فقط.
  */
 export async function getAIContext(intent: AIIntent, user: User): Promise<AIContext> {
   const fetchers = INTENT_FETCHERS[intent] || [];
-  const data = await Promise.all(fetchers.map((fn) => fn(user)));
-  return { intent, data };
+  const [overview, orgStructure, ...intentData] = await Promise.all([
+    getFullSystemOverview(user),
+    getOrgStructureSnapshot(user),
+    ...fetchers.map((fn) => fn(user))
+  ]);
+  return { intent, data: [overview, orgStructure, ...intentData] };
 }

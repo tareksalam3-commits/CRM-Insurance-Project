@@ -5,6 +5,9 @@ import { computeCommissionRows, computeSummary } from '../../Commissions/busines
 import type { ProfileFormData } from '../types';
 import type { ProfilePerformanceStats } from '../types';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchMyBranches } from '../../../lib/myBranches';
+import { fetchUserSubtreeIdsBranchAware } from '../../../lib/branchHierarchy';
+import type { UserRole } from '../../../lib/supabase';
 
 // كل الأرقام هنا محسوبة لحظيًا من جداول Supabase الفعلية (payments, policies,
 // customers) وقت فتح الصفحة، ومفيش أي قيمة مخزّنة أو Placeholder.
@@ -16,7 +19,7 @@ const EMPTY_PROFILE_STATS: ProfilePerformanceStats = {
   commissionsThisMonth: 0,
 };
 
-export async function fetchProfilePerformanceStats(userId: string): Promise<ProfilePerformanceStats> {
+export async function fetchProfilePerformanceStats(userId: string, role?: UserRole): Promise<ProfilePerformanceStats> {
   const today = new Date();
   const yearStartStr = format(startOfYear(today), 'yyyy-MM-dd');
   const monthStartStr = format(startOfMonth(today), 'yyyy-MM-dd');
@@ -24,18 +27,35 @@ export async function fetchProfilePerformanceStats(userId: string): Promise<Prof
   const todayStr = format(today, 'yyyy-MM-dd');
 
   const result = await dalRead(
-    `profile:performanceStats:${userId}:${todayStr}`,
+    `profile:performanceStats:${userId}:${role ?? 'none'}:${todayStr}`,
     async () => {
       // التارجت الخاص بصاحب الدرجة الوظيفية (مراقب/مشرف/قائد مجموعة...) بيتحقق
       // بإنتاجه الشخصي + إنتاج فريقه معًا، فكل المؤشرات هنا (عدا العمولات)
-      // بتتحسب على المستخدم نفسه + كل من هم تحته في الهيكل الوظيفي
-      const { data: subtreeIds, error: subtreeError } = await supabase.rpc(
-        'get_user_subtree',
-        { user_id: userId }
-      );
-      if (subtreeError) throw subtreeError;
-
-      const ownerIds: string[] = (subtreeIds as string[] | null) || [userId];
+      // بتتحسب على المستخدم نفسه + كل من هم تحته في الهيكل الوظيفي.
+      //
+      // مدير التطوير حالة خاصة: ممكن يدير أكتر من فرع (user_branch_roles)،
+      // وتارجته أصلاً متحدد على أساس كل الفروع دي مجتمعة — فمينفعش نحسب
+      // "نطاقه" بالهرم العام القديم (get_user_subtree) بس، لازم نجمع نطاق كل
+      // فرع تحت إدارته (get_user_subtree_branch_aware لكل فرع من فروعه).
+      let ownerIds: string[];
+      if (role === 'development_manager') {
+        const myBranches = await fetchMyBranches(userId);
+        const perBranchIds = await Promise.all(
+          myBranches.map((b) =>
+            fetchUserSubtreeIdsBranchAware('profile:performanceStats', userId, b.branchId)
+          )
+        );
+        const merged = new Set<string>([userId]);
+        perBranchIds.forEach((ids) => ids.forEach((id) => merged.add(id)));
+        ownerIds = Array.from(merged);
+      } else {
+        const { data: subtreeIds, error: subtreeError } = await supabase.rpc(
+          'get_user_subtree',
+          { user_id: userId }
+        );
+        if (subtreeError) throw subtreeError;
+        ownerIds = (subtreeIds as string[] | null) || [userId];
+      }
 
       // 1) كل الأقساط المسددة (غير الملغاة) الخاصة بوثائق المستخدم وفريقه من أول
       // السنة لغاية النهاردة — منها بنشتق "إجمالي المحقق هذا العام" و"نسبة

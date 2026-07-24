@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
 import { canViewSettings } from '../../lib/supabase';
 import {
   Shield,
@@ -53,6 +54,8 @@ export function AISettings() {
   useEffect(() => {
     if (canAccess) load();
   }, [canAccess]);
+
+  useReconnectRefetch(() => { if (canAccess) load(); });
 
   async function load() {
     setLoading(true);

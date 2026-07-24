@@ -104,7 +104,11 @@ export function useCustomerActions({
         occupation: customer.occupation || '',
         marital_status: customer.marital_status || undefined,
         owner_id: customer.owner_id || '',
-        isManagerRole: !!user && user.role !== 'agent' && user.role !== 'premium_agent'
+        insurance_amount: customer.insurance_amount ?? ('' as any),
+        payment_method: customer.payment_method || undefined,
+        deposit_amount: customer.deposit_amount ?? ('' as any),
+        isManagerRole: !!user && user.role !== 'agent' && user.role !== 'premium_agent',
+        isEditingCustomer: true
       });
     } else {
       setEditingCustomer(null);
@@ -118,7 +122,11 @@ export function useCustomerActions({
         occupation: '',
         marital_status: undefined,
         owner_id: isAgent ? user?.id : '',
-        isManagerRole: !isAgent
+        insurance_amount: '' as any,
+        payment_method: undefined,
+        deposit_amount: '' as any,
+        isManagerRole: !isAgent,
+        isEditingCustomer: false
       });
     }
     setShowModal(true);

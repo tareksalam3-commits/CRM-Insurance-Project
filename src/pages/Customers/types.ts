@@ -10,7 +10,16 @@ export const customerSchema = z.object({
   occupation: z.string().optional(),
   marital_status: z.enum(['single', 'married', 'divorced', 'widowed']).optional(),
   owner_id: z.string().optional(),
-  isManagerRole: z.boolean().optional()
+  // بيانات "طلب التأمين": إلزامية فقط عند إضافة عميل جديد (isEditingCustomer
+  // = false). العملاء الموجودين حالياً قد لا يملكون هذه البيانات، فتفضل
+  // اختيارية عند التعديل حتى لا يُمنع حفظ تعديل بسيط على عميل قديم —
+  // isEditingCustomer بيتحكم في الإلزامية عبر superRefine تحت (نفس أسلوب
+  // isManagerRole فوق، ونفس أسلوب isEditingPolicy فى Policies/types.ts).
+  insurance_amount: z.number().optional(),
+  payment_method: z.enum(['monthly', 'quarterly', 'semi_annual', 'annual']).optional(),
+  deposit_amount: z.number().optional(),
+  isManagerRole: z.boolean().optional(),
+  isEditingCustomer: z.boolean().optional()
 }).superRefine((data, ctx) => {
   if (data.isManagerRole && !data.owner_id) {
     ctx.addIssue({
@@ -18,6 +27,30 @@ export const customerSchema = z.object({
       message: 'يجب اختيار الوكيل المسؤول',
       path: ['owner_id']
     });
+  }
+
+  if (!data.isEditingCustomer) {
+    if (data.insurance_amount === undefined || data.insurance_amount === null || Number.isNaN(data.insurance_amount)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'مبلغ التأمين مطلوب',
+        path: ['insurance_amount']
+      });
+    }
+    if (!data.payment_method) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'طريقة السداد مطلوبة',
+        path: ['payment_method']
+      });
+    }
+    if (data.deposit_amount === undefined || data.deposit_amount === null || Number.isNaN(data.deposit_amount)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'العربون مطلوب',
+        path: ['deposit_amount']
+      });
+    }
   }
 });
 

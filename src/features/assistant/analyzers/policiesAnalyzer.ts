@@ -10,12 +10,9 @@ export async function getDocumentsCount(user: User): Promise<AssistantAnswer> {
   const result = await dalRead(
     `assistant:documentsCount:${userIds.slice().sort().join(',')}`,
     async () => {
-      const { count, error } = await supabase
-        .from('policies')
-        .select('id', { count: 'exact', head: true })
-        .in('owner_id', userIds);
+      const { data, error } = await supabase.rpc('assistant_scoped_policies');
       if (error) throw error;
-      return count ?? 0;
+      return (data || []).length;
     },
     { emptyValue: 0 },
   );

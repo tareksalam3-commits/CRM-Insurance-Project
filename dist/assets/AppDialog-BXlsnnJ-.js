@@ -1,0 +1,1 @@
+import{j as o}from"./vendor-table-DGgT2VZ7.js";import{c as a}from"./vendor-utils-CiRmQHyF.js";function m({onClose:s,className:i,overlayClassName:r,children:t}){return o.jsx("div",{className:a("modal-overlay",r),onClick:s,children:o.jsx("div",{className:a("modal-content",i),onClick:l=>l.stopPropagation(),children:t})})}export{m as A};

@@ -76,17 +76,18 @@ body {
     .btn-sm { min-height: 38px; }
   }
 
-  .btn-primary   { @apply bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800; }
+  .btn-primary   { @apply bg-primary-600 text-white shadow-primary-glow hover:bg-primary-700 hover:shadow-elevated active:bg-primary-800; }
   .btn-secondary { @apply bg-secondary-100 text-secondary-700 hover:bg-secondary-200 active:bg-secondary-300; }
   .btn-success   { @apply bg-success-600 text-white hover:bg-success-700 active:bg-success-800; }
   .btn-warning   { @apply bg-warning-500 text-white hover:bg-warning-600 active:bg-warning-700; }
   .btn-error     { @apply bg-error-600 text-white hover:bg-error-700 active:bg-error-800; }
   .btn-ghost     { @apply bg-transparent text-secondary-600 hover:bg-secondary-100 active:bg-secondary-200; }
   .btn-outline   { @apply border-2 border-primary-600 text-primary-600 hover:bg-primary-50 active:bg-primary-100; }
+  .btn-white     { @apply bg-white text-secondary-700 border border-secondary-300 shadow-soft hover:bg-secondary-50 active:bg-secondary-100; }
 
   /* ===== CARD ===== */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-secondary-200;
+    @apply bg-white rounded-xl shadow-card border border-secondary-100 transition-shadow duration-200;
     padding: 1rem;          /* 16px على الموبايل */
   }
 
@@ -98,7 +99,7 @@ body {
   .input-field {
     @apply w-full rounded-lg border border-secondary-300 bg-white px-4 py-2.5
            text-secondary-900 placeholder-secondary-400
-           focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20
+           focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-500/15
            transition-all duration-200;
     min-height: 44px;   /* tap target */
   }
@@ -108,25 +109,26 @@ body {
   }
 
   /* ===== BADGES ===== */
-  .badge            { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
-  .badge-success    { @apply bg-success-100 text-success-700; }
-  .badge-warning    { @apply bg-warning-100 text-warning-700; }
-  .badge-error      { @apply bg-error-100 text-error-700; }
-  .badge-info       { @apply bg-info-100 text-info-700; }
-  .badge-secondary  { @apply bg-secondary-100 text-secondary-700; }
-  .badge-primary    { @apply bg-primary-100 text-primary-700; }
+  .badge            { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset; }
+  .badge-success    { @apply bg-success-50 text-success-700 ring-success-600/20; }
+  .badge-warning    { @apply bg-warning-50 text-warning-700 ring-warning-600/20; }
+  .badge-error      { @apply bg-error-50 text-error-700 ring-error-600/20; }
+  .badge-info       { @apply bg-info-50 text-info-700 ring-info-600/20; }
+  .badge-secondary  { @apply bg-secondary-100 text-secondary-700 ring-secondary-600/10; }
+  .badge-primary    { @apply bg-primary-50 text-primary-700 ring-primary-600/20; }
 
   /* ===== TABLE ===== */
   .table-container {
-    @apply overflow-x-auto rounded-lg border border-secondary-200 bg-white;
+    @apply overflow-x-auto rounded-lg border border-secondary-200 bg-white shadow-soft;
     /* Scroll smoothly على الموبايل */
     -webkit-overflow-scrolling: touch;
   }
 
   .table-container table { @apply w-full text-sm text-right; }
-  .table-container th    { @apply bg-secondary-50 px-3 py-2.5 font-semibold text-secondary-700 border-b border-secondary-200 whitespace-nowrap; }
+  .table-container th    { @apply bg-secondary-50/80 px-3 py-2.5 font-semibold text-secondary-700 border-b border-secondary-200 whitespace-nowrap; }
   .table-container td    { @apply px-3 py-2.5 border-b border-secondary-100 whitespace-nowrap; }
-  .table-container tr:hover td { @apply bg-secondary-50; }
+  .table-container tr:last-child td { @apply border-b-0; }
+  .table-container tr:hover td { @apply bg-primary-50/40; }
 
   @media (min-width: 768px) {
     .table-container th { @apply px-4 py-3; }
@@ -135,7 +137,7 @@ body {
 
   /* ===== KPI CARD ===== */
   .kpi-card {
-    @apply bg-white rounded-xl shadow-sm border border-secondary-100 p-4 transition-all duration-200 hover:shadow-md;
+    @apply bg-white rounded-xl shadow-card border border-secondary-100 p-4 transition-all duration-200 hover:shadow-elevated hover:-translate-y-0.5;
   }
 
   @media (min-width: 768px) {
@@ -160,7 +162,7 @@ body {
 
   @media (min-width: 640px) {
     .modal-content {
-      @apply rounded-2xl shadow-xl max-w-lg;
+      @apply rounded-2xl shadow-elevated max-w-lg;
       max-height: 90vh;
     }
   }
@@ -171,12 +173,12 @@ body {
            hover:bg-secondary-100 hover:text-secondary-900 transition-colors duration-200;
   }
   .sidebar-link.active {
-    @apply bg-primary-50 text-primary-700 font-medium;
+    @apply bg-primary-600 text-white font-medium shadow-primary-glow;
   }
 
   /* ===== DROPDOWN ===== */
   .dropdown-menu {
-    @apply absolute z-50 mt-1 min-w-[200px] rounded-lg border border-secondary-200 bg-white py-1 shadow-lg;
+    @apply absolute z-50 mt-1 min-w-[200px] rounded-lg border border-secondary-200 bg-white py-1 shadow-elevated;
   }
   .dropdown-item {
     @apply flex items-center gap-2 px-4 py-2.5 text-sm text-secondary-700
@@ -302,5 +304,28 @@ body {
     right: 0;
     left: 0;
     width: 100%;
+  }
+
+  /* جداول "تفاصيل السجلات" فى تقارير صفحة الإحصائيات الشاملة كانت بتتقص من
+     أعمدتها (زي عمود "تاريخ البداية") لأن .table-container بيعتمد على
+     overflow-x-auto + whitespace-nowrap للعرض على الشاشة، وده مبيشتغلش فى
+     الطباعة (مفيش تمرير أفقي فى الورق). الحل: نلغي التمرير الأفقي ونخلي
+     الجدول ياخد عرض الصفحة بالكامل مع لف النص بدل قصّه، عشان كل الأعمدة
+     تظهر كاملة جوه الورقة.  */
+  .print-report .table-container {
+    overflow: visible !important;
+    border: none !important;
+  }
+  .print-report .table-container table {
+    width: 100% !important;
+    table-layout: fixed !important;
+  }
+  .print-report .table-container th,
+  .print-report .table-container td {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    font-size: 9px !important;
+    padding: 3px 4px !important;
   }
 }

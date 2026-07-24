@@ -30,8 +30,6 @@ export function CustomerPickerModal({ isOpen, onClose, onSelect }: CustomerPicke
     setSearchTerm('');
     setErrorMsg(null);
     runSearch('');
-    const focusTimer = setTimeout(() => inputRef.current?.focus(), 50);
-    return () => clearTimeout(focusTimer);
   }, [isOpen]);
 
   // بحث لحظي مع Debounce — يعمل على الاسم/الهاتف/الرقم القومي، ومرتّب دائماً

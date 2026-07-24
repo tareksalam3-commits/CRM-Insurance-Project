@@ -8,6 +8,7 @@ import { profileSchema, passwordSchema, type ProfileFormData, type PasswordFormD
 import {
   fetchProfilePerformanceStats, updateProfile, changePassword, uploadAvatar,
 } from '../services/profileService';
+import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 
 export function useProfile() {
   const { user, refreshUser, registerPasskey } = useAuth();
@@ -56,28 +57,27 @@ export function useProfile() {
   const newPasswordValue = watchPassword('newPassword');
 
   // جلب مؤشرات الأداء الحقيقية من قاعدة البيانات لحظة فتح الصفحة
-  useEffect(() => {
+  const loadStats = async () => {
     if (!user) return;
+    setStatsLoading(true);
+    setStatsError(null);
+    try {
+      const result = await fetchProfilePerformanceStats(user.id, user.role);
+      setStats(result);
+    } catch (err) {
+      console.error('Error fetching profile performance stats:', err);
+      setStatsError('تعذر تحميل مؤشرات الأداء، حاول تحديث الصفحة');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
 
-    let cancelled = false;
-
-    const loadStats = async () => {
-      setStatsLoading(true);
-      setStatsError(null);
-      try {
-        const result = await fetchProfilePerformanceStats(user.id);
-        if (!cancelled) setStats(result);
-      } catch (err) {
-        console.error('Error fetching profile performance stats:', err);
-        if (!cancelled) setStatsError('تعذر تحميل مؤشرات الأداء، حاول تحديث الصفحة');
-      } finally {
-        if (!cancelled) setStatsLoading(false);
-      }
-    };
-
+  useEffect(() => {
     loadStats();
-    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useReconnectRefetch(loadStats);
 
   useEffect(() => {
     if (!newPasswordValue) {

@@ -113,7 +113,7 @@ export function FormationPreviewModal({ heads, branchName, asOfDate, onClose }: 
     if (!exportRef.current || busy) return;
     setBusy('print');
     try {
-      printNode(exportRef.current, 'تشكيل الجهاز الإنتاجي');
+      printNode(exportRef.current, `تشكيل الجهاز الإنتاجي${branchName ? ` - ${branchName}` : ''}`);
     } finally {
       setBusy(null);
     }

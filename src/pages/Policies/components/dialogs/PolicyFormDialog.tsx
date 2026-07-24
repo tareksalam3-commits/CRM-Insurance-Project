@@ -9,6 +9,10 @@ interface PolicyFormDialogProps {
   editingPolicy: Policy | null;
   presetCustomerId: string | null;
   selectedCustomer: CustomerPickerItem | null;
+  // لما تبقى true: مبلغ التأمين وطريقة السداد اترصدوا تلقائياً من بيانات
+  // "طلب التأمين" المسجلة مع العميل المختار، فيتقفلوا للعرض فقط (راجع
+  // usePolicyActions.customerDefaultsLocked)
+  customerDefaultsLocked?: boolean;
   onOpenCustomerPicker: () => void;
   register: UseFormRegister<PolicyFormData>;
   handleSubmit: UseFormHandleSubmit<PolicyFormData>;
@@ -25,6 +29,7 @@ export function PolicyFormDialog({
   editingPolicy,
   presetCustomerId,
   selectedCustomer,
+  customerDefaultsLocked,
   onOpenCustomerPicker,
   register,
   handleSubmit,
@@ -135,25 +140,35 @@ export function PolicyFormDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="input-label">طريقة السداد *</label>
-              <select
-                {...register('payment_method')}
-                className="input-field"
-              >
-                {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+              {customerDefaultsLocked ? (
+                <>
+                  <input type="hidden" {...register('payment_method')} />
+                  <div className="input-field bg-secondary-50 text-secondary-600 cursor-not-allowed">
+                    {PAYMENT_METHOD_LABELS[selectedCustomer!.payment_method as keyof typeof PAYMENT_METHOD_LABELS]}
+                  </div>
+                  <p className="text-xs text-secondary-400 mt-1">تم تعبئتها تلقائياً من بيانات طلب التأمين الخاصة بالعميل</p>
+                </>
+              ) : (
+                <select
+                  {...register('payment_method')}
+                  className="input-field"
+                >
+                  {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="form-group">
-              <label className="input-label">قيمة القسط *</label>
+              <label className="input-label">قيمة القسط الصافي *</label>
               <div className="relative">
                 <input
                   {...register('premium_amount', { valueAsNumber: true })}
                   type="number"
                   min="0"
                   className={clsx('input-field pl-16', errors.premium_amount && 'border-error-500')}
-                  placeholder="أدخل قيمة القسط"
+                  placeholder="أدخل قيمة القسط الصافي"
                 />
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
                   جنيه
@@ -169,20 +184,37 @@ export function PolicyFormDialog({
             <label className="input-label">
               مبلغ التأمين {!editingPolicy && '*'}
             </label>
-            <div className="relative">
-              <input
-                {...register('sum_assured', { valueAsNumber: true })}
-                type="number"
-                min="0"
-                className={clsx('input-field pl-16', errors.sum_assured && 'border-error-500')}
-                placeholder="أدخل مبلغ التأمين"
-              />
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
-                جنيه
-              </span>
-            </div>
-            {errors.sum_assured && (
-              <p className="text-sm text-error-600 mt-1">{errors.sum_assured.message}</p>
+            {customerDefaultsLocked ? (
+              <>
+                <input type="hidden" {...register('sum_assured', { valueAsNumber: true })} />
+                <div className="relative">
+                  <div className="input-field pl-16 bg-secondary-50 text-secondary-600 cursor-not-allowed">
+                    {selectedCustomer!.insurance_amount}
+                  </div>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
+                    جنيه
+                  </span>
+                </div>
+                <p className="text-xs text-secondary-400 mt-1">تم تعبئته تلقائياً من بيانات طلب التأمين الخاصة بالعميل</p>
+              </>
+            ) : (
+              <>
+                <div className="relative">
+                  <input
+                    {...register('sum_assured', { valueAsNumber: true })}
+                    type="number"
+                    min="0"
+                    className={clsx('input-field pl-16', errors.sum_assured && 'border-error-500')}
+                    placeholder="أدخل مبلغ التأمين"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400 text-sm">
+                    جنيه
+                  </span>
+                </div>
+                {errors.sum_assured && (
+                  <p className="text-sm text-error-600 mt-1">{errors.sum_assured.message}</p>
+                )}
+              </>
             )}
           </div>
 

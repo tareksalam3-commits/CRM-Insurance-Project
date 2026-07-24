@@ -1,5 +1,8 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
-import { Calculator, RotateCcw, PlusCircle, Copy, Printer, Check, AlertCircle } from 'lucide-react';
+import {
+  Calculator, RotateCcw, PlusCircle, Copy, Printer, Check, AlertCircle,
+  DollarSign, Percent,
+} from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { ProductPicker } from './ProductPicker';
@@ -12,6 +15,8 @@ import {
   type ValidationErrors,
 } from './pricingEngine';
 import { PrintQuote } from './PrintQuote';
+import { PolicyBenefits } from './PolicyBenefitsCard';
+import { printWithTitle } from '../../lib/printWithTitle';
 
 // ─── صفحة "حاسبة الأسعار" ───────────────────────────────────
 // صفحة مستقلة بالكامل عن دورة عمل النظام: لا تُنشئ عميل/وثيقة/قسط/تحصيل،
@@ -83,7 +88,11 @@ export function PriceCalculator() {
   }
 
   function handlePrint() {
-    window.print();
+    if (result) {
+      printWithTitle(`عرض-سعر-${result.variant.label}`);
+    } else {
+      window.print();
+    }
   }
 
   function handleLastFieldKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -101,8 +110,20 @@ export function PriceCalculator() {
       />
 
       {/* ===== بطاقة المدخلات ===== */}
-      <div className="card print:hidden space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="card print:hidden space-y-4 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-primary-50 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+
+        <div className="flex items-center gap-2.5 relative">
+          <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-600 text-white flex-shrink-0 shadow-sm">
+            <Calculator className="w-5 h-5" />
+          </span>
+          <div>
+            <h3 className="text-base font-bold text-secondary-900">بيانات الحساب</h3>
+            <p className="text-xs text-secondary-500">أدخل بيانات العميل للحصول على السعر فوراً</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
           <div className="form-group mb-0">
             <label className="input-label">السن</label>
             <input
@@ -122,11 +143,6 @@ export function PriceCalculator() {
           </div>
 
           <div className="form-group mb-0">
-            <label className="input-label">نوع الوثيقة</label>
-            <ProductPicker value={variantKey} onChange={setVariantKey} error={errors.variantKey} />
-          </div>
-
-          <div className="form-group mb-0">
             <label className="input-label">مبلغ التأمين</label>
             <input
               type="number"
@@ -143,9 +159,14 @@ export function PriceCalculator() {
               </p>
             )}
           </div>
+
+          <div className="form-group mb-0">
+            <label className="input-label">نوع الوثيقة</label>
+            <ProductPicker value={variantKey} onChange={setVariantKey} error={errors.variantKey} />
+          </div>
         </div>
 
-        <button onClick={handleCalculate} className="btn btn-primary w-full md:w-auto">
+        <button onClick={handleCalculate} className="btn btn-primary w-full md:w-auto relative">
           <Calculator className="w-4 h-4" />
           احسب السعر
         </button>
@@ -153,20 +174,26 @@ export function PriceCalculator() {
 
       {/* ===== بطاقة النتائج ===== */}
       {result && (
-        <div className="card animate-fadeIn print:hidden space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-bold text-secondary-900">نتيجة الحساب</h3>
-              <p className="text-sm text-secondary-500 mt-0.5">{result.variant.label}</p>
+        <div className="card animate-fadeIn print:hidden space-y-5 border-primary-100">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-50 text-primary-600 flex-shrink-0">
+                <DollarSign className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-secondary-900">نتيجة الحساب</h3>
+                <p className="text-sm text-secondary-500 mt-0.5">{result.variant.label}</p>
+              </div>
             </div>
-            <span className="badge badge-info self-start sm:self-auto">
+            <span className="badge badge-info self-start sm:self-auto flex items-center gap-1">
+              <Percent className="w-3 h-3" />
               السعر لكل ألف: {formatNumber(result.rate)}
             </span>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="kpi-card !p-4">
-              <p className="text-xs text-secondary-500 mb-1">القسط السنوي</p>
+            <div className="kpi-card !p-4 ring-1 ring-primary-100 bg-primary-50/40">
+              <p className="text-xs text-primary-700 mb-1 font-medium">القسط السنوي</p>
               <p className="text-lg md:text-xl font-bold text-primary-700">
                 {formatCurrency(result.annualPremium)}
               </p>
@@ -190,22 +217,28 @@ export function PriceCalculator() {
               </p>
             </div>
           </div>
+        </div>
+      )}
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button onClick={handleNewCalculation} className="btn btn-outline btn-sm">
-              <PlusCircle className="w-4 h-4" /> حساب جديد
-            </button>
-            <button onClick={handleReset} className="btn btn-secondary btn-sm">
-              <RotateCcw className="w-4 h-4" /> إعادة تعيين
-            </button>
-            <button onClick={handleCopyResults} className="btn btn-secondary btn-sm">
-              {copied ? <Check className="w-4 h-4 text-success-600" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'تم النسخ' : 'نسخ النتائج'}
-            </button>
-            <button onClick={handlePrint} className="btn btn-ghost btn-sm">
-              <Printer className="w-4 h-4" /> طباعة / حفظ PDF
-            </button>
-          </div>
+      {/* ===== مزايا الوثيقة (تختلف حسب نوع الوثيقة) ===== */}
+      {result && <PolicyBenefits result={result} />}
+
+      {/* ===== أزرار الإجراءات: تحت النتائج ومزايا الوثيقة ===== */}
+      {result && (
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <button onClick={handleNewCalculation} className="btn btn-outline btn-sm">
+            <PlusCircle className="w-4 h-4" /> حساب جديد
+          </button>
+          <button onClick={handleReset} className="btn btn-secondary btn-sm">
+            <RotateCcw className="w-4 h-4" /> إعادة تعيين
+          </button>
+          <button onClick={handleCopyResults} className="btn btn-secondary btn-sm">
+            {copied ? <Check className="w-4 h-4 text-success-600" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'تم النسخ' : 'نسخ النتائج'}
+          </button>
+          <button onClick={handlePrint} className="btn btn-success btn-sm">
+            <Printer className="w-4 h-4" /> طباعة / حفظ PDF
+          </button>
         </div>
       )}
 

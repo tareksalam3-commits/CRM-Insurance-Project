@@ -1,5 +1,5 @@
 import { User } from '../../lib/supabase';
-import { askAI, AIServiceError } from '../../lib/aiService';
+import { askAI, AIServiceError, AIChatMessage } from '../../lib/aiService';
 import { getAIContext, resolveIntent } from '../../services/aiContextService';
 import {
   AssistantAnswer,
@@ -14,12 +14,33 @@ import {
 } from './assistantData';
 
 import type { QuickCommand } from './types';
-import { normalizeArabic } from './helpers/textNormalization';
-import { correctText, tokenize } from './helpers/typoCorrection';
-import { findDirectMatch, scoreAllPatterns, buildSuggestions } from './services/intentMatchingService';
+import { scoreAllPatterns } from './services/intentMatchingService';
 import { ASSISTANT_THINKING_SYSTEM_PROMPT } from './prompts/systemPrompt';
 
 export type { QuickCommand } from './types';
+
+// --------------------------------------------------------------------------
+// واجهة عرض الرد (MessageBubble) بتعرض كل سطر كنص عادي (بدون أي Markdown
+// renderer) - فلو رجع الذكاء الاصطناعي رموز Markdown خام (**عريض**،
+// ### عناوين، --- فواصل) هتتعرض للمستخدم زي ما هي (نجوم وشباك) بدل ما
+// تتنسّق. الدالة دي بتشيل رموز الـ Markdown الشائعة دي من كل سطر قبل
+// العرض، وبتشيل أي سطر بقى فاضي أو مجرد فاصل (---) بعد التنظيف.
+// --------------------------------------------------------------------------
+function stripMarkdown(line: string): string {
+  return line
+    .replace(/^#{1,6}\s*/, '') // ### عناوين
+    .replace(/\*\*(.*?)\*\*/g, '$1') // **عريض**
+    .replace(/\*(.*?)\*/g, '$1') // *مائل*
+    .replace(/^[-*]\s+/, '') // - نقطة قائمة (البابل أصلاً بيضيف نقطة بتاعته)
+    .trim();
+}
+
+function sanitizeAIReplyLines(reply: string): string[] {
+  return reply
+    .split('\n')
+    .map(stripMarkdown)
+    .filter((line) => line.length > 0 && !/^-{3,}$/.test(line));
+}
 
 // قائمة الأزرار المعروضة تم تقليصها للأهم فقط (8 بدل 19) تجنبًا لازدحام الشاشة.
 // باقي الأوامر لسه شغالة تمامًا عن طريق الكتابة الحرة (QUERY_PATTERNS تحت منفصلة
@@ -44,69 +65,21 @@ export async function runQuickCommand(id: string, user: User): Promise<Assistant
 }
 
 // ==========================================================================
-// محرك فهم النية (Smart Intent Engine)
-// --------------------------------------------------------------------------
-// يعمل بالكامل محليًا داخل التطبيق، بدون أي اتصال بالإنترنت أو أي خدمة ذكاء
-// اصطناعي خارجية. يعتمد على: تطبيع النص، قاموس كلمات مفتاحية قابل للتوسيع،
-// تجاهل الكلمات غير المهمة، تصحيح تلقائي بسيط للأخطاء الإملائية الشائعة،
-// ثم ترتيب النتائج المحتملة واقتراح أقربها عند عدم التأكد.
-//
-// تفاصيل كل مرحلة (تطبيع النص، قاموس الكلمات المفتاحية، التصحيح التلقائي،
-// المطابقة والترتيب، الاقتراحات الذكية) موزّعة على: helpers/textNormalization،
-// constants (قاموس الأنماط)، helpers/typoCorrection، و services/intentMatchingService.
+// أي سؤال حر (غير أزرار الأوامر السريعة) بيروح مباشرة لخدمة الذكاء الاصطناعي
+// الحقيقية (ai-assistant) - مفيش أي رد جاهز/محفوظ محليًا ومفيش اقتراحات
+// مكتوبة مسبقًا. الحاجة الوحيدة المحلية اللي بتشتغل هي تخمين "نية" السؤال
+// (Intent) عشان نجيب معاه أقرب بيانات حقيقية من قاعدة البيانات كسياق
+// للذكاء الاصطناعي (aiContextService) - مش عشان نجاوب بيها إحنا.
 // ==========================================================================
-
-// --------------------------------------------------------------------------
-// نقطة الدخول الرئيسية
-// --------------------------------------------------------------------------
-export async function parseAndAnswer(query: string, user: User): Promise<AssistantAnswer> {
+export async function parseAndAnswer(query: string, user: User, history: AIChatMessage[] = []): Promise<AssistantAnswer> {
   const raw = query.trim();
 
   if (!raw) {
     return { title: '🤔', lines: ['اكتب سؤالك أو اختَر أحد الأوامر السريعة'] };
   }
 
-  const normalized = normalizeArabic(raw);
-
-  // المرحلة 1: مطابقة مباشرة على النص كما هو
-  let match = findDirectMatch(normalized);
-
-  // المرحلة 2: لو مفيش تطابق، نصحح الأخطاء الإملائية البسيطة ونجرب تاني
-  if (!match) {
-    const corrected = correctText(normalized);
-    if (corrected !== normalized) {
-      match = findDirectMatch(corrected);
-    }
-  }
-
-  if (match) {
-    return match.run(user);
-  }
-
-  // المرحلة 3: مطابقة احتياطية بالتشابه بين الكلمات (مع التصحيح التلقائي)
-  // بتتفعّل فقط لو السؤال قصير (٣ كلمات مميزة كحد أقصى بعد استبعاد كلمات
-  // الوصل) - زي "الهدف؟" أو "المتأخرين" لوحدها. سبب التقييد: خوارزمية
-  // التسجيل بتدّي score=1.0 (تطابق كامل) لمجرد وجود كلمة مفتاحية واحدة أو
-  // اتنين مشتركة، وده كان بيخطف أي جملة حرة فيها كلمة زي "الهدف" أو "الفريق"
-  // ويمنعها توصل لخدمة الذكاء الاصطناعي الحقيقية (المرحلة ٤) حتى لو كانت
-  // سؤال مركّب مش من الأوامر الجاهزة. الجمل الطويلة/المركبة بتتحوّل مباشرة
-  // للمرحلة ٤ عشان الذكاء الاصطناعي هو الأقدر يفهم سياقها الكامل.
   const scored = scoreAllPatterns(raw);
-  const meaningfulTokenCount = tokenize(raw).length;
-  const isShortQuery = meaningfulTokenCount > 0 && meaningfulTokenCount <= 3;
 
-  if (isShortQuery) {
-    const best = scored[0];
-    if (best && best.score >= 0.6) {
-      return best.pattern.run(user);
-    }
-  }
-
-  // المرحلة 4: لا يوجد أمر محلي مطابق بثقة كافية للتنفيذ المباشر - لكن أقرب
-  // نمط (لو موجود) بيدّينا فكرة عن "نية" السؤال (Intent). نستخدمها لجلب أقل
-  // بيانات كافية عبر aiContextService (الوسيط الوحيد بين النظام والذكاء
-  // الاصطناعي) ثم نبعتها مع السؤال لخدمة الذكاء الاصطناعي الحقيقية
-  // (ai-assistant) عشان يحلل بيانات حقيقية بدل ما يرد بشكل عام فاضي.
   try {
     const intent = resolveIntent(scored[0]?.pattern.id);
     const context = await getAIContext(intent, user);
@@ -115,6 +88,7 @@ export async function parseAndAnswer(query: string, user: User): Promise<Assista
 
     const { reply } = await askAI({
       message: raw,
+      history,
       systemContext:
         ASSISTANT_THINKING_SYSTEM_PROMPT +
         '\n\n' +
@@ -124,23 +98,19 @@ export async function parseAndAnswer(query: string, user: User): Promise<Assista
             'عليها مباشرة فقط، بدون أي رقم أو سبب من عندك.'
           : 'مفيش بيانات نظام مرفقة مع هذا السؤال بالذات (لا يوجد مصدر بيانات مغطّى ' +
             'لهذا النوع من الأسئلة حاليًا). لو السؤال يحتاج أرقام محددة (إنتاج، تحصيل، ' +
-            'عملاء...) وضّح صراحة إنك مش شايف البيانات دي مباشرة هنا واقترح عليه يستخدم ' +
-            'أحد الأوامر السريعة في الأسفل، أو جاوبه بشكل عام مفيد لو السؤال مش محتاج ' +
-            'بيانات (نصيحة، صياغة رسالة، شرح مفهوم...).'),
+            'عملاء...) وضّح صراحة إنك مش شايف البيانات دي مباشرة هنا، أو جاوبه بشكل عام ' +
+            'مفيد لو السؤال مش محتاج بيانات (نصيحة، صياغة رسالة، شرح مفهوم...).'),
       dataContext: { role: user.role, name: user.name, ...context }
     });
-    return { title: '✨', lines: reply.split('\n').filter(Boolean) };
+    return { title: '✨', lines: sanitizeAIReplyLines(reply) };
   } catch (err) {
-    // خدمة الذكاء الاصطناعي مش متاحة حالياً (مفيش مزود مفعّل / خطأ اتصال) -
-    // نرجع لنفس سلوك الاقتراحات المحلية القديم بدل ما نكسر تجربة المستخدم
-    const suggestions = buildSuggestions(scored);
-    if (err instanceof AIServiceError) {
-      return {
-        title: '🤔 هل تقصد أحد هذه الأوامر؟',
-        lines: suggestions,
-        suggestions
-      };
-    }
-    return { title: '⚠️', lines: ['حصل خطأ غير متوقع، جرّب تاني.'] };
+    return {
+      title: '⚠️',
+      lines: [
+        err instanceof AIServiceError
+          ? 'خدمة الذكاء الاصطناعي مش متاحة حاليًا. تأكد إن فيه مزود مفعّل ومظبوط في صفحة AI Settings وحاول تاني.'
+          : 'حصل خطأ غير متوقع، جرّب تاني.'
+      ]
+    };
   }
 }

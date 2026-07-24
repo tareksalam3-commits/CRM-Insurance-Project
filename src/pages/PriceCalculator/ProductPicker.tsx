@@ -9,7 +9,6 @@ const FAMILY_LABELS: Record<ProductFamily, string> = {
   quaternary: 'الرباعية',
   protection_investment: 'حماية واستثمار',
   mixed: 'مختلط',
-  fixed_term: 'ذو أقساط',
   pension_reassurance: 'معاش واطمئنان',
 };
 
@@ -49,8 +48,9 @@ export function ProductPicker({ value, onChange, error }: ProductPickerProps) {
   useEffect(() => {
     if (isOpen) {
       setQuery('');
-      // فتح لوحة المفاتيح/التركيز على البحث فور فتح الصندوق
-      requestAnimationFrame(() => searchRef.current?.focus());
+      // لا تركيز تلقائي على مربع البحث عند الفتح، حتى لا تظهر لوحة مفاتيح
+      // الموبايل تلقائياً؛ التركيز (وبالتالي ظهور الكيبورد) يحدث فقط لو
+      // المستخدم دوس على مربع البحث بنفسه.
     }
   }, [isOpen]);
 

@@ -59,6 +59,14 @@ export interface DalOptions<T> {
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
+// إعادة محاولة تلقائية للفشل "المؤقت" فقط (شبكة/Timeout) قبل الرجوع
+// للكاش أو رسالة الخطأ — بدون أي تدخل من المستخدم (متطلب رقم 3)
+const MAX_AUTO_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ملحوظة: منع تكرار إشعار "بيانات محفوظة محلياً" مركزي دلوقتي داخل
 // emitOfflineEvent نفسها (lib/offlineEvents.ts) بدل ما يتكرر منطق الـ
@@ -95,6 +103,24 @@ function isNetworkLikeError(err: unknown): boolean {
     message.includes('load failed') ||
     err instanceof TypeError
   );
+}
+
+// تنفذ الاستعلام الحقيقي وتعيد المحاولة تلقائياً (بحد أقصى MAX_AUTO_RETRIES)
+// فقط لو الفشل يبدو "مؤقت" (شبكة/Timeout) — خطأ حقيقي راجع من السيرفر
+// (صلاحيات/تحقق) بيتمرر فوراً من غير أي محاولة إضافية، لأن تكراره مش
+// هيغيّر النتيجة وبس هيأخر ظهور الخطأ الحقيقي للمستخدم بلا داعٍ.
+async function fetchWithAutoRetry<T>(fetcher: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_AUTO_RETRIES; attempt++) {
+    try {
+      return await withTimeout(fetcher(), timeoutMs);
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkLikeError(err) || attempt === MAX_AUTO_RETRIES) break;
+      await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 function minutesAgoLabel(cachedAt: number): string {
@@ -134,7 +160,7 @@ export async function dalRead<T>(
 
   // (2) فيه إنترنت (ظاهرياً على الأقل) — ننفذ الاستعلام الحقيقي بحد أقصى للوقت
   try {
-    const data = await withTimeout(fetcher(), timeoutMs);
+    const data = await fetchWithAutoRetry(fetcher, timeoutMs);
     // نحفظ الكاش بدون انتظار الكتابة (لا تعطّل استجابة الصفحة)
     void setCachedData(key, data);
     return { data, status: 'online', isStale: false, cachedAt: Date.now() };

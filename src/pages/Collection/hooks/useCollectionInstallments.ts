@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { User } from '../../../lib/supabase';
 import type { QuickFilter, SubType, OwnerFilter, InstallmentWithRelations } from '../types';
 import { fetchInstallments, cancelSeverelyOverduePolicies } from '../services/collectionService';
+import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 
 interface UseCollectionInstallmentsArgs {
   user: User | null | undefined;
@@ -9,9 +10,10 @@ interface UseCollectionInstallmentsArgs {
   quickFilter: QuickFilter;
   subType: SubType;
   ownerFilter: OwnerFilter;
+  branchId?: string | null;
 }
 
-export function useCollectionInstallments({ user, yearMode, quickFilter, subType, ownerFilter }: UseCollectionInstallmentsArgs) {
+export function useCollectionInstallments({ user, yearMode, quickFilter, subType, ownerFilter, branchId = null }: UseCollectionInstallmentsArgs) {
   const [installments, setInstallments] = useState<InstallmentWithRelations[]>([]);
   const [loading, setLoading]           = useState(true);
   // أول تحميل فقط (لسه مفيش أي بيانات) هو اللي يستحق Skeleton كامل —
@@ -37,7 +39,7 @@ export function useCollectionInstallments({ user, yearMode, quickFilter, subType
       }
 
       const { installments: results, totalCount: count, totalPages: pages } =
-        await fetchInstallments({ quickFilter, subType, ownerFilter, page, searchQuery });
+        await fetchInstallments({ quickFilter, subType, ownerFilter, page, searchQuery, branchId });
 
       setInstallments(results);
       setTotalCount(count);
@@ -51,7 +53,8 @@ export function useCollectionInstallments({ user, yearMode, quickFilter, subType
 
   useEffect(() => {
     if (user && yearMode === 'year1') loadInstallments();
-  }, [user, yearMode, quickFilter, subType, ownerFilter, page, searchQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, yearMode, quickFilter, subType, ownerFilter, page, searchQuery, branchId]);
 
   // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
   useEffect(() => {
@@ -63,6 +66,8 @@ export function useCollectionInstallments({ user, yearMode, quickFilter, subType
     }, 300);
     return () => clearTimeout(timer);
   }, [localSearch]);
+
+  useReconnectRefetch(() => { if (user && yearMode === 'year1') loadInstallments(); });
 
   return {
     installments,

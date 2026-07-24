@@ -13,18 +13,15 @@ export async function getTodayNewCustomers(user: User): Promise<AssistantAnswer>
   const result = await dalRead(
     `assistant:todayNewCustomers:${userIds.slice().sort().join(',')}:${format(new Date(), 'yyyy-MM-dd')}`,
     async () => {
-      const { data, count, error } = await supabase
-        .from('customers')
-        .select('name, phone', { count: 'exact' })
-        .in('owner_id', userIds)
-        .gte('created_at', todayStart)
-        .lte('created_at', todayEnd)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const { data, error } = await supabase.rpc('assistant_scoped_customers', {
+        p_created_from: todayStart,
+        p_created_to: todayEnd,
+      });
       if (error) throw error;
-      return { data: data || [], count };
+      const sorted = (data || []).slice().sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1));
+      return { data: sorted.slice(0, 10), count: sorted.length };
     },
-    { emptyValue: { data: [] as any[], count: 0 as number | null } },
+    { emptyValue: { data: [] as any[], count: 0 } },
   );
   const { data, count } = result.data;
 
@@ -37,19 +34,16 @@ export async function getTodayNewCustomers(user: User): Promise<AssistantAnswer>
   };
 }
 
-/** عدد العملاء (الإجمالي الكلي، وليس فقط عملاء اليوم) */
+/** عدد العملاء (الإجمالي الكلي ضمن نطاق التحليل، وليس فقط عملاء اليوم) */
 export async function getCustomersCount(user: User): Promise<AssistantAnswer> {
   const userIds = await getScopedUserIds(user);
 
   const result = await dalRead(
     `assistant:customersCount:${userIds.slice().sort().join(',')}`,
     async () => {
-      const { count, error } = await supabase
-        .from('customers')
-        .select('id', { count: 'exact', head: true })
-        .in('owner_id', userIds);
+      const { data, error } = await supabase.rpc('assistant_scoped_customers');
       if (error) throw error;
-      return count ?? 0;
+      return (data || []).length;
     },
     { emptyValue: 0 },
   );
@@ -60,7 +54,7 @@ export async function getCustomersCount(user: User): Promise<AssistantAnswer> {
   };
 }
 
-/** مراجعة جودة البيانات: بيانات ناقصة أو غير منطقية ضمن نطاق رؤية المستخدم */
+/** مراجعة جودة البيانات: بيانات ناقصة أو غير منطقية ضمن نطاق التحليل */
 export async function getDataQualityReview(user: User): Promise<AssistantAnswer> {
   const userIds = await getScopedUserIds(user);
 
@@ -68,8 +62,8 @@ export async function getDataQualityReview(user: User): Promise<AssistantAnswer>
     `assistant:dataQuality:${userIds.slice().sort().join(',')}`,
     async () => {
       const [customersRes, policiesRes] = await Promise.all([
-        supabase.from('customers').select('id, phone, national_id').in('owner_id', userIds),
-        supabase.from('policies').select('id, customer_id, premium_amount').in('owner_id', userIds)
+        supabase.rpc('assistant_scoped_customers'),
+        supabase.rpc('assistant_scoped_policies')
       ]);
       if (customersRes.error) throw customersRes.error;
       if (policiesRes.error) throw policiesRes.error;
@@ -99,7 +93,7 @@ export async function getDataQualityReview(user: User): Promise<AssistantAnswer>
   };
 }
 
-/** توزيع العملاء بين أعضاء الفريق ضمن نطاق رؤية المستخدم */
+/** توزيع العملاء بين أعضاء الفريق ضمن نطاق التحليل */
 export async function getCustomerDistribution(user: User): Promise<AssistantAnswer> {
   const userIds = await getScopedUserIds(user);
 
@@ -107,12 +101,15 @@ export async function getCustomerDistribution(user: User): Promise<AssistantAnsw
     `assistant:customerDistribution:${userIds.slice().sort().join(',')}`,
     async () => {
       const [teamUsersRes, customersRes] = await Promise.all([
-        supabase.from('users').select('id, name').in('id', userIds).eq('is_active', true),
-        supabase.from('customers').select('owner_id').in('owner_id', userIds)
+        supabase.rpc('assistant_scoped_users'),
+        supabase.rpc('assistant_scoped_customers')
       ]);
       if (teamUsersRes.error) throw teamUsersRes.error;
       if (customersRes.error) throw customersRes.error;
-      return { teamUsers: teamUsersRes.data || [], customers: customersRes.data || [] };
+      return {
+        teamUsers: (teamUsersRes.data || []).filter((u: any) => u.is_active),
+        customers: customersRes.data || [],
+      };
     },
     { emptyValue: { teamUsers: [] as any[], customers: [] as any[] } },
   );

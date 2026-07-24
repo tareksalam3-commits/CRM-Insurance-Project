@@ -5,6 +5,7 @@ import {
   fetchCustomerStats, type CustomerStats,
 } from '../services/customersService';
 import type { CustomerWithRelations } from '../types';
+import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 
 // تحميل بيانات صفحة العملاء: القائمة (بحث/فلاتر/صفحات)، الوكلاء، الإحصائيات،
 // والعملاء القابلين للحذف — نفس المنطق المنقول بالضبط من index.tsx الأصلي.
@@ -15,6 +16,8 @@ export function useCustomers(
   statusFilter: string,
   agentFilter: string,
   monthFilter: string,
+  noPolicyOnly: boolean = false,
+  branchId: string | null = null,
 ) {
   const [customers, setCustomers] = useState<CustomerWithRelations[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
@@ -37,28 +40,29 @@ export function useCustomers(
       loadAgents();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, page, searchQuery, statusFilter, agentFilter, monthFilter]);
+  }, [user, page, searchQuery, statusFilter, agentFilter, monthFilter, noPolicyOnly, branchId]);
 
   useEffect(() => {
     if (user) {
       loadStats();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, branchId]);
 
   const loadAgents = async () => {
     if (!user) return;
     try {
-      setAgents(await fetchAgentsForCurrentUser(user));
+      setAgents(await fetchAgentsForCurrentUser(user, branchId));
     } catch (error) {
       console.error('Error loading agents:', error);
     }
   };
 
   const loadStats = async () => {
+    if (!user) return;
     setStatsLoading(true);
     try {
-      setStats(await fetchCustomerStats());
+      setStats(await fetchCustomerStats(user.id, branchId));
     } catch (error) {
       console.error('Error loading customer stats:', error);
     } finally {
@@ -79,7 +83,8 @@ export function useCustomers(
     setLoading(true);
     try {
       const { customers: pageCustomers, totalPages: pages, totalCount: count } = await fetchCustomersPage({
-        page, searchQuery, statusFilter, agentFilter, monthFilter
+        page, searchQuery, statusFilter, agentFilter, monthFilter, noPolicyOnly,
+        userId: user?.id, branchId,
       });
 
       setCustomers(pageCustomers);
@@ -93,6 +98,12 @@ export function useCustomers(
       setLoading(false);
     }
   };
+
+  useReconnectRefetch(
+    () => { if (user) loadCustomers(); },
+    () => { if (user) loadAgents(); },
+    () => { if (user) loadStats(); },
+  );
 
   return {
     customers,

@@ -1,6 +1,8 @@
 import { supabase } from '../../../lib/supabase';
 import type { BasicUser, PaymentRow } from '../types';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware, fetchBranchRoleMap } from '../../../lib/branchHierarchy';
+import type { Branch } from '../../../features/branches/types';
 
 // ─── data access layer: كل استعلامات Supabase الخاصة بصفحة تقفيل الشهر ───
 // دوال القراءة بقت تمر من dalRead (طبقة الوصول الموحدة للبيانات) — راجع
@@ -23,15 +25,39 @@ export async function fetchClosingRecord(monthStr: string) {
   return result.data;
 }
 
-export async function fetchUserSubtreeIds(userId: string): Promise<string[]> {
+// نطاق "الفرع" (المرحلة 3): لو branchId اتمرر، الشجرة بتتبنى من
+// user_branch_roles الخاصة بيه بس (عبر get_user_subtree_branch_aware)؛
+// من غيره بترجع لنفس سلوك get_user_subtree الأصلي العابر للفروع.
+export async function fetchUserSubtreeIds(userId: string, branchId?: string | null): Promise<string[]> {
+  return fetchUserSubtreeIdsBranchAware('monthlyClosing', userId, branchId);
+}
+
+// خريطة role/manager_id الخاصة بنفس الفرع لكل مستخدم فى النطاق — تُستخدم
+// فى بناء الهرم داخل monthlyClosingCalculator بدل users.manager_id العام.
+export { fetchBranchRoleMap };
+
+// فروع نطاق الطباعة: بدل عرض كل فروع التطبيق (fetchBranches الخاصة بشاشة
+// إدارة الفروع)، بترجع بس الفروع الفعلية اللي أعضاء النطاق الحالي (ids —
+// نفس المستخدمين اللي التقرير مبني عليهم) موجودين فيها، عشان قائمة
+// "اسم الفرع" فى مودال الطباعة تفضل مقصورة على الفروع التابعة للمستخدم.
+export async function fetchBranchesForUserIds(ids: string[]): Promise<Branch[]> {
+  if (ids.length === 0) return [];
   const result = await dalRead(
-    `monthlyClosing:subtree:${userId}`,
+    `monthlyClosing:printBranches:${ids.slice().sort().join(',')}`,
     async () => {
-      const { data, error } = await supabase.rpc('get_user_subtree', { user_id: userId });
+      const { data, error } = await supabase
+        .from('user_branch_roles')
+        .select('branch:branch_id(id, name, is_active, created_at, is_headquarters)')
+        .in('user_id', ids);
       if (error) throw error;
-      return (data as string[]) || [userId];
+      const rows = (data || []) as unknown as { branch: Branch | null }[];
+      const map = new Map<string, Branch>();
+      rows.forEach((r) => {
+        if (r.branch && r.branch.is_active !== false) map.set(r.branch.id, r.branch);
+      });
+      return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     },
-    { emptyValue: [userId] },
+    { emptyValue: [] as Branch[] },
   );
   return result.data;
 }

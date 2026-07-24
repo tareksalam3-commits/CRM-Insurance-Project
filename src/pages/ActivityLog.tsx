@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase, type ActivityLog as ActivityLogEntry, type ActionType } from '../lib/supabase';
+import { dalRead } from '../lib/dataAccessLayer';
+import { useReconnectRefetch } from '../hooks/useReconnectRefetch';
 import {
   Search,
   History,
@@ -72,6 +74,8 @@ export function ActivityLog() {
     }
   }, [user, page, searchQuery, actionFilter]);
 
+  useReconnectRefetch(() => { if (user) loadLogs(); });
+
   // تأخير بسيط (debounce) لتقليل عدد طلبات البحث أثناء الكتابة
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -86,47 +90,55 @@ export function ActivityLog() {
   const loadLogs = async () => {
     setLoading(true);
     try {
-      let query = supabase
-        .from('activity_logs')
-        .select('*, user:user_id(name, email)', { count: 'exact' })
-        .order('created_at', { ascending: false });
+      const cacheKey = `activityLog:page:${page}:${searchQuery.trim()}:${actionFilter}`;
+      const result = await dalRead(
+        cacheKey,
+        async () => {
+          let query = supabase
+            .from('activity_logs')
+            .select('*, user:user_id(name, email)', { count: 'exact' })
+            .order('created_at', { ascending: false });
 
-      if (actionFilter !== 'all') {
-        query = query.eq('action_type', actionFilter);
-      }
+          if (actionFilter !== 'all') {
+            query = query.eq('action_type', actionFilter);
+          }
 
-      // ملحوظة: Supabase/PostgREST لا يدعم فلترة .or() على أعمدة من علاقة
-      // متداخلة (user.name/email). سابقاً كان الكود يجيب صفحة واحدة بس
-      // (range) ثم يفلترها محلياً بعد كده — وده غلط لأنه يفوّت أي نتيجة
-      // في صفحات تانية وكمان عدد الصفحات (totalPages) بيفضل غير صحيح.
-      // الحل: نجيب أولاً آي-ديهات المستخدمين المطابقين للاسم/الإيميل، ثم
-      // نفلتر السجلات بيهم على مستوى الداتابيز قبل الترقيم.
-      if (searchQuery.trim()) {
-        const term = searchQuery.trim();
-        const { data: matchedUsers } = await supabase
-          .from('users')
-          .select('id')
-          .or(`name.ilike.%${term}%,email.ilike.%${term}%`);
+          // ملحوظة: Supabase/PostgREST لا يدعم فلترة .or() على أعمدة من علاقة
+          // متداخلة (user.name/email). سابقاً كان الكود يجيب صفحة واحدة بس
+          // (range) ثم يفلترها محلياً بعد كده — وده غلط لأنه يفوّت أي نتيجة
+          // في صفحات تانية وكمان عدد الصفحات (totalPages) بيفضل غير صحيح.
+          // الحل: نجيب أولاً آي-ديهات المستخدمين المطابقين للاسم/الإيميل، ثم
+          // نفلتر السجلات بيهم على مستوى الداتابيز قبل الترقيم.
+          if (searchQuery.trim()) {
+            const term = searchQuery.trim();
+            const { data: matchedUsers } = await supabase
+              .from('users')
+              .select('id')
+              .or(`name.ilike.%${term}%,email.ilike.%${term}%`);
 
-        const userIds = (matchedUsers || []).map((u) => u.id);
-        if (userIds.length === 0) {
-          setLogs([]);
-          setTotalPages(1);
-          setLoading(false);
-          return;
-        }
-        query = query.in('user_id', userIds);
-      }
+            const userIds = (matchedUsers || []).map((u) => u.id);
+            if (userIds.length === 0) {
+              return { logs: [] as ActivityLogEntry[], totalPages: 1 };
+            }
+            query = query.in('user_id', userIds);
+          }
 
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
+          const from = (page - 1) * pageSize;
+          const to = from + pageSize - 1;
 
-      const { data, error, count } = await query.range(from, to);
+          const { data, error, count } = await query.range(from, to);
+          if (error) throw error;
 
-      if (error) throw error;
+          return {
+            logs: (data as ActivityLogEntry[]) || [],
+            totalPages: Math.ceil((count || 0) / pageSize),
+          };
+        },
+        { emptyValue: { logs: [] as ActivityLogEntry[], totalPages: 1 } },
+      );
 
-      setLogs((data as ActivityLogEntry[]) || []);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
+      setLogs(result.data.logs);
+      setTotalPages(result.data.totalPages);
     } catch (error) {
       console.error('Error loading logs:', error);
     } finally {

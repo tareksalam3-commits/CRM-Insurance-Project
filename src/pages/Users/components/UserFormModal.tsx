@@ -3,6 +3,8 @@ import clsx from 'clsx';
 import type { UseFormRegister, UseFormHandleSubmit, FieldErrors } from 'react-hook-form';
 import { ROLE_LABELS, type User, type UserRole } from '../../../lib/supabase';
 import type { UserFormData } from '../types';
+import type { UserBranchRoleRow } from '../../../features/branches/types';
+import { UserBranchRolesSection } from './UserBranchRolesSection';
 
 interface UserFormModalProps {
   editingUser: User | null;
@@ -14,13 +16,15 @@ interface UserFormModalProps {
   allowedManagers: User[];
   // الدرجات الوظيفية المسموح للمستخدم الحالي إنشاءها/إسنادها (نظام هرمي)
   allowedRoles: UserRole[];
+  // فروع المدير المختار — بيوصل غير فاضي بس لو المدير له أكثر من فرع (مشكلة 3)
+  managerBranches: UserBranchRoleRow[];
   onSubmit: (data: UserFormData) => void;
   onClose: () => void;
 }
 
 export function UserFormModal({
   editingUser, saving, register, handleSubmit, errors,
-  selectedRole, allowedManagers, allowedRoles, onSubmit, onClose,
+  selectedRole, allowedManagers, allowedRoles, managerBranches, onSubmit, onClose,
 }: UserFormModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -121,6 +125,25 @@ export function UserFormModal({
             </div>
           </div>
 
+          {/* الفرع (مشكلة 3): يظهر فقط لو المدير المختار له أكثر من فرع —
+              فى الحالات التانية الفرع بيتحدد تلقائيًا من فرع المدير */}
+          {managerBranches.length > 0 && (
+            <div className="form-group">
+              <label className="input-label">الفرع *</label>
+              <select {...register('branch_id')} className="input-field">
+                <option value="">اختر الفرع</option>
+                {managerBranches.map((r) => (
+                  <option key={r.branch_id} value={r.branch_id}>
+                    {r.branch?.name ?? r.branch_id}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-secondary-400 mt-1">
+                المدير المختار له أكثر من فرع، يجب تحديد فرع المستخدم الجديد صراحة
+              </p>
+            </div>
+          )}
+
           {/* Target */}
           <div className="form-group">
             <label className="input-label">التارجت الشهري</label>
@@ -137,6 +160,9 @@ export function UserFormModal({
               </span>
             </div>
           </div>
+
+          {/* الأوضاع الوظيفية (الفروع) — لمستخدم موجود بالفعل بس (له id) */}
+          {editingUser && <UserBranchRolesSection userId={editingUser.id} />}
 
           {/* Actions */}
           <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">

@@ -14,21 +14,18 @@ export async function getTodayCollection(user: User): Promise<AssistantAnswer> {
   const result = await dalRead(
     `assistant:todayCollection:${userIds.slice().sort().join(',')}:${format(new Date(), 'yyyy-MM-dd')}`,
     async () => {
-      const { data, error } = await supabase
-        .from('payments')
-        .select('amount, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-        .eq('is_cancelled', false)
-        .gte('paid_at', todayStart)
-        .lte('paid_at', todayEnd);
+      const { data, error } = await supabase.rpc('assistant_scoped_payments', {
+        p_paid_at_gte: todayStart,
+        p_paid_at_lte: todayEnd,
+      });
       if (error) throw error;
       return data || [];
     },
     { emptyValue: [] as any[] },
   );
 
-  const filtered = result.data.filter((p: any) => userIds.includes(p.installment?.policy?.owner_id));
-  const collection = filtered.filter((p: any) => !p.installment?.is_first);
-  const production = filtered.filter((p: any) => p.installment?.is_first);
+  const collection = result.data.filter((p: any) => !p.is_first);
+  const production = result.data.filter((p: any) => p.is_first);
 
   return {
     title: '💰 التحصيل اليوم',
@@ -46,21 +43,16 @@ export async function getOverdueCustomers(user: User): Promise<AssistantAnswer> 
   const result = await dalRead(
     `assistant:overdueCustomers:${userIds.slice().sort().join(',')}`,
     async () => {
-      const { data, error } = await supabase
-        .from('installments')
-        .select('amount, policy:policy_id(owner_id, customer:customer_id(name))')
-        .eq('status', 'overdue');
+      const { data, error } = await supabase.rpc('assistant_scoped_installments', { p_status: 'overdue' });
       if (error) throw error;
       return data || [];
     },
     { emptyValue: [] as any[] },
   );
 
-  const filtered = result.data.filter((i: any) => userIds.includes(i.policy?.owner_id));
-
   const byCustomer = new Map<string, { name: string; amount: number }>();
-  filtered.forEach((i: any) => {
-    const name = i.policy?.customer?.name || 'غير معروف';
+  result.data.forEach((i: any) => {
+    const name = i.customer_name || 'غير معروف';
     const existing = byCustomer.get(name) || { name, amount: 0 };
     existing.amount += Number(i.amount);
     byCustomer.set(name, existing);
@@ -85,27 +77,24 @@ export async function getTodayTasks(user: User): Promise<AssistantAnswer> {
   const result = await dalRead(
     `assistant:todayTasks:${userIds.slice().sort().join(',')}:${todayStr}`,
     async () => {
-      const { data, error } = await supabase
-        .from('installments')
-        .select('amount, policy:policy_id(owner_id, customer:customer_id(name))')
-        .eq('status', 'pending')
-        .eq('due_date', todayStr);
+      const { data, error } = await supabase.rpc('assistant_scoped_installments', {
+        p_status: 'pending',
+        p_due_date: todayStr,
+      });
       if (error) throw error;
       return data || [];
     },
     { emptyValue: [] as any[] },
   );
 
-  const filtered = result.data.filter((i: any) => userIds.includes(i.policy?.owner_id));
-
   return {
     title: '📅 مهام اليوم',
     lines:
-      filtered.length === 0
+      result.data.length === 0
         ? ['لا توجد أقساط مستحقة اليوم']
         : [
-            `عدد الأقساط المستحقة: ${filtered.length}`,
-            ...filtered.slice(0, 10).map((i: any) => `- ${i.policy?.customer?.name || ''}: ${formatCurrency(Number(i.amount))}`)
+            `عدد الأقساط المستحقة: ${result.data.length}`,
+            ...result.data.slice(0, 10).map((i: any) => `- ${i.customer_name || ''}: ${formatCurrency(Number(i.amount))}`)
           ]
   };
 }

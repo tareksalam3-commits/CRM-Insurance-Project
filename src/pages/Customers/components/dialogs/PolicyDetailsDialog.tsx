@@ -72,7 +72,7 @@ export function PolicyDetailsDialog({
                     </p>
                   </div>
                   <div>
-                    <p className="text-secondary-400 text-xs mb-1">قيمة القسط</p>
+                    <p className="text-secondary-400 text-xs mb-1">قيمة القسط الصافي</p>
                     <p className="font-medium text-secondary-900">{formatCurrency(policyDetail.premium_amount)}</p>
                   </div>
                   <div>

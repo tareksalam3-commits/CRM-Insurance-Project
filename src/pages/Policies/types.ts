@@ -6,7 +6,7 @@ export const policySchema = z.object({
   policy_type: z.enum(['quadruple', 'protection_investment', 'mixed', 'installments', 'pension_peace']),
   start_date: z.string().min(1, 'تاريخ البداية مطلوب'),
   payment_method: z.enum(['monthly', 'quarterly', 'semi_annual', 'annual']),
-  premium_amount: z.number().min(1, 'قيمة القسط مطلوبة'),
+  premium_amount: z.number().min(1, 'قيمة القسط الصافي مطلوبة'),
   // مبلغ التأمين: إلزامي فقط عند إصدار وثيقة جديدة (isEditingPolicy = false).
   // الوثائق الموجودة حالياً قد لا تحتوي على هذا الحقل، فبيبقى فارغاً حتى
   // يتم إدخاله عند التعديل — isEditingPolicy بيتحكم في الإلزامية عبر

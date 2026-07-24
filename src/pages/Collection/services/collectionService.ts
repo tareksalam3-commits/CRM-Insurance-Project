@@ -5,6 +5,7 @@ import {
   fetchInstallmentsByPolicyId, payInstallment, cancelInstallmentPayment,
 } from '../../../features/installments/installmentsService';
 import { dalRead } from '../../../lib/dataAccessLayer';
+import { fetchUserSubtreeIdsBranchAware } from '../../../lib/branchHierarchy';
 
 const PAGE_SIZE = 10;
 
@@ -14,30 +15,29 @@ export interface FetchInstallmentsParams {
   ownerFilter: OwnerFilter;
   page: number;
   searchQuery: string;
+  // الفرع الحالي المختار (BranchProvider العام) — فاضي/null يعني بدون فلترة
+  // إضافية (السلوك القديم، معتمد على RLS بس)
+  branchId?: string | null;
 }
 
 // ===================================
 // فريق المستخدم الحالي — لملء فلتر "الفريق" بأسماء حقيقية
 // ===================================
 // نفس الدالة المستخدمة أصلاً فى صفحة العملاء (fetchAgentsForCurrentUser):
-// بترجع المستخدم نفسه + كل من هو تحته فى الهيكل الإداري فقط (get_user_subtree)،
-// عشان كل درجة وظيفية تفلتر بأسماء فريقها الفعلي فقط (رئيس مجموعة يشوف
-// وكلاءه، مراقب يشوف رؤساء مجموعاته، مدير تطوير يشوف كل من تحته... إلخ)
-// بدل قائمة ثابتة من الأدوار تشمل كل مستخدمي النظام بغض النظر عن الهيكل.
-export async function fetchTeamForCurrentUser(user: User): Promise<{ id: string; name: string; role: UserRole }[]> {
+// بترجع المستخدم نفسه + كل من هو تحته فى الهيكل الإداري فقط، فى نطاق الفرع
+// الحالي المختار لو موجود (get_user_subtree_branch_aware)، عشان كل درجة
+// وظيفية تفلتر بأسماء فريقها الفعلي فقط (رئيس مجموعة يشوف وكلاءه، مراقب
+// يشوف رؤساء مجموعاته، مدير تطوير يشوف كل من تحته... إلخ) بدل قائمة ثابتة
+// من الأدوار تشمل كل مستخدمي النظام بغض النظر عن الهيكل.
+export async function fetchTeamForCurrentUser(user: User, branchId: string | null = null): Promise<{ id: string; name: string; role: UserRole }[]> {
   if (user.role === 'agent' || user.role === 'premium_agent') {
     return [];
   }
 
   const result = await dalRead(
-    `collection:team:${user.id}`,
+    `collection:team:${user.id}:${branchId ?? 'none'}`,
     async () => {
-      const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
-        user_id: user.id,
-      });
-      if (subtreeError) throw subtreeError;
-
-      const allIds: string[] = subtreeIds && subtreeIds.length > 0 ? subtreeIds : [user.id];
+      const allIds = await fetchUserSubtreeIdsBranchAware('collection', user.id, branchId);
 
       const { data, error } = await supabase
         .from('users')
@@ -120,25 +120,20 @@ async function resolveSearchPolicyIds(searchQuery: string): Promise<string[] | n
 }
 
 // البحث عن معرّفات الوثائق (policy_id) التي وكيلها (owner) هو الشخص المختار
-// فى فلتر "الفريق" نفسه أو أي شخص تحته فى الهيكل الإداري (get_user_subtree
-// الخاصة بالشخص المختار، مش المستخدم الحالي). بالطريقة دي اختيار رئيس مجموعة
-// واحد بيجيب معاه تلقائياً مستحقات كل وكلائه، واختيار مراقب بيجيب معاه كل
-// رؤساء المجموعات والوكلاء تحته... إلخ. يُستخدم فقط عند اختيار شخص محدد
-// بخلاف "الكل" — لا يغيّر أي فلتر أو منطق حساب آخر.
-async function resolveOwnerFilterPolicyIds(ownerFilter: OwnerFilter): Promise<string[]> {
+// فى فلتر "الفريق" نفسه أو أي شخص تحته فى الهيكل الإداري (get_user_subtree_branch_aware
+// الخاصة بالشخص المختار، مش المستخدم الحالي، وفى نطاق نفس الفرع المختار لو
+// موجود). بالطريقة دي اختيار رئيس مجموعة واحد بيجيب معاه تلقائياً مستحقات
+// كل وكلائه، واختيار مراقب بيجيب معاه كل رؤساء المجموعات والوكلاء تحته...
+// إلخ. يُستخدم فقط عند اختيار شخص محدد بخلاف "الكل" — لا يغيّر أي فلتر أو
+// منطق حساب آخر.
+async function resolveOwnerFilterPolicyIds(ownerFilter: OwnerFilter, branchId: string | null = null): Promise<string[]> {
   if (ownerFilter === 'all') return [];
 
-  const { data: subtreeIds, error: subtreeError } = await supabase.rpc('get_user_subtree', {
-    user_id: ownerFilter,
-  });
-  if (subtreeError) throw subtreeError;
+  const ownerIds = await fetchUserSubtreeIdsBranchAware('collection', ownerFilter, branchId);
 
-  const ownerIds: string[] = subtreeIds && subtreeIds.length > 0 ? subtreeIds : [ownerFilter];
-
-  const { data: policyRows, error: policyErr } = await supabase
-    .from('policies')
-    .select('id')
-    .in('owner_id', ownerIds);
+  let query = supabase.from('policies').select('id').in('owner_id', ownerIds);
+  if (branchId) query = query.eq('branch_id', branchId);
+  const { data: policyRows, error: policyErr } = await query;
   if (policyErr) throw policyErr;
 
   return (policyRows || []).map((p) => p.id);
@@ -146,20 +141,20 @@ async function resolveOwnerFilterPolicyIds(ownerFilter: OwnerFilter): Promise<st
 
 const EMPTY_INSTALLMENTS_RESULT: FetchInstallmentsResult = { installments: [], totalCount: 0, totalPages: 1 };
 
-export async function fetchInstallments({ quickFilter, subType, ownerFilter, page, searchQuery }: FetchInstallmentsParams): Promise<FetchInstallmentsResult> {
-  const cacheKey = `collection:installments:${quickFilter}:${subType}:${ownerFilter}:${page}:${searchQuery.trim()}`;
+export async function fetchInstallments({ quickFilter, subType, ownerFilter, page, searchQuery, branchId = null }: FetchInstallmentsParams): Promise<FetchInstallmentsResult> {
+  const cacheKey = `collection:installments:${quickFilter}:${subType}:${ownerFilter}:${page}:${searchQuery.trim()}:${branchId ?? 'none'}`;
 
   const result = await dalRead(
     cacheKey,
     async () => {
-      return fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page, searchQuery });
+      return fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page, searchQuery, branchId });
     },
     { emptyValue: EMPTY_INSTALLMENTS_RESULT },
   );
   return result.data;
 }
 
-async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page, searchQuery }: FetchInstallmentsParams): Promise<FetchInstallmentsResult> {
+async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page, searchQuery, branchId = null }: FetchInstallmentsParams): Promise<FetchInstallmentsResult> {
   const now        = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd   = endOfMonth(now);
@@ -174,14 +169,16 @@ async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page
 
   const needsPaymentsJoin = quickFilter === 'paid';
 
-  // !inner ضروري عشان نقدر نفلتر لاحقاً على policy.status أو payments.payment_month
-  // (مسموح دايماً هنا لأن installments.policy_id مفتاح أجنبي إلزامي، فكل قسط له وثيقة مؤكد)
+  // !inner على policy_id ضروري عشان نقدر نفلتر لاحقاً على policy.status أو
+  // policy.branch_id (مسموح دايماً هنا لأن installments.policy_id مفتاح
+  // أجنبي إلزامي، فكل قسط له وثيقة مؤكد — استخدام !inner دايماً بغض النظر
+  // عن needsPaymentsJoin لا يُسقط أي صف كان ظاهر قبل كده)
   let query = supabase
     .from('installments')
     .select(
       needsPaymentsJoin
         ? `*,
-           policy:policy_id(
+           policy:policy_id!inner(
              *,
              customer:customer_id(name, phone, national_id),
              owner:owner_id(name)
@@ -195,6 +192,12 @@ async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page
            )`,
       { count: 'exact' }
     );
+
+  // فلتر الفرع الحالي (BranchProvider العام) — فاضي/null يعني بدون فلترة
+  // إضافية (السلوك القديم، معتمد على RLS بس)
+  if (branchId) {
+    query = query.eq('policy.branch_id', branchId);
+  }
 
   // ===== فلتر سريع (quickFilter) =====
   // نفس معايير الحساب الأصلية بالضبط (نفس المتغيرات الزمنية والحالات)، وكل
@@ -245,7 +248,7 @@ async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page
   // التسلسل يقلّل زمن الاستجابة دون أي تغيير فى النتيجة النهائية
   const [searchIds, ownerFilterIds] = await Promise.all([
     resolveSearchPolicyIds(searchQuery),
-    ownerFilter !== 'all' ? resolveOwnerFilterPolicyIds(ownerFilter) : Promise.resolve(null),
+    ownerFilter !== 'all' ? resolveOwnerFilterPolicyIds(ownerFilter, branchId) : Promise.resolve(null),
   ]);
 
   let combinedIds: string[] | null = null;
@@ -312,7 +315,7 @@ const EMPTY_COLLECTION_QUICK_STATS: CollectionQuickStats = {
   collectedMonthAmount: 0,
 };
 
-export async function fetchCollectionQuickStats(): Promise<CollectionQuickStats> {
+export async function fetchCollectionQuickStats(branchId: string | null = null): Promise<CollectionQuickStats> {
   const now = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
@@ -322,14 +325,27 @@ export async function fetchCollectionQuickStats(): Promise<CollectionQuickStats>
   const dayEndIso   = endOfDay(now).toISOString();
 
   const result = await dalRead(
-    `collection:quickStats:${monthStartStr}:${format(now, 'yyyy-MM-dd')}`,
+    `collection:quickStats:${monthStartStr}:${format(now, 'yyyy-MM-dd')}:${branchId ?? 'none'}`,
     async () => {
+      // فلتر الفرع الحالي (لو موجود): بنجيب معه عمود الفرع المرتبط (مباشرة
+      // على installments عبر policy، أو على مستوى أعمق على payments عبر
+      // installment.policy) ونفلتر النتيجة فى الجافاسكريبت — أبسط وأضمن من
+      // فلتر PostgREST متداخل على علاقتين، ونفس أسلوب الفلترة المستخدم أصلاً
+      // فى باقي النظام (راجع getSubtreeScopedPayments فى ملف المساعد الذكي)
+      const installmentsBranchSelect = branchId ? ', policy:policy_id!inner(branch_id)' : '';
+      const paymentsBranchSelect = branchId ? ', installment:installment_id!inner(policy:policy_id!inner(branch_id))' : '';
+      const matchesBranch = (row: any, path: 'policy' | 'installment'): boolean => {
+        if (!branchId) return true;
+        const branch = path === 'policy' ? row.policy?.branch_id : row.installment?.policy?.branch_id;
+        return branch === branchId;
+      };
+
       const [dueRes, totalDueRes, collectedRes, collectedMonthRes] = await Promise.all([
         // نفس منطق فلتر "الشهر" السريع بالضبط: status='pending' وتاريخ الاستحقاق
         // خلال الشهر الحالي بالكامل (إنتاج جديد + تحصيل دوري معاً)
         supabase
           .from('installments')
-          .select('amount', { count: 'exact' })
+          .select(`amount${installmentsBranchSelect}`)
           .eq('status', 'pending')
           .gte('due_date', monthStartStr)
           .lte('due_date', monthEndStr),
@@ -337,12 +353,12 @@ export async function fetchCollectionQuickStats(): Promise<CollectionQuickStats>
         // الشهر سواء اتسدد أو لسه، عشان نحسب "إجمالي المستحق" الكلي للشهر
         supabase
           .from('installments')
-          .select('amount')
+          .select(`amount${installmentsBranchSelect}`)
           .gte('due_date', monthStartStr)
           .lte('due_date', monthEndStr),
         supabase
           .from('payments')
-          .select('amount', { count: 'exact' })
+          .select(`amount${paymentsBranchSelect}`)
           .eq('is_cancelled', false)
           .gte('paid_at', dayStartIso)
           .lte('paid_at', dayEndIso),
@@ -350,7 +366,7 @@ export async function fetchCollectionQuickStats(): Promise<CollectionQuickStats>
         // تاريخ السداد الفعلي (payment_month) وليس تاريخ الاستحقاق
         supabase
           .from('payments')
-          .select('amount')
+          .select(`amount${paymentsBranchSelect}`)
           .eq('is_cancelled', false)
           .eq('payment_month', monthStartStr),
       ]);
@@ -360,17 +376,22 @@ export async function fetchCollectionQuickStats(): Promise<CollectionQuickStats>
       if (collectedRes.error) throw collectedRes.error;
       if (collectedMonthRes.error) throw collectedMonthRes.error;
 
-      const dueMonthAmount = (dueRes.data || []).reduce((sum, r: any) => sum + Number(r.amount), 0);
-      const totalDueMonthAmount = (totalDueRes.data || []).reduce((sum, r: any) => sum + Number(r.amount), 0);
-      const collectedTodayAmount = (collectedRes.data || []).reduce((sum, r: any) => sum + Number(r.amount), 0);
-      const collectedMonthAmount = (collectedMonthRes.data || []).reduce((sum, r: any) => sum + Number(r.amount), 0);
+      const dueRows = (dueRes.data || []).filter((r: any) => matchesBranch(r, 'policy'));
+      const totalDueRows = (totalDueRes.data || []).filter((r: any) => matchesBranch(r, 'policy'));
+      const collectedRows = (collectedRes.data || []).filter((r: any) => matchesBranch(r, 'installment'));
+      const collectedMonthRows = (collectedMonthRes.data || []).filter((r: any) => matchesBranch(r, 'installment'));
+
+      const dueMonthAmount = dueRows.reduce((sum, r: any) => sum + Number(r.amount), 0);
+      const totalDueMonthAmount = totalDueRows.reduce((sum, r: any) => sum + Number(r.amount), 0);
+      const collectedTodayAmount = collectedRows.reduce((sum, r: any) => sum + Number(r.amount), 0);
+      const collectedMonthAmount = collectedMonthRows.reduce((sum, r: any) => sum + Number(r.amount), 0);
 
       return {
         dueMonthAmount,
-        dueMonthCount: dueRes.count || 0,
+        dueMonthCount: dueRows.length,
         totalDueMonthAmount,
         collectedTodayAmount,
-        collectedTodayCount: collectedRes.count || 0,
+        collectedTodayCount: collectedRows.length,
         collectedMonthAmount,
       };
     },

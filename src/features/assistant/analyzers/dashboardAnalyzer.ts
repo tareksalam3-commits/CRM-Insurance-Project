@@ -3,7 +3,7 @@ import { startOfMonth, startOfDay, endOfDay, format } from 'date-fns';
 import { dalRead } from '../../../lib/dataAccessLayer';
 import type { AssistantAnswer } from '../types';
 import { formatCurrency } from '../helpers/formatters';
-import { getScopedUserIds, getScopedTeamAchievement } from '../helpers/scopeHelpers';
+import { getScopedUserIds, getScopedTeamAchievement, getSubtreeUserIds, getSubtreeScopedPayments } from '../helpers/scopeHelpers';
 
 /** ملخص أداء اليوم */
 export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
@@ -15,10 +15,9 @@ export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
   const todayEnd = endOfDay(now).toISOString();
 
   interface TodaySummaryRaw {
-    paymentsMonth: any[];
     paymentsToday: any[];
-    newPoliciesToday: { data: any[]; count: number | null };
-    newCustomersToday: { data: any[]; count: number | null };
+    newPoliciesToday: any[];
+    newCustomersToday: any[];
     dueToday: any[];
     overdue: any[];
   }
@@ -27,43 +26,15 @@ export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
   const raw = await dalRead<TodaySummaryRaw>(
     `assistant:todaySummary:${userIds.slice().sort().join(',')}:${todayDateStr}`,
     async () => {
-      const [paymentsMonthRes, paymentsTodayRes, newPoliciesTodayRes, newCustomersTodayRes, dueTodayRes, overdueRes] =
+      const [paymentsTodayRes, newPoliciesTodayRes, newCustomersTodayRes, dueTodayRes, overdueRes] =
         await Promise.all([
-          supabase
-            .from('payments')
-            .select('amount, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-            .eq('payment_month', monthStartStr)
-            .eq('is_cancelled', false),
-          supabase
-            .from('payments')
-            .select('amount, is_cancelled, paid_at, installment:installment_id(is_first, policy:policy_id(owner_id))')
-            .eq('is_cancelled', false)
-            .gte('paid_at', todayStart)
-            .lte('paid_at', todayEnd),
-          supabase
-            .from('policies')
-            .select('id, owner_id', { count: 'exact' })
-            .in('owner_id', userIds)
-            .gte('created_at', todayStart)
-            .lte('created_at', todayEnd),
-          supabase
-            .from('customers')
-            .select('id, owner_id', { count: 'exact' })
-            .in('owner_id', userIds)
-            .gte('created_at', todayStart)
-            .lte('created_at', todayEnd),
-          supabase
-            .from('installments')
-            .select('id, amount, status, policy:policy_id(owner_id)')
-            .eq('status', 'pending')
-            .eq('due_date', todayDateStr),
-          supabase
-            .from('installments')
-            .select('id, policy:policy_id(owner_id, customer_id)')
-            .eq('status', 'overdue')
+          supabase.rpc('assistant_scoped_payments', { p_paid_at_gte: todayStart, p_paid_at_lte: todayEnd }),
+          supabase.rpc('assistant_scoped_policies', { p_created_from: todayStart, p_created_to: todayEnd }),
+          supabase.rpc('assistant_scoped_customers', { p_created_from: todayStart, p_created_to: todayEnd }),
+          supabase.rpc('assistant_scoped_installments', { p_status: 'pending', p_due_date: todayDateStr }),
+          supabase.rpc('assistant_scoped_installments', { p_status: 'overdue' })
         ]);
 
-      if (paymentsMonthRes.error) throw paymentsMonthRes.error;
       if (paymentsTodayRes.error) throw paymentsTodayRes.error;
       if (newPoliciesTodayRes.error) throw newPoliciesTodayRes.error;
       if (newCustomersTodayRes.error) throw newCustomersTodayRes.error;
@@ -71,52 +42,45 @@ export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
       if (overdueRes.error) throw overdueRes.error;
 
       return {
-        paymentsMonth: paymentsMonthRes.data || [],
         paymentsToday: paymentsTodayRes.data || [],
-        newPoliciesToday: { data: newPoliciesTodayRes.data || [], count: newPoliciesTodayRes.count },
-        newCustomersToday: { data: newCustomersTodayRes.data || [], count: newCustomersTodayRes.count },
+        newPoliciesToday: newPoliciesTodayRes.data || [],
+        newCustomersToday: newCustomersTodayRes.data || [],
         dueToday: dueTodayRes.data || [],
         overdue: overdueRes.data || [],
       };
     },
     {
       emptyValue: {
-        paymentsMonth: [],
         paymentsToday: [],
-        newPoliciesToday: { data: [], count: 0 },
-        newCustomersToday: { data: [], count: 0 },
+        newPoliciesToday: [],
+        newCustomersToday: [],
         dueToday: [],
         overdue: [],
       },
     },
   ).then((r) => r.data);
 
-  const newPoliciesTodayRes = raw.newPoliciesToday;
-  const newCustomersTodayRes = raw.newCustomersToday;
+  // نطاق التحليل بيتطبّق فعلياً جوه القاعدة (assistant_scoped_*)، فمفيش
+  // داعي لأي فلترة إضافية هنا على userIds.
+  const paymentsToday = raw.paymentsToday;
+  const dueTodayFiltered = raw.dueToday;
+  const overdueFiltered = raw.overdue;
+  const overdueCustomerIds = new Set(overdueFiltered.map((i: any) => i.customer_id));
 
-  const paymentsMonth = raw.paymentsMonth.filter((p: any) =>
-    userIds.includes(p.installment?.policy?.owner_id)
-  );
-  const paymentsToday = raw.paymentsToday.filter((p: any) =>
-    userIds.includes(p.installment?.policy?.owner_id)
-  );
-  const dueTodayFiltered = raw.dueToday.filter((i: any) =>
-    userIds.includes(i.policy?.owner_id)
-  );
-  const overdueFiltered = raw.overdue.filter((i: any) =>
-    userIds.includes(i.policy?.owner_id)
-  );
-  const overdueCustomerIds = new Set(overdueFiltered.map((i: any) => i.policy?.customer_id));
-
-  const monthAchieved = paymentsMonth.reduce((s: number, p: any) => s + Number(p.amount), 0);
+  // نسبة تحقيق الهدف لازم تتحسب بنفس نطاق ومنطق لوحة التحكم بالظبط (subtree
+  // + هدف المستخدم الفردي)، مش نطاق التحليل الأوسع المستخدم في باقي أرقام
+  // الملخص ده - عشان الرقم يطابق اللي المستخدم شايفه فعليًا في التطبيق.
+  const subtreeIds = await getSubtreeUserIds(user);
+  const subtreePayments = await getSubtreeScopedPayments(subtreeIds, monthStartStr);
+  const subtreeAchieved = subtreePayments.reduce((s, p) => s + p.amount, 0);
   const monthTarget = Number(user.target || 0);
-  const achievementRate = monthTarget > 0 ? Math.round((monthAchieved / monthTarget) * 100) : 0;
+  const achievementRate = monthTarget > 0 ? Math.round((subtreeAchieved / monthTarget) * 100) : 0;
 
   const productionToday = paymentsToday
-    .filter((p: any) => p.installment?.is_first)
+    .filter((p: any) => p.is_first)
     .reduce((s: number, p: any) => s + Number(p.amount), 0);
   const collectionToday = paymentsToday
-    .filter((p: any) => !p.installment?.is_first)
+    .filter((p: any) => !p.is_first)
     .reduce((s: number, p: any) => s + Number(p.amount), 0);
 
   const team = await getScopedTeamAchievement(userIds);
@@ -132,8 +96,8 @@ export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
       `نسبة تحقيق الهدف: ${achievementRate}%`,
       `إنتاج اليوم: ${formatCurrency(productionToday)}`,
       `تحصيل اليوم: ${formatCurrency(collectionToday)}`,
-      `وثائق جديدة اليوم: ${newPoliciesTodayRes.count ?? 0}`,
-      `عملاء جدد اليوم: ${newCustomersTodayRes.count ?? 0}`,
+      `وثائق جديدة اليوم: ${raw.newPoliciesToday.length}`,
+      `عملاء جدد اليوم: ${raw.newCustomersToday.length}`,
       `أفضل وكيل: ${topAgent ? topAgent.name : 'لا يوجد'}`,
       `أفضل رئيس مجموعة: ${topGroupLeader ? topGroupLeader.name : 'لا يوجد'}`,
       `أقساط مستحقة اليوم: ${dueTodayFiltered.length}`,
@@ -142,7 +106,7 @@ export async function getTodaySummary(user: User): Promise<AssistantAnswer> {
   };
 }
 
-/** ملخص الفرع الكامل */
+/** ملخص الفرع الكامل (يعني: ملخص نطاق التحليل الكامل الخاص بالمستخدم) */
 export async function getBranchSummary(user: User): Promise<AssistantAnswer> {
   const userIds = await getScopedUserIds(user);
   const monthStartStr = format(startOfMonth(new Date()), 'yyyy-MM-dd');
@@ -151,19 +115,15 @@ export async function getBranchSummary(user: User): Promise<AssistantAnswer> {
     `assistant:branchSummary:${userIds.slice().sort().join(',')}:${monthStartStr}`,
     async () => {
       const [customersRes, policiesRes, paymentsRes] = await Promise.all([
-        supabase.from('customers').select('id', { count: 'exact', head: true }).in('owner_id', userIds),
-        supabase.from('policies').select('id, status').in('owner_id', userIds),
-        supabase
-          .from('payments')
-          .select('amount, is_cancelled, installment:installment_id(policy:policy_id(owner_id))')
-          .eq('payment_month', monthStartStr)
-          .eq('is_cancelled', false)
+        supabase.rpc('assistant_scoped_customers'),
+        supabase.rpc('assistant_scoped_policies'),
+        supabase.rpc('assistant_scoped_payments', { p_payment_month: monthStartStr })
       ]);
       if (customersRes.error) throw customersRes.error;
       if (policiesRes.error) throw policiesRes.error;
       if (paymentsRes.error) throw paymentsRes.error;
       return {
-        customersCount: customersRes.count ?? 0,
+        customersCount: (customersRes.data || []).length,
         policies: policiesRes.data || [],
         payments: paymentsRes.data || [],
       };
@@ -173,7 +133,7 @@ export async function getBranchSummary(user: User): Promise<AssistantAnswer> {
 
   const policies = branchRaw.data.policies;
   const activePolicies = policies.filter((p: any) => p.status === 'active').length;
-  const payments = branchRaw.data.payments.filter((p: any) => userIds.includes(p.installment?.policy?.owner_id));
+  const payments = branchRaw.data.payments;
   const totalCollected = payments.reduce((s: number, p: any) => s + Number(p.amount), 0);
 
   return {
@@ -195,33 +155,27 @@ export async function getDailyTip(user: User): Promise<string | null> {
   const monthStartStr = format(startOfMonth(new Date()), 'yyyy-MM-dd');
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-  const tipRaw = await dalRead(
-    `assistant:dailyTip:${userIds.slice().sort().join(',')}:${monthStartStr}:${todayStr}`,
+  const dueTodayRaw = await dalRead(
+    `assistant:dailyTip:dueToday:${userIds.slice().sort().join(',')}:${todayStr}`,
     async () => {
-      const [paymentsRes, dueTodayRes] = await Promise.all([
-        supabase
-          .from('payments')
-          .select('amount, is_cancelled, installment:installment_id(is_first, policy:policy_id(owner_id))')
-          .eq('payment_month', monthStartStr)
-          .eq('is_cancelled', false),
-        supabase
-          .from('installments')
-          .select('id, policy:policy_id(owner_id)')
-          .eq('status', 'pending')
-          .eq('due_date', todayStr)
-      ]);
-      if (paymentsRes.error) throw paymentsRes.error;
-      if (dueTodayRes.error) throw dueTodayRes.error;
-      return { payments: paymentsRes.data || [], dueToday: dueTodayRes.data || [] };
+      const { data, error } = await supabase.rpc('assistant_scoped_installments', {
+        p_status: 'pending',
+        p_due_date: todayStr,
+      });
+      if (error) throw error;
+      return data || [];
     },
-    { emptyValue: { payments: [] as any[], dueToday: [] as any[] } },
+    { emptyValue: [] as any[] },
   );
 
-  const payments = tipRaw.data.payments.filter((p: any) => userIds.includes(p.installment?.policy?.owner_id));
-  const collection = payments.filter((p: any) => !p.installment?.is_first).reduce((s: number, p: any) => s + Number(p.amount), 0);
-  const achieved = payments.reduce((s: number, p: any) => s + Number(p.amount), 0);
+  // "المحقق" و"الهدف" هنا لازم يتحسبوا بنفس نطاق لوحة التحكم بالظبط (subtree
+  // + هدف فردي)، مش نطاق التحليل الأوسع - نفس السبب الموجود في getTodaySummary.
+  const subtreeIds = await getSubtreeUserIds(user);
+  const payments = await getSubtreeScopedPayments(subtreeIds, monthStartStr);
+  const collection = payments.filter((p) => !p.isFirst).reduce((s, p) => s + p.amount, 0);
+  const achieved = payments.reduce((s, p) => s + p.amount, 0);
   const target = Number(user.target || 0);
-  const dueTodayCount = tipRaw.data.dueToday.filter((i: any) => userIds.includes(i.policy?.owner_id)).length;
+  const dueTodayCount = dueTodayRaw.data.length;
 
   const rate = target > 0 ? achieved / target : 0;
   const collectionShare = achieved > 0 ? collection / achieved : 0;

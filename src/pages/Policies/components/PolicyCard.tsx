@@ -43,7 +43,7 @@ function PolicyCardImpl({ policy, onOpenDetails, onOpenMoreMenu }: PolicyCardPro
           <p className="text-secondary-800 font-medium">{policy.sum_assured ? formatCurrency(policy.sum_assured) : '-'}</p>
         </div>
         <div>
-          <p className="text-secondary-400 text-xs">قيمة القسط</p>
+          <p className="text-secondary-400 text-xs">قيمة القسط الصافي</p>
           <p className="text-secondary-800 font-medium">{formatCurrency(policy.premium_amount)}</p>
         </div>
         <div>

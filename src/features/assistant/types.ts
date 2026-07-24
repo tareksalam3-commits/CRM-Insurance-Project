@@ -3,9 +3,6 @@ import type { User, UserRole } from '../../lib/supabase';
 export interface AssistantAnswer {
   title: string;
   lines: string[];
-  // اقتراحات قابلة للنقر (تُملأ فقط في حالة عدم التأكد من نية المستخدم)
-  // تُتيح للواجهة عرضها كأزرار بدل نص عادي، دون كسر أي كود قديم يعتمد على lines فقط
-  suggestions?: string[];
 }
 
 export interface AgentRow {

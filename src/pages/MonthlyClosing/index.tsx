@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
+import { useBranchContext } from '../../lib/branchContext';
 import { ROLE_LABELS, canCloseMonth, canViewMonthlyClosing } from '../../lib/supabase';
 import {
   Lock, Unlock, CheckCircle, AlertCircle,
@@ -16,14 +18,18 @@ import { fmt } from './utils';
 import { AgentRow } from './components/AgentRow';
 import { PrintReport } from './components/PrintReport';
 import {
-  fetchClosingRecord, fetchUserSubtreeIds, fetchUsersByIds,
+  fetchClosingRecord, fetchUserSubtreeIds, fetchUsersByIds, fetchBranchRoleMap,
   fetchMonthPayments, filterPaymentsByOwnerIds, closeMonth, openMonth,
+  fetchBranchesForUserIds,
 } from './services/monthlyClosingService';
+import type { Branch } from '../../features/branches/types';
 import { buildMonthlyClosingSummary } from './business/monthlyClosingCalculator';
+import { printWithTitle } from '../../lib/printWithTitle';
 
 // ─── component ────────────────────────────────────────────
 export function MonthlyClosing() {
   const { user } = useAuth();
+  const { currentBranchId } = useBranchContext();
   const printRef = useRef<HTMLDivElement>(null);
 
   const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()));
@@ -36,6 +42,15 @@ export function MonthlyClosing() {
   const [processing, setProcessing]       = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'close' | 'open'>('close');
+
+  // بيانات بيدخلها المستخدم قبل الطباعة مباشرة (اسم الفرع وتاريخ التقفيل
+  // اللي هيتكتب فعليًا في التقرير المطبوع) — اسم الفرع بقى مُختار من قائمة
+  // فروع حقيقية (جدول branches) بدل حقل نصي حر، لكن القيمة المخزّنة والمستخدمة
+  // فى PrintReport.tsx نصية زي ما هي بالظبط من غير أي تعديل هناك.
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [branchName, setBranchName]       = useState('');
+  const [printBranches, setPrintBranches] = useState<Branch[]>([]);
+  const [printClosingDate, setPrintClosingDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
 
   // report data
   const [isClosed, setIsClosed]           = useState(false);
@@ -57,7 +72,9 @@ export function MonthlyClosing() {
   // تنفيذ تقفيل/فتح الشهر (عملية تخص النظام كله): Supervisor فما فوق فقط
   const canClose = user && canCloseMonth(user.role);
 
-  useEffect(() => { if (user && canView) loadData(); }, [user, selectedMonth]);
+  useEffect(() => { if (user && canView) loadData(); }, [user, selectedMonth, currentBranchId]);
+
+  useReconnectRefetch(() => { if (user && canView) loadData(); });
 
   // ── load ──────────────────────────────────────────────
   const loadData = async () => {
@@ -70,9 +87,16 @@ export function MonthlyClosing() {
       setIsClosed(!!closingData && !closingData.is_open);
       setClosingRecord(closingData);
 
-      // 2. كل المستخدمين تحت المستخدم الحالي
-      const ids = await fetchUserSubtreeIds(user!.id);
+      // 2. كل المستخدمين تحت المستخدم الحالي — فى سياق الفرع الحالي
+      // (currentBranchId من BranchProvider العام)، عبر user_branch_roles
+      // بدل الاعتماد المباشر على users.manager_id.
+      const ids = await fetchUserSubtreeIds(user!.id, currentBranchId);
       const usersData = await fetchUsersByIds(ids);
+      const branchRoles = await fetchBranchRoleMap(currentBranchId, ids);
+
+      // فروع مودال الطباعة: مقصورة على الفروع التابعة للنطاق الحالي (ids)
+      // بس، مش كل فروع التطبيق.
+      fetchBranchesForUserIds(ids).then(setPrintBranches).catch((err) => console.error('Error loading print branches:', err));
 
       // 3. كل المدفوعات الفعلية للشهر (غير ملغاة)
       const paymentsRaw = await fetchMonthPayments(monthStr);
@@ -83,6 +107,8 @@ export function MonthlyClosing() {
         { id: user!.id, name: user!.name, role: user!.role },
         usersData,
         payments,
+        currentBranchId,
+        branchRoles,
       );
 
       setGrandProduction(summary.grandProduction);
@@ -128,7 +154,25 @@ export function MonthlyClosing() {
     }
   };
 
-  const handlePrint = () => window.print();
+  const handlePrintClick = () => {
+    // نفتح مودال إدخال اسم الفرع وتاريخ التقفيل، ونجهّز تاريخ افتراضي
+    // (نفس المنطق القديم: تاريخ التقفيل الفعلي لو الشهر مُقفَّل، وإلا النهاردة)
+    const defaultDate = closingRecord?.closed_at
+      ? format(new Date(closingRecord.closed_at), 'yyyy-MM-dd')
+      : format(new Date(), 'yyyy-MM-dd');
+    setPrintClosingDate(defaultDate);
+    const current = printBranches.find((b) => b.id === currentBranchId);
+    if (current) setBranchName((prev) => prev || current.name);
+    setShowPrintModal(true);
+  };
+
+  const handleConfirmPrint = () => {
+    setShowPrintModal(false);
+    const printMonthLabel = format(selectedMonth, 'MMMM yyyy', { locale: ar });
+    // نسيب React يعمل render للتقرير ببيانات اسم الفرع/التاريخ الجديدة
+    // الأول، قبل ما نطلب من المتصفح يطبع.
+    setTimeout(() => printWithTitle(`تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`), 50);
+  };
 
   const isCurrentMonth = isSameMonth(selectedMonth, new Date());
   const grandTotal     = grandProduction + grandCollection;
@@ -152,7 +196,7 @@ export function MonthlyClosing() {
           <h2 className="text-xl font-bold text-secondary-900">إقفال الشهر</h2>
           <p className="text-sm text-secondary-500 mt-1">مراجعة الإنتاج الفعلي المسدّد قبل اعتماد الشهر</p>
         </div>
-        <button onClick={handlePrint} className="btn btn-ghost text-secondary-600 print:hidden">
+        <button onClick={handlePrintClick} className="btn btn-success print:hidden">
           <Printer className="w-4 h-4" />
           <span>طباعة التقرير</span>
         </button>
@@ -328,7 +372,9 @@ export function MonthlyClosing() {
             {directAgents.length > 0 && (
               <div className="card p-0 overflow-hidden">
                 <div className="px-4 py-3 bg-secondary-50 border-b border-secondary-200">
-                  <p className="text-sm font-medium text-secondary-600">وكلاء مباشرون</p>
+                  <p className="text-sm font-medium text-secondary-600">
+                    {directAgents.length === 1 ? directAgents[0].name : 'وكلاء مباشرون'}
+                  </p>
                 </div>
                 {directAgents.map((agent) => (
                   <AgentRow
@@ -396,7 +442,7 @@ export function MonthlyClosing() {
                 ) : (
                   <button
                     onClick={() => { setConfirmAction('close'); setShowConfirmModal(true); }}
-                    className="btn btn-primary"
+                    className="btn btn-white"
                   >
                     <Lock className="w-4 h-4" />
                     <span>تقفيل واعتماد الشهر</span>
@@ -411,7 +457,8 @@ export function MonthlyClosing() {
             supervisorName={user?.name || ''}
             supervisorRoleLabel={ROLE_LABELS[user?.role ?? 'supervisor']}
             monthLabel={monthLabel}
-            closingDate={closingRecord?.closed_at ? format(new Date(closingRecord.closed_at), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
+            closingDate={printClosingDate ? format(new Date(printClosingDate), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
+            branchName={branchName}
             printSupervisors={printSupervisors}
             printDetailRows={printDetailRows}
             grandProduction={grandProduction}
@@ -419,6 +466,53 @@ export function MonthlyClosing() {
             grandTotal={grandTotal}
           />
         </>
+      )}
+
+      {/* ── Print Modal (اسم الفرع + تاريخ التقفيل قبل الطباعة) ── */}
+      {showPrintModal && (
+        <div className="modal-overlay" onClick={() => setShowPrintModal(false)}>
+          <div className="modal-content max-w-sm animate-fadeIn" onClick={e => e.stopPropagation()}>
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-secondary-900 mb-4 text-center">بيانات التقرير المطبوع</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 mb-1">اسم الفرع</label>
+                  <select
+                    value={branchName}
+                    onChange={(e) => setBranchName(e.target.value)}
+                    className="input-field w-full"
+                    autoFocus
+                  >
+                    <option value="" disabled>اختر الفرع...</option>
+                    {printBranches.map((b) => (
+                      <option key={b.id} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 mb-1">تاريخ التقفيل</label>
+                  <input
+                    type="date"
+                    value={printClosingDate}
+                    onChange={(e) => setPrintClosingDate(e.target.value)}
+                    className="input-field w-full"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-center gap-3 mt-6">
+                <button onClick={() => setShowPrintModal(false)} className="btn btn-secondary">إلغاء</button>
+                <button
+                  onClick={handleConfirmPrint}
+                  disabled={!branchName.trim() || !printClosingDate}
+                  className="btn btn-primary"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>طباعة</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Confirm Modal ── */}

@@ -49,15 +49,17 @@ function CustomerCardImpl({ customer, onOpenDetails, onOpenMoreMenu }: CustomerC
           <p className="text-secondary-800 font-medium truncate">{customer.owner?.name || '-'}</p>
         </div>
         <div>
-          <p className="text-secondary-400 text-xs">قيمة القسط</p>
+          <p className="text-secondary-400 text-xs">قيمة القسط الصافي</p>
           <p className="text-secondary-800 font-medium">
             {latestPolicy ? formatCurrency(latestPolicy.premium_amount) : '-'}
           </p>
         </div>
         <div>
-          <p className="text-secondary-400 text-xs">تاريخ بداية التأمين</p>
+          <p className="text-secondary-400 text-xs">
+            {latestPolicy ? 'تاريخ بداية التأمين' : 'تاريخ تسجيل الطلب'}
+          </p>
           <p className="text-secondary-800 font-medium">
-            {latestPolicy ? format(new Date(latestPolicy.start_date), 'dd/MM/yyyy') : '-'}
+            {format(new Date(latestPolicy ? latestPolicy.start_date : customer.created_at), 'dd/MM/yyyy')}
           </p>
         </div>
       </div>
