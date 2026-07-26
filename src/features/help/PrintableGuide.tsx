@@ -1,4 +1,3 @@
-import { HELP_REGISTRY } from './content';
 import { GUIDE_INTRO, GUIDE_LOGIN, GUIDE_ROLES, GUIDE_WORKFLOW, BEST_PRACTICES, USAGE_TIPS, FAQ_ITEMS } from './guideContent';
 import { QUICK_START_STEPS } from './quickStartContent';
 
@@ -9,7 +8,7 @@ import { QUICK_START_STEPS } from './quickStartContent';
  * وذلك لتفادي مشاكل عرض الخط العربي المعروفة فى مكتبة jsPDF.
  * يمكن للمستخدم من نافذة الطباعة اختيار "حفظ كـ PDF" للحصول على نسخة PDF.
  * يُعاد بناء هذا المحتوى تلقائياً من نفس مصدر الدليل الظاهر داخل التطبيق
- * (HELP_REGISTRY وملفات guideContent/quickStartContent)، لذلك أي تحديث على
+ * (ملفات guideContent/quickStartContent)، لذلك أي تحديث على
  * محتوى المساعدة ينعكس تلقائياً هنا أيضاً دون أي خطوة إضافية.
  */
 export function PrintableGuide() {
@@ -55,24 +54,6 @@ export function PrintableGuide() {
       <ol className="list-decimal pr-5 text-sm space-y-1 mb-2">
         {QUICK_START_STEPS.map((s) => <li key={s.title}><span className="font-medium">{s.title}: </span>{s.description}</li>)}
       </ol>
-
-      <h2 className="text-lg font-bold mt-6 mb-2" style={{ pageBreakBefore: 'always' }}>شرح جميع الصفحات</h2>
-      {HELP_REGISTRY.map((h) => (
-        <div key={h.path} className="mb-4" style={{ pageBreakInside: 'avoid' }}>
-          <h3 className="font-semibold text-base mt-3">{h.title} <span className="text-xs text-secondary-400">({h.path})</span></h3>
-          <p className="text-sm"><span className="font-medium">الغرض: </span>{h.purpose}</p>
-          <p className="text-sm mb-1"><span className="font-medium">متى تُستخدم: </span>{h.whenToUse}</p>
-          {([
-            ['الأزرار', h.buttons], ['الحقول', h.fields], ['الجداول', h.tables],
-            ['البطاقات والإحصائيات', h.cardsAndStats], ['الفلاتر', h.filters],
-          ] as [string, { label: string; description: string }[] | undefined][]).map(([label, items]) => items?.length ? (
-            <div key={label} className="text-xs mb-1">
-              <span className="font-medium">{label}: </span>
-              {items.map((it) => it.label).join('، ')}
-            </div>
-          ) : null)}
-        </div>
-      ))}
 
       <h2 className="text-lg font-bold mt-6 mb-2" style={{ pageBreakBefore: 'always' }}>الأسئلة الشائعة</h2>
       {FAQ_ITEMS.map((f, i) => (

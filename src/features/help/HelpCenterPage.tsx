@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Printer, PlayCircle, ChevronDown } from 'lucide-react';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { HELP_REGISTRY, searchHelp } from './content';
+import { searchHelp } from './content';
 import { GUIDE_INTRO, GUIDE_LOGIN, GUIDE_ROLES, GUIDE_WORKFLOW, BEST_PRACTICES, USAGE_TIPS, FAQ_ITEMS } from './guideContent';
 import { QUICK_START_STEPS } from './quickStartContent';
 import { PrintableGuide } from './PrintableGuide';
@@ -145,19 +145,6 @@ export default function HelpCenterPage() {
             <h3 className="font-semibold text-secondary-900 mb-3">نصائح الاستخدام</h3>
             <ul className="list-disc pr-5 text-sm text-secondary-600 space-y-1.5">
               {USAGE_TIPS.map((t, i) => <li key={i}>{t}</li>)}
-            </ul>
-          </section>
-
-          <section className="card p-5">
-            <h3 className="font-semibold text-secondary-900 mb-3">شرح جميع الصفحات</h3>
-            <ul className="space-y-1.5">
-              {HELP_REGISTRY.map((h) => (
-                <li key={h.path}>
-                  <button onClick={() => navigate(h.path.replace(/:.*/, ''))} className="text-sm text-primary-600 hover:underline">
-                    {h.title}
-                  </button>
-                </li>
-              ))}
             </ul>
           </section>
 
