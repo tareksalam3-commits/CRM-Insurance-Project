@@ -61,7 +61,9 @@ export function Sidebar() {
           sidebarCollapsed ? 'w-20' : 'w-64'
         )}
       >
-        <div className={clsx(
+        <div
+          data-tour-id="sidebar-brand"
+          className={clsx(
           'flex items-center h-16 px-3 border-b border-secondary-100 flex-shrink-0',
           sidebarCollapsed ? 'justify-center' : 'justify-between gap-2'
         )}>
@@ -128,7 +130,7 @@ export function Sidebar() {
         <div className="mx-3 border-t border-secondary-100" />
 
         {/* روابط التنقل — مقسّمة إلى أقسام قابلة للطي/الفتح */}
-        <div className="flex-1 overflow-y-auto py-3 px-2.5 scrollbar-thin">
+        <div data-tour-id="sidebar-nav" className="flex-1 overflow-y-auto py-3 px-2.5 scrollbar-thin">
           {sidebarCollapsed ? (
             // فى وضع الطي (أيقونات فقط) نعرض كل الصفحات فى قائمة واحدة مسطحة
             <nav className="space-y-1">

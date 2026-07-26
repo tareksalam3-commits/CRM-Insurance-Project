@@ -17,6 +17,10 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { RequireRole } from './components/RequireRole';
 import { isNotAgent, canAccessMessagesPage, canAccessDailyReports } from './config/navigation';
 import { canManageUsers, canViewOrgStructure, canViewSettings, canViewMonthlyClosing, canManageBranches } from './lib/supabase';
+import { HelpProvider } from './features/help/HelpContext';
+import { HelpPanel } from './features/help/HelpPanel';
+import { Tour } from './features/help/Tour';
+import { useFirstRunTour } from './features/help/useFirstRunTour';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,13 +49,12 @@ const ActivityLog  = lazy(() => import('./pages/ActivityLog').then(m => ({ defau
 const DataImport   = lazy(() => import('./pages/DataImport').then(m => ({ default: m.DataImport })));
 const Profile      = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
-const AISettings   = lazy(() => import('./pages/AISettings').then(m => ({ default: m.AISettings })));
 const SubscriptionsAdminPage = lazy(() => import('./features/subscriptions/pages/SubscriptionsAdminPage').then(m => ({ default: m.SubscriptionsAdminPage })));
 const BranchesAdminPage = lazy(() => import('./features/branches/pages/BranchesAdminPage').then(m => ({ default: m.BranchesAdminPage })));
-const AssistantWidget = lazy(() => import('./features/assistant/AssistantWidget').then(m => ({ default: m.AssistantWidget })));
 const PriceCalculator = lazy(() => import('./pages/PriceCalculator').then(m => ({ default: m.PriceCalculator })));
 const DailyReports   = lazy(() => import('./pages/DailyReports').then(m => ({ default: m.DailyReports })));
 const Messages       = lazy(() => import('./pages/Messages').then(m => ({ default: m.Messages })));
+const HelpCenterPage = lazy(() => import('./features/help/HelpCenterPage'));
 
 function LoadingSpinner() {
   return (
@@ -67,6 +70,7 @@ function AppLayout() {
   const location = useLocation();
   const [lockState, setLockState] = useState<SubscriptionLockState | null>(null);
   const [checkingLock, setCheckingLock] = useState(true);
+  useFirstRunTour();
 
   useEffect(() => {
     if (!user) {
@@ -145,9 +149,9 @@ function AppLayout() {
                 <Route path="/subscriptions-admin" element={<RequireRole check={canViewSettings}><SubscriptionsAdminPage /></RequireRole>} />
                 <Route path="/branches"        element={<RequireRole check={canManageBranches}><BranchesAdminPage /></RequireRole>} />
                 <Route path="/settings"        element={<RequireRole check={canViewSettings}><Settings /></RequireRole>} />
-                <Route path="/ai-settings"     element={<RequireRole check={canViewSettings}><AISettings /></RequireRole>} />
                 <Route path="/price-calculator" element={<PriceCalculator />} />
                 <Route path="/daily-reports"    element={<RequireRole check={canAccessDailyReports}><DailyReports /></RequireRole>} />
+                <Route path="/help"             element={<HelpCenterPage />} />
               </Routes>
             </Suspense>
           </ErrorBoundary>
@@ -155,13 +159,9 @@ function AppLayout() {
       </main>
 
       <div className="print:hidden">
-        <Suspense fallback={null}>
-          <ErrorBoundary boundaryName="AssistantWidget">
-            <AssistantWidget />
-          </ErrorBoundary>
-        </Suspense>
-
         <OfflineToast />
+        <HelpPanel />
+        <Tour />
       </div>
     </div>
   );
@@ -177,7 +177,7 @@ function App() {
               <HeadManager />
               <Routes>
                 <Route path="/login" element={<Login />} />
-                <Route path="/*"     element={<AppLayout />} />
+                <Route path="/*"     element={<HelpProvider><AppLayout /></HelpProvider>} />
               </Routes>
             </BranchProvider>
           </AuthProvider>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, Search, X, User, Settings, LogOut, Menu, Wallet, MessageSquare } from 'lucide-react';
+import { Bell, Search, X, User, Settings, LogOut, Menu, Wallet, MessageSquare, HelpCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { ROLE_LABELS } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
@@ -14,6 +14,7 @@ import { BrandMark } from './BrandMark';
 import { PAGE_TITLES, canAccessMessages } from '../config/navigation';
 import { useUnreadMessagesBadge } from '../features/messages/useMessagesRealtime';
 import { BranchSelector } from './BranchSelector';
+import { HelpButton } from '../features/help/HelpButton';
 
 export function Header() {
   const { user, signOut }  = useAuth();
@@ -153,15 +154,19 @@ export function Header() {
               </button>
             </form>
           ) : (
-            <button onClick={() => setSearchOpen(true)} className="p-2 rounded-lg hover:bg-secondary-100">
+            <button data-tour-id="header-search" onClick={() => setSearchOpen(true)} className="p-2 rounded-lg hover:bg-secondary-100">
               <Search className="w-5 h-5 text-secondary-600" />
             </button>
           )}
+
+          {/* مساعدة الصفحة الحالية (؟) — يظهر أعلى كل صفحة بالتطبيق */}
+          <HelpButton />
 
           {/* الرسائل — أيقونة مستقلة بمكانها الخاص، منفصلة تماماً عن الإشعارات */}
           {canAccessMessages(user.role) && (
             <button
               onClick={() => navigate('/messages')}
+              data-tour-id="header-messages"
               className="p-2 rounded-lg hover:bg-secondary-100 relative"
               aria-label="الرسائل"
             >
@@ -176,7 +181,7 @@ export function Header() {
 
           {/* إشعارات */}
           <div className="relative" ref={notificationRef}>
-            <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-lg hover:bg-secondary-100 relative">
+            <button onClick={() => setNotificationsOpen(!notificationsOpen)} data-tour-id="header-notifications" className="p-2 rounded-lg hover:bg-secondary-100 relative">
               <Bell className="w-5 h-5 text-secondary-600" />
               {unreadCount > 0 && (
                 <span className="absolute -top-0.5 -left-0.5 w-4 h-4 bg-error-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
@@ -215,7 +220,7 @@ export function Header() {
 
           {/* بروفايل */}
           <div className="relative" ref={profileRef}>
-            <button onClick={() => setProfileOpen(!profileOpen)} className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-secondary-100">
+            <button onClick={() => setProfileOpen(!profileOpen)} data-tour-id="header-profile" className="flex items-center gap-1.5 p-1.5 rounded-lg hover:bg-secondary-100">
               <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                 {user.avatar_url
                   ? <img src={user.avatar_url} alt={user.name} className="w-8 h-8 rounded-full object-cover" loading="lazy" decoding="async" />
@@ -229,6 +234,7 @@ export function Header() {
             {profileOpen && (
               <div className="dropdown-menu left-0 right-auto min-w-[180px]">
                 <button onClick={() => { setProfileOpen(false); navigate('/profile'); }} className="dropdown-item w-full"><User className="w-4 h-4" /><span>الملف الشخصي</span></button>
+                <button onClick={() => { setProfileOpen(false); navigate('/help'); }} className="dropdown-item w-full"><HelpCircle className="w-4 h-4" /><span>دليل المستخدم</span></button>
                 {user.role === 'super_admin' && (
                   <button onClick={() => { setProfileOpen(false); navigate('/subscriptions-admin'); }} className="dropdown-item w-full"><Wallet className="w-4 h-4" /><span>الاشتراكات</span></button>
                 )}

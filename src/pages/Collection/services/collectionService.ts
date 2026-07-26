@@ -331,7 +331,7 @@ export async function fetchCollectionQuickStats(branchId: string | null = null):
       // على installments عبر policy، أو على مستوى أعمق على payments عبر
       // installment.policy) ونفلتر النتيجة فى الجافاسكريبت — أبسط وأضمن من
       // فلتر PostgREST متداخل على علاقتين، ونفس أسلوب الفلترة المستخدم أصلاً
-      // فى باقي النظام (راجع getSubtreeScopedPayments فى ملف المساعد الذكي)
+      // فى باقي النظام
       const installmentsBranchSelect = branchId ? ', policy:policy_id!inner(branch_id)' : '';
       const paymentsBranchSelect = branchId ? ', installment:installment_id!inner(policy:policy_id!inner(branch_id))' : '';
       const matchesBranch = (row: any, path: 'policy' | 'installment'): boolean => {

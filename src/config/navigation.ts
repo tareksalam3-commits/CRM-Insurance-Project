@@ -13,13 +13,13 @@ import {
   History,
   Wallet,
   Settings,
-  Sparkles,
   User,
   Home,
   Shield,
   ClipboardList,
   MessageSquare,
   Building2,
+  HelpCircle,
 } from 'lucide-react';
 import { UserRole, canManageUsers, canViewOrgStructure, canViewSettings, canManageBranches, getRoleLevel } from '../lib/supabase';
 
@@ -131,7 +131,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/subscriptions-admin', label: 'الاشتراكات',             icon: Wallet,   isVisible: canViewSettings },
       { path: '/branches',            label: 'إدارة الفروع',           icon: Building2, isVisible: canManageBranches },
       { path: '/settings',            label: 'إعدادات النظام',         icon: Settings, isVisible: canViewSettings },
-      { path: '/ai-settings',         label: 'إعدادات الذكاء الاصطناعي', icon: Sparkles, isVisible: canViewSettings },
     ],
   },
   {
@@ -140,6 +139,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: User,
     items: [
       { path: '/profile', label: 'الملف الشخصي', icon: User },
+      { path: '/help',    label: 'دليل المستخدم', icon: HelpCircle },
     ],
   },
 ];
