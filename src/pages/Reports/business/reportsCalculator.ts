@@ -298,7 +298,7 @@ export function computeAgentsReport(
       : '-',
     'متوسط المكالمات اليومي': a.activity.hasData ? a.activity.avgCallsPerDay.toFixed(1) : '-',
     'متوسط الزيارات اليومي': a.activity.hasData ? a.activity.avgAppointmentsPerDay.toFixed(1) : '-',
-    'متوسط العملاء الجدد يومياً': a.activity.hasData ? a.activity.avgNewClientsPerDay.toFixed(1) : '-',
+    'متوسط العملاء الجدد أسبوعياً': a.activity.hasData ? (a.activity.avgNewClientsPerDay * 7).toFixed(1) : '-',
     'أيام العمل الميداني': a.activity.hasData ? a.activity.outdoorDaysCount : '-',
     'عدد أيام التسجيل': a.activity.hasData ? a.activity.entriesCount : '-',
   }));
@@ -372,7 +372,7 @@ export function computeTeamPerformanceReport(
       : '-',
     'متوسط المكالمات اليومي (الفريق)': p.activity.hasData ? p.activity.avgCallsPerDay.toFixed(1) : '-',
     'متوسط الزيارات اليومي (الفريق)': p.activity.hasData ? p.activity.avgAppointmentsPerDay.toFixed(1) : '-',
-    'متوسط العملاء الجدد يومياً (الفريق)': p.activity.hasData ? p.activity.avgNewClientsPerDay.toFixed(1) : '-',
+    'متوسط العملاء الجدد أسبوعياً (الفريق)': p.activity.hasData ? (p.activity.avgNewClientsPerDay * 7).toFixed(1) : '-',
     'أيام العمل الميداني (الفريق)': p.activity.hasData ? p.activity.outdoorDaysCount : '-',
   }));
 
