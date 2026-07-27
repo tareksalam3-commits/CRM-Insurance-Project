@@ -13,6 +13,29 @@ interface DashboardPerformanceProps {
   handleSheetClose: () => void;
 }
 
+// شرائح الأداء: أحمر لحد ٥٩٪، أصفر من ٦٠٪ لحد ٩٩٪، أخضر من ١٠٠٪ لحد ١٥٠٪،
+// ومن ١٥١٪ فأكثر تدرج بنفسجي مميز يبرز الأداء الاستثنائي عن باقي الفريق
+function getPerformanceTier(rate: number): 'exceptional' | 'success' | 'warning' | 'error' {
+  if (rate >= 151) return 'exceptional';
+  if (rate >= 100) return 'success';
+  if (rate >= 60) return 'warning';
+  return 'error';
+}
+
+const TIER_BAR_CLASS: Record<ReturnType<typeof getPerformanceTier>, string> = {
+  exceptional: 'bg-gradient-to-r from-violet-500 to-indigo-600',
+  success: 'bg-success-500',
+  warning: 'bg-warning-500',
+  error: 'bg-error-500',
+};
+
+const TIER_TEXT_CLASS: Record<ReturnType<typeof getPerformanceTier>, string> = {
+  exceptional: 'text-indigo-600 font-bold',
+  success: 'text-success-700',
+  warning: 'text-warning-700',
+  error: 'text-error-600',
+};
+
 export function DashboardPerformance({
   teamPerformanceSections,
   sheetStack,
@@ -40,6 +63,7 @@ export function DashboardPerformance({
                     const rate = member.target > 0
                       ? Math.round((member.achieved / member.target) * 100)
                       : 0;
+                    const tier = getPerformanceTier(rate);
                     return (
                       <button
                         key={member.id}
@@ -62,15 +86,11 @@ export function DashboardPerformance({
                             <span className="text-sm font-medium text-secondary-900 truncate">
                               {member.name}
                             </span>
-                            <span className="text-xs text-secondary-500">{rate}%</span>
+                            <span className={clsx('text-xs', TIER_TEXT_CLASS[tier])}>{rate}%</span>
                           </div>
                           <div className="w-full bg-secondary-200 rounded-full h-2">
                             <div
-                              className={clsx(
-                                'h-2 rounded-full transition-all duration-500',
-                                rate >= 100 ? 'bg-success-500' :
-                                rate >= 70 ? 'bg-warning-500' : 'bg-error-500'
-                              )}
+                              className={clsx('h-2 rounded-full transition-all duration-500', TIER_BAR_CLASS[tier])}
                               style={{ width: `${Math.min(100, rate)}%` }}
                             />
                           </div>

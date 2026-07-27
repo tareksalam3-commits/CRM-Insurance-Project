@@ -24,9 +24,13 @@ const formatCurrency = (amount: number) =>
     maximumFractionDigits: 0,
   }).format(amount);
 
+// نفس شرائح الأداء المستخدمة فى بطاقة "إحصائيات الفريق": أحمر لحد ٥٩٪،
+// أصفر من ٦٠٪ لحد ٩٩٪، أخضر من ١٠٠٪ لحد ١٥٠٪، ومن ١٥١٪ فأكثر تدرج بنفسجي
+// مميز للأداء الاستثنائي
 function progressColor(rate: number) {
+  if (rate >= 151) return 'bg-gradient-to-r from-violet-500 to-indigo-600';
   if (rate >= 100) return 'bg-success-500';
-  if (rate >= 70) return 'bg-warning-500';
+  if (rate >= 60) return 'bg-warning-500';
   return 'bg-error-500';
 }
 
