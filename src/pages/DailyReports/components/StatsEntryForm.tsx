@@ -8,6 +8,7 @@ import { fetchEntryFormRows, upsertAgentStat } from '../services/dailyStatsServi
 import { toNonNegativeInt, formatDateInput, formatReportDate, formatReportDay, parseDateInput } from '../utils';
 import { APPOINTMENTS_QUALITY_LABELS } from '../types';
 import type { AppointmentsQuality, EntryFormRow } from '../types';
+import { AgentAppointmentsPanel } from './AgentAppointmentsPanel';
 
 interface RowState extends EntryFormRow {
   saving: boolean;
@@ -258,6 +259,8 @@ export function StatsEntryForm() {
               </div>
             </div>
           </div>
+
+          <AgentAppointmentsPanel agentId={row.agentId} dateStr={dateStr} enteredBy={user.id} />
 
           {row.error && (
             <p className="text-sm text-error-600 flex items-center gap-1">

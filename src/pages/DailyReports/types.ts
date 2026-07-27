@@ -105,3 +105,29 @@ export interface StatsTreeNode {
   ownEntries: DailyAgentStatRow[];
   children: StatsTreeNode[];
 }
+
+// ── مواعيد الإيجنت وتسجيل الموقع ("مواعيدي") ─────────────────────────────
+// ميزة مستقلة عن نظام daily_agent_stats أعلاه: الإيجنت/الوسيط الحر نفسه
+// بيسجّل معاده (اسم عميل + وقت)، وبعدين يدوس زرار وقت وصوله الفعلي
+// فيتسجّل موقعه الجغرافي مربوطًا بنفس المعاد.
+
+/** صف مخزَّن فعليًا فى agent_appointment_checkins */
+export interface AgentAppointmentCheckin {
+  id: string;
+  agent_id: string;
+  entered_by: string;
+  client_name: string;
+  appointment_time: string; // ISO timestamp
+  latitude: number | null;
+  longitude: number | null;
+  checked_in_at: string | null; // ISO timestamp، null لحد ما يتسجل الموقع
+  created_at: string;
+  updated_at: string;
+}
+
+/** إدخال معاد جديد — رئيس المجموعة لإيجنت من فريقه، أو الوسيط الحر لنفسه */
+export interface CreateAppointmentCheckinInput {
+  agentId: string;
+  clientName: string;
+  appointmentTime: string; // ISO timestamp
+}
