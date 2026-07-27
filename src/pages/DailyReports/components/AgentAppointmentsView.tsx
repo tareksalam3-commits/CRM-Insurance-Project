@@ -62,8 +62,11 @@ export function AgentAppointmentsView({ agentId, role }: AgentAppointmentsViewPr
   const [addError, setAddError] = useState<string | null>(null);
 
   const dateStr = formatDateInput(date);
-  const dayStart = `${dateStr}T00:00:00`;
-  const dayEnd = `${dateStr}T23:59:59`;
+  // بنبني حدود اليوم بتوقيت الجهاز المحلي (بنفس منطق تحويل appointmentTime
+  // وقت الإنشاء)، مش نص خام بيتفسّر كـ UTC فى قاعدة البيانات — عشان مواعيد
+  // قريبة من منتصف الليل متقعش فى اليوم الغلط
+  const dayStart = new Date(`${dateStr}T00:00:00`).toISOString();
+  const dayEnd = new Date(`${dateStr}T23:59:59.999`).toISOString();
 
   // الوسيط الحر بيقدر يضيف دايمًا. الإيجنت العادي بيقدر يضيف بس لو يومه ده
   // متعلّم outdoor عند رئيس مجموعته
