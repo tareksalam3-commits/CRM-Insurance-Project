@@ -30,7 +30,7 @@ export function DailyReports() {
     return (
       <div className="space-y-4">
         <PageHeader title="مواعيدي" subtitle="سجّل مواعيدك، وثبّت موقعك عند وصولك لكل معاد" />
-        <AgentAppointmentsView agentId={user.id} canAddOwn />
+        <AgentAppointmentsView agentId={user.id} role="premium_agent" />
       </div>
     );
   }
@@ -67,7 +67,7 @@ export function DailyReports() {
         </div>
 
         {agentTab === 'appointments' ? (
-          <AgentAppointmentsView agentId={user.id} canAddOwn={false} />
+          <AgentAppointmentsView agentId={user.id} role="agent" />
         ) : (
           <AgentOwnStatsView agentId={user.id} roleLevel={roleLevel} />
         )}

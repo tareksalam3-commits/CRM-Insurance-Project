@@ -260,7 +260,7 @@ export function StatsEntryForm() {
             </div>
           </div>
 
-          <AgentAppointmentsPanel agentId={row.agentId} dateStr={dateStr} enteredBy={user.id} />
+          <AgentAppointmentsPanel agentId={row.agentId} dateStr={dateStr} enteredBy={user.id} isOutdoor={row.isOutdoor} />
 
           {row.error && (
             <p className="text-sm text-error-600 flex items-center gap-1">

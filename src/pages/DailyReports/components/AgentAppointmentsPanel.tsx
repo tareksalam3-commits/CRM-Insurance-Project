@@ -9,13 +9,17 @@ interface AgentAppointmentsPanelProps {
   /** تاريخ اليوم المعروض بصيغة yyyy-MM-dd (نفس تاريخ التقرير المختار فوق) */
   dateStr: string;
   enteredBy: string;
+  /** لو اليوم ده متعلّم outdoor (مفيش مواعيد محددة سلفًا)، الإيجنت نفسه هو
+   * من هيدخل الأماكن اللي راحها من تطبيقه — رئيس المجموعة مش محتاج يدخل
+   * مواعيد هنا */
+  isOutdoor: boolean;
 }
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function AgentAppointmentsPanel({ agentId, dateStr, enteredBy }: AgentAppointmentsPanelProps) {
+export function AgentAppointmentsPanel({ agentId, dateStr, enteredBy, isOutdoor }: AgentAppointmentsPanelProps) {
   const [appointments, setAppointments] = useState<AgentAppointmentCheckin[]>([]);
   const [loading, setLoading] = useState(true);
   const [clientName, setClientName] = useState('');
@@ -107,30 +111,36 @@ export function AgentAppointmentsPanel({ agentId, dateStr, enteredBy }: AgentApp
             </ul>
           )}
 
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1 flex-1 min-w-[140px]">
-              <label className="input-label">اسم العميل</label>
-              <input
-                type="text"
-                className="input-field"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="اسم العميل"
-              />
+          {isOutdoor ? (
+            <p className="text-sm text-secondary-500">
+              اليوم ده متعلّم outdoor — الإيجنت هو نفسه اللي هيدخل الأماكن اللي راحها ويثبت موقعه عليها من تطبيقه.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1 flex-1 min-w-[140px]">
+                <label className="input-label">اسم العميل</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="اسم العميل"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="input-label">وقت المعاد</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-secondary btn-sm flex items-center gap-1" disabled={saving} onClick={handleAdd}>
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} إضافة معاد
+              </button>
             </div>
-            <div className="space-y-1">
-              <label className="input-label">وقت المعاد</label>
-              <input
-                type="time"
-                className="input-field"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-              />
-            </div>
-            <button className="btn btn-secondary btn-sm flex items-center gap-1" disabled={saving} onClick={handleAdd}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} إضافة معاد
-            </button>
-          </div>
+          )}
 
           {error && <p className="text-sm text-error-600">{error}</p>}
         </>

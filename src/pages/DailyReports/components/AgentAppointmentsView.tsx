@@ -3,6 +3,7 @@ import { Loader2, Clock, CheckCircle2, AlertCircle, Navigation, Plus, Trash2, Ex
 
 import {
   fetchAgentAppointments,
+  fetchIsOutdoorDay,
   checkInAppointment,
   createAppointment,
   deleteAppointment,
@@ -12,9 +13,11 @@ import type { AgentAppointmentCheckin } from '../types';
 
 interface AgentAppointmentsViewProps {
   agentId: string;
-  /** الوسيط الحر فقط بيقدر يضيف مواعيده لنفسه — الإيجنت العادي بيشوف بس
-   * المواعيد اللي رئيس مجموعته دخّلها له */
-  canAddOwn: boolean;
+  /** الوسيط الحر بيقدر يضيف مواعيده لنفسه دايمًا (مالوش رئيس مجموعة يدخل
+   * له). الإيجنت العادي بيقدر يضيف بنفسه بس لو يومه ده متعلّم "outdoor"
+   * عند رئيس مجموعته (يعني مفيش مواعيد محددة سلفًا يدخلها له) — غير كده
+   * بيشوف بس المواعيد اللي رئيس مجموعته دخّلها له */
+  role: 'agent' | 'premium_agent';
 }
 
 function formatTime(iso: string): string {
@@ -45,10 +48,11 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
   });
 }
 
-export function AgentAppointmentsView({ agentId, canAddOwn }: AgentAppointmentsViewProps) {
+export function AgentAppointmentsView({ agentId, role }: AgentAppointmentsViewProps) {
   const [date, setDate] = useState(() => new Date());
   const [appointments, setAppointments] = useState<AgentAppointmentCheckin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOutdoorDay, setIsOutdoorDay] = useState(false);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<{ id: string; message: string } | null>(null);
 
@@ -61,16 +65,24 @@ export function AgentAppointmentsView({ agentId, canAddOwn }: AgentAppointmentsV
   const dayStart = `${dateStr}T00:00:00`;
   const dayEnd = `${dateStr}T23:59:59`;
 
+  // الوسيط الحر بيقدر يضيف دايمًا. الإيجنت العادي بيقدر يضيف بس لو يومه ده
+  // متعلّم outdoor عند رئيس مجموعته
+  const canAddOwn = role === 'premium_agent' || isOutdoorDay;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchAgentAppointments(agentId, dayStart, dayEnd);
-      setAppointments(data);
+      const [appointmentsData, outdoorStatus] = await Promise.all([
+        fetchAgentAppointments(agentId, dayStart, dayEnd),
+        role === 'agent' ? fetchIsOutdoorDay(agentId, dateStr) : Promise.resolve(false),
+      ]);
+      setAppointments(appointmentsData);
+      setIsOutdoorDay(outdoorStatus);
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, dayStart, dayEnd]);
+  }, [agentId, dayStart, dayEnd, dateStr, role]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -137,15 +149,15 @@ export function AgentAppointmentsView({ agentId, canAddOwn }: AgentAppointmentsV
       {canAddOwn && (
         <div className="card space-y-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-secondary-500 uppercase tracking-wide">
-            <Plus className="w-3.5 h-3.5" /> إضافة معاد
+            <Plus className="w-3.5 h-3.5" /> {role === 'agent' ? 'إضافة مكان تمت زيارته (عمل ميدانى outdoor)' : 'إضافة معاد'}
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1 flex-1 min-w-[140px]">
-              <label className="input-label">اسم العميل</label>
+              <label className="input-label">{role === 'agent' ? 'اسم العميل / المكان' : 'اسم العميل'}</label>
               <input type="text" className="input-field" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="اسم العميل" />
             </div>
             <div className="space-y-1">
-              <label className="input-label">وقت المعاد</label>
+              <label className="input-label">الوقت</label>
               <input type="time" className="input-field" value={time} onChange={(e) => setTime(e.target.value)} />
             </div>
             <button className="btn btn-secondary btn-sm flex items-center gap-1" disabled={addSaving} onClick={handleAdd}>
@@ -156,12 +168,20 @@ export function AgentAppointmentsView({ agentId, canAddOwn }: AgentAppointmentsV
         </div>
       )}
 
+      {!loading && role === 'agent' && !isOutdoorDay && appointments.length === 0 && (
+        <div className="card text-sm text-secondary-500">
+          مفيش مواعيد مسجّلة لهذا اليوم حتى الآن. لو كان عملك ميدانى (outdoor) بدون مواعيد محددة، اطلب من رئيس مجموعتك يعلّم اليوم ده كـ outdoor عشان تقدر تدخل الأماكن اللي رحتها بنفسك.
+        </div>
+      )}
+
       {loading ? (
         <div className="card text-center py-8 text-secondary-400">
           <Loader2 className="w-5 h-5 animate-spin inline-block ms-2" /> جارِ التحميل...
         </div>
       ) : appointments.length === 0 ? (
-        <div className="card text-center py-8 text-secondary-400">لا توجد مواعيد مسجّلة لهذا اليوم</div>
+        role === 'agent' && !isOutdoorDay ? null : (
+          <div className="card text-center py-8 text-secondary-400">لا توجد مواعيد مسجّلة لهذا اليوم</div>
+        )
       ) : (
         <div className="space-y-3">
           {appointments.map((a) => (

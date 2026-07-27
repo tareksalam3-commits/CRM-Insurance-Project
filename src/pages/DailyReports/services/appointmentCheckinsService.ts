@@ -28,6 +28,27 @@ export async function fetchAgentAppointments(
   return result.data;
 }
 
+/** هل هذا اليوم مُعلَّم "outdoor" (مفيش مواعيد محددة سلفًا) لهذا الإيجنت —
+ * لو كذلك، الإيجنت نفسه هو من يدخل الأماكن اللي راحها، مش رئيس مجموعته.
+ * بترجع false لو لسه رئيس المجموعة ما دخلش إحصائيات اليوم ده أصلاً */
+export async function fetchIsOutdoorDay(agentId: string, dateStr: string): Promise<boolean> {
+  const result = await dalRead(
+    `appointmentCheckins:isOutdoor:${agentId}:${dateStr}`,
+    async () => {
+      const { data, error } = await supabase
+        .from('daily_agent_stats')
+        .select('is_outdoor')
+        .eq('agent_id', agentId)
+        .eq('report_date', dateStr)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean(data?.is_outdoor);
+    },
+    { emptyValue: false },
+  );
+  return result.data;
+}
+
 /** إضافة معاد جديد لإيجنت (اسم عميل + وقت)، بدون أي موقع مسجَّل بعد —
  * enteredBy هو رئيس المجموعة العادةً، أو الإيجنت نفسه لو وسيط حر */
 export async function createAppointment(
