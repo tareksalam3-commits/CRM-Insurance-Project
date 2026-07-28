@@ -464,12 +464,12 @@ export function buildMonthlyClosingSummary(
       // الوظيفي الحقيقي "رئيس المجموعة"، وعمود "الوكيل" يتكتب فيه
       // "إنتاج شخصي" بدل تكرار اسمه فيه.
       if (agentRole === 'group_leader') {
-        return { supervisorName: user.name, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
+        return { supervisorName: user.name, supervisorRole: userRole, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
       }
       // صاحب الإنتاج نفسه مراقب (اللي بيطبع التقرير) وباع/حصّل بنفسه —
       // اسمه أصلاً فى عمود المراقب، والعمودين التاليين "إنتاج شخصي".
       if (ownerLevel <= 4) {
-        return { supervisorName: agentName, groupLeaderName: PERSONAL_PRODUCTION_LABEL, agentName: PERSONAL_PRODUCTION_LABEL };
+        return { supervisorName: agentName, supervisorRole: agentRole!, groupLeaderName: PERSONAL_PRODUCTION_LABEL, agentName: PERSONAL_PRODUCTION_LABEL };
       }
 
       let groupLeaderName = 'وكلاء مباشرون';
@@ -480,53 +480,57 @@ export function buildMonthlyClosingSummary(
         if (roleOf(cur) === 'group_leader') { groupLeaderName = m.name; break; }
         cur = managerOf(cur);
       }
-      return { supervisorName: user.name, groupLeaderName, agentName };
+      return { supervisorName: user.name, supervisorRole: userRole, groupLeaderName, agentName };
     }
 
     // صاحب الإنتاج نفسه رئيس مجموعة (إنتاج شخصي) فى تقرير مستخدم أعلى منه —
     // نفس الفكرة: اسمه فى عمود "رئيس المجموعة"، وعمود "الوكيل" = "إنتاج شخصي".
     if (agentRole === 'group_leader') {
       let supervisorName = '';
+      let supervisorRole: UserRole = userRole;
       let cur = managerOf(agentId);
       while (cur) {
         const m = usersMap.get(cur);
         if (!m) break;
-        if (!supervisorName && getRoleLevel(roleOf(cur)) <= 4) supervisorName = m.name;
+        const mRole = roleOf(cur);
+        if (!supervisorName && getRoleLevel(mRole) <= 4) { supervisorName = m.name; supervisorRole = mRole; }
         if (cur === user.id) break;
         cur = managerOf(cur);
       }
-      if (!supervisorName) supervisorName = user.name;
-      return { supervisorName, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
+      if (!supervisorName) { supervisorName = user.name; supervisorRole = userRole; }
+      return { supervisorName, supervisorRole, groupLeaderName: agentName, agentName: PERSONAL_PRODUCTION_LABEL };
     }
 
     // صاحب الإنتاج نفسه مراقب (أو مستوى إدارى أعلى) — اسمه فى عمود
     // المراقب، والعمودين التاليين "إنتاج شخصي".
     if (ownerLevel <= 4) {
-      return { supervisorName: agentName, groupLeaderName: PERSONAL_PRODUCTION_LABEL, agentName: PERSONAL_PRODUCTION_LABEL };
+      return { supervisorName: agentName, supervisorRole: agentRole!, groupLeaderName: PERSONAL_PRODUCTION_LABEL, agentName: PERSONAL_PRODUCTION_LABEL };
     }
 
     let groupLeaderName = '';
     let supervisorName = '';
+    let supervisorRole: UserRole = userRole;
     let cur = agent ? managerOf(agentId) : null;
     while (cur) {
       const m = usersMap.get(cur);
       if (!m) break;
       const mRole = roleOf(cur);
       if (!groupLeaderName && mRole === 'group_leader') groupLeaderName = m.name;
-      if (!supervisorName && mRole === 'supervisor') supervisorName = m.name;
+      if (!supervisorName && mRole === 'supervisor') { supervisorName = m.name; supervisorRole = mRole; }
       if (cur === user.id) break;
       cur = managerOf(cur);
     }
-    if (!supervisorName) supervisorName = user.name;
+    if (!supervisorName) { supervisorName = user.name; supervisorRole = userRole; }
     if (!groupLeaderName) groupLeaderName = 'وكلاء مباشرون';
-    return { supervisorName, groupLeaderName, agentName };
+    return { supervisorName, supervisorRole, groupLeaderName, agentName };
   };
 
   const detailRows: PrintDetailRow[] = payments.map((p) => {
     const ownerId = p.installment.policy.owner_id;
-    const { supervisorName, groupLeaderName, agentName } = resolveHierarchyNames(ownerId);
+    const { supervisorName, supervisorRole, groupLeaderName, agentName } = resolveHierarchyNames(ownerId);
     return {
       supervisorName,
+      supervisorRole,
       groupLeaderName,
       agentName,
       customerName: p.installment.policy.customer.name,
