@@ -143,18 +143,24 @@ export function PrintReport({
 }) {
   const { branding } = useSettings();
 
-  // كل مراقب عام (غير الأول) بيبدأ صفحة مطبوعة جديدة له لوحده، فبنحسب هنا
-  // رقم الصفحة الفعلي لكل صف ومجموع صفحات التجميعات كلها — عشان تذييل كل
-  // صفحة ياخد رقمه الصح، وصفحات التفاصيل (بعد التجميعات) تبدأ ترقيمها من
-  // بعد آخر صفحة تجميعات فعلية، مش من رقم 2 ثابت.
+  // صفحة التجميعات بقت دايمًا صفحة واحدة بس (مهما كان عدد المراقبين
+  // العامين/المراقبين/رؤساء المجموعات)، فبنحسب هنا "مستوى تصغير" تلقائي
+  // (0 = الحجم العادي، 1/2/3 = أصغر فأصغر) على حسب إجمالي عدد الصفوف
+  // الفعلي اللي هتتعرض، عشان الجداول والخطوط تصغر وتسّع فى الصفحة بدل ما
+  // تتقسم على أكتر من صفحة. كل مراقب بياخد صفين ثابتين (اسمه + صف
+  // الإجمالي) بالإضافة لصف لكل رئيس مجموعة تابع له (أو صف واحد لو مفيش
+  // رؤساء مجموعات، زي رسالة "لا توجد مجموعات").
   const visibleSupervisors = printSupervisors.filter((sv) => !sv.isSelfReport);
-  const aggPageNumbers: number[] = [];
-  let aggPage = 1;
-  visibleSupervisors.forEach((sv, idx) => {
-    if (idx > 0 && sv.role === 'general_supervisor') aggPage += 1;
-    aggPageNumbers.push(aggPage);
-  });
-  const totalAggPages = aggPage;
+  const totalAggRows = visibleSupervisors.reduce(
+    (sum, sv) => sum + 2 + Math.max(sv.groupLeaders.length, 1),
+    0
+  );
+  const aggTier = totalAggRows <= 16 ? 0 : totalAggRows <= 26 ? 1 : totalAggRows <= 40 ? 2 : 3;
+  const aggTierClass = aggTier === 0 ? '' : ` pr-agg-tier-${aggTier}`;
+  const aggBlockGap = [10, 6, 4, 2][aggTier];
+  // صفحة التجميعات صفحة واحدة دايمًا الآن، فصفحات التفاصيل بعدها بتبدأ
+  // ترقيمها من صفحة 2 ثابتة.
+  const totalAggPages = 1;
 
   return (
     <div className="hidden print:block print-report" dir="rtl">
@@ -234,6 +240,49 @@ export function PrintReport({
           font-weight: 800; font-size: 15px; color: #14532d;
           border-top: 1px dashed #86efac; margin-top: 5px; padding-top: 8px;
         }
+
+        /* تصغير تلقائي لصفحة التجميعات حسب حجم البيانات (محسوب فى
+           الكومبوننت من عدد الصفوف الفعلي عبر aggTier)، عشان الصفحة
+           تفضل صفحة واحدة بس مهما زاد عدد المراقبين/رؤساء المجموعات،
+           بدل ما تتقسم على أكتر من صفحة. */
+        .print-report .pr-agg-tier-1 { font-size: 10px; }
+        .print-report .pr-agg-tier-1 .pr-title { font-size: 16px; }
+        .print-report .pr-agg-tier-1 .pr-sub { font-size: 10px; margin-bottom: 8px; }
+        .print-report .pr-agg-tier-1 .pr-meta { font-size: 10px; padding: 5px 10px; margin-bottom: 8px; }
+        .print-report .pr-agg-tier-1 .pr-sup-name { font-size: 11px; }
+        .print-report .pr-agg-tier-1 .pr-role-note { font-size: 9px; }
+        .print-report .pr-agg-tier-1 th, .print-report .pr-agg-tier-1 td { padding: 4px 6px; }
+        .print-report .pr-agg-tier-1 .pr-grand-box { padding: 8px 12px; margin-top: 10px; }
+        .print-report .pr-agg-tier-1 .pr-grand-box .row { font-size: 11px; padding: 2px 0; }
+        .print-report .pr-agg-tier-1 .pr-grand-box .row.total { font-size: 13px; padding-top: 6px; }
+
+        .print-report .pr-agg-tier-2 { font-size: 8.5px; }
+        .print-report .pr-agg-tier-2 .pr-company img { width: 38px; height: 38px; }
+        .print-report .pr-agg-tier-2 .pr-company span { font-size: 15px; }
+        .print-report .pr-agg-tier-2 .pr-title { font-size: 13px; margin-bottom: 1px; }
+        .print-report .pr-agg-tier-2 .pr-sub { font-size: 8.5px; margin-bottom: 5px; }
+        .print-report .pr-agg-tier-2 .pr-title-rule { margin: 4px auto 8px; }
+        .print-report .pr-agg-tier-2 .pr-meta { font-size: 8.5px; padding: 4px 8px; margin-bottom: 5px; }
+        .print-report .pr-agg-tier-2 .pr-sup-name { font-size: 9.5px; }
+        .print-report .pr-agg-tier-2 .pr-role-note { font-size: 8px; }
+        .print-report .pr-agg-tier-2 th, .print-report .pr-agg-tier-2 td { padding: 2px 4px; }
+        .print-report .pr-agg-tier-2 .pr-grand-box { padding: 6px 10px; margin-top: 6px; }
+        .print-report .pr-agg-tier-2 .pr-grand-box .row { font-size: 9.5px; padding: 1px 0; }
+        .print-report .pr-agg-tier-2 .pr-grand-box .row.total { font-size: 11px; padding-top: 4px; margin-top: 3px; }
+
+        .print-report .pr-agg-tier-3 { font-size: 7.2px; }
+        .print-report .pr-agg-tier-3 .pr-company img { width: 30px; height: 30px; }
+        .print-report .pr-agg-tier-3 .pr-company span { font-size: 12px; }
+        .print-report .pr-agg-tier-3 .pr-title { font-size: 11px; margin-bottom: 1px; }
+        .print-report .pr-agg-tier-3 .pr-sub { font-size: 7.2px; margin-bottom: 3px; }
+        .print-report .pr-agg-tier-3 .pr-title-rule { height: 2px; width: 46px; margin: 3px auto 5px; }
+        .print-report .pr-agg-tier-3 .pr-meta { font-size: 7.2px; padding: 3px 6px; margin-bottom: 3px; }
+        .print-report .pr-agg-tier-3 .pr-sup-name { font-size: 8px; }
+        .print-report .pr-agg-tier-3 .pr-role-note { font-size: 7px; }
+        .print-report .pr-agg-tier-3 th, .print-report .pr-agg-tier-3 td { padding: 1px 3px; }
+        .print-report .pr-agg-tier-3 .pr-grand-box { padding: 4px 8px; margin-top: 4px; }
+        .print-report .pr-agg-tier-3 .pr-grand-box .row { font-size: 8px; padding: 0; }
+        .print-report .pr-agg-tier-3 .pr-grand-box .row.total { font-size: 9.5px; padding-top: 3px; margin-top: 2px; }
 
         /* جدول التفاصيل: عنوان التقرير ورأس الجدول يتكرران تلقائياً في كل صفحة مطبوعة */
         .print-report .pr-detail-table thead { display: table-header-group; }
@@ -315,100 +364,79 @@ export function PrintReport({
         </>
       )}
 
-      {/* ══ صفحة 1: التجميعات (هيكل إداري بحت — بدون تفاصيل عملاء) ══ */}
-      <div className="pr-company">
-        {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
-        <span>{branding.company_name}</span>
-      </div>
-      <div className="pr-title">تقرير تقفيل الشهر</div>
-      <div className="pr-sub">صفحة التجميعات</div>
-      <div className="pr-title-rule" />
-      <div className="pr-meta">
-        <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
-        <span><b>الشهر:</b> {monthLabel}</span>
-        {branchName && <span><b>الفرع:</b> {branchName}</span>}
-        <span><b>تاريخ التقفيل:</b> {closingDate}</span>
-      </div>
+      {/* ══ صفحة 1: التجميعات (هيكل إداري بحت — بدون تفاصيل عملاء) ══
+          دايمًا صفحة واحدة بس — كل المراقبين ورؤساء مجموعاتهم بيترسموا
+          ورا بعض من غير أي فاصل صفحات، وحجم الجداول/الخطوط بيصغر تلقائيًا
+          (pr-agg-tier-1/2/3) على حسب إجمالي عدد الصفوف عشان يفضل الكل
+          داخل صفحة واحدة. */}
+      <div className={`pr-agg-section${aggTierClass}`}>
+        <div className="pr-company">
+          {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
+          <span>{branding.company_name}</span>
+        </div>
+        <div className="pr-title">تقرير تقفيل الشهر</div>
+        <div className="pr-sub">صفحة التجميعات</div>
+        <div className="pr-title-rule" />
+        <div className="pr-meta">
+          <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
+          <span><b>الشهر:</b> {monthLabel}</span>
+          {branchName && <span><b>الفرع:</b> {branchName}</span>}
+          <span><b>تاريخ التقفيل:</b> {closingDate}</span>
+        </div>
 
-      {visibleSupervisors.map((sv, idx) => {
-        const startsNewPage = idx > 0 && sv.role === 'general_supervisor';
-        return (
-          <div key={sv.id}>
-            {startsNewPage && (
-              <div className="pr-footer">
-                {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {aggPageNumbers[idx - 1]}
-              </div>
-            )}
-            <div className={startsNewPage ? 'pr-page-break' : undefined} style={{ marginBottom: 10 }}>
-              {startsNewPage && (
-                <>
-                  <div className="pr-company">
-                    {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
-                    <span>{branding.company_name}</span>
-                  </div>
-                  <div className="pr-title">تقرير تقفيل الشهر</div>
-                  <div className="pr-sub">صفحة التجميعات</div>
-                  <div className="pr-title-rule" />
-                  <div className="pr-meta">
-                    <span><b>{supervisorRoleLabel}:</b> {supervisorName}</span>
-                    <span><b>الشهر:</b> {monthLabel}</span>
-                    {branchName && <span><b>الفرع:</b> {branchName}</span>}
-                    <span><b>تاريخ التقفيل:</b> {closingDate}</span>
-                  </div>
-                </>
-              )}
-              <div className="pr-sup-name" style={{ margin: '8px 0 4px' }}>
-                {ROLE_LABELS[sv.role]}: {sv.name}
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: '32%' }}>البيان</th>
-                    <th>إجمالي الجديد</th>
-                    <th>إجمالي التحصيل</th>
-                    <th>الإجمالي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sv.groupLeaders.map((gl) => (
-                    <tr key={gl.id} className="pr-group-row">
-                      <td>
-                        {gl.name}
-                        {gl.roleNote && <div className="pr-role-note">({gl.roleNote})</div>}
-                      </td>
-                      <td>{fmt(gl.production)}</td>
-                      <td>{fmt(gl.collection)}</td>
-                      <td>{fmt(gl.total)}</td>
-                    </tr>
-                  ))}
-                  {sv.groupLeaders.length === 0 && (
-                    <tr><td colSpan={4}>لا توجد مجموعات لهذا المراقب</td></tr>
-                  )}
-                  <tr className="pr-totals-row">
-                    <td>إجمالي {sv.name}</td>
-                    <td>{fmt(sv.production)}</td>
-                    <td>{fmt(sv.collection)}</td>
-                    <td>{fmt(sv.total)}</td>
-                  </tr>
-                </tbody>
-              </table>
+        {visibleSupervisors.map((sv) => (
+          <div key={sv.id} style={{ marginBottom: aggBlockGap }}>
+            <div className="pr-sup-name" style={{ margin: `${aggBlockGap - 2}px 0 4px` }}>
+              {ROLE_LABELS[sv.role]}: {sv.name}
             </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '32%' }}>البيان</th>
+                  <th>إجمالي الجديد</th>
+                  <th>إجمالي التحصيل</th>
+                  <th>الإجمالي</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sv.groupLeaders.map((gl) => (
+                  <tr key={gl.id} className="pr-group-row">
+                    <td>
+                      {gl.name}
+                      {gl.roleNote && <div className="pr-role-note">({gl.roleNote})</div>}
+                    </td>
+                    <td>{fmt(gl.production)}</td>
+                    <td>{fmt(gl.collection)}</td>
+                    <td>{fmt(gl.total)}</td>
+                  </tr>
+                ))}
+                {sv.groupLeaders.length === 0 && (
+                  <tr><td colSpan={4}>لا توجد مجموعات لهذا المراقب</td></tr>
+                )}
+                <tr className="pr-totals-row">
+                  <td>إجمالي {sv.name}</td>
+                  <td>{fmt(sv.production)}</td>
+                  <td>{fmt(sv.collection)}</td>
+                  <td>{fmt(sv.total)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        );
-      })}
+        ))}
 
-      {visibleSupervisors.length === 0 && (
-        <p style={{ textAlign: 'center', margin: '20px 0' }}>لا توجد بيانات لهذا الشهر</p>
-      )}
+        {visibleSupervisors.length === 0 && (
+          <p style={{ textAlign: 'center', margin: '20px 0' }}>لا توجد بيانات لهذا الشهر</p>
+        )}
 
-      <div className="pr-grand-box">
-        <div className="row"><span>إجمالي {supervisorRoleLabel} — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
-        <div className="row"><span>إجمالي {supervisorRoleLabel} — التحصيل</span><span>{fmt(grandCollection)}</span></div>
-        <div className="row total"><span>إجمالي {supervisorRoleLabel} — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
-      </div>
+        <div className="pr-grand-box">
+          <div className="row"><span>إجمالي {supervisorRoleLabel} — الإنتاج الجديد</span><span>{fmt(grandProduction)}</span></div>
+          <div className="row"><span>إجمالي {supervisorRoleLabel} — التحصيل</span><span>{fmt(grandCollection)}</span></div>
+          <div className="row total"><span>إجمالي {supervisorRoleLabel} — الإجمالي الكلي</span><span>{fmt(grandTotal)}</span></div>
+        </div>
 
-      <div className="pr-footer">
-        {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {totalAggPages}
+        <div className="pr-footer">
+          {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة 1
+        </div>
       </div>
 
       {/* ══ الصفحة الثانية وما بعدها: عمليات السداد، مقسّمة لصفحات مستقلة ══

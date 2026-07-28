@@ -291,19 +291,21 @@ body {
     max-width: none !important;
   }
 
-  /* أي عنصر غير مخصص صراحة للطباعة يُخفى كإجراء احترازي شامل */
-  body * {
-    visibility: hidden;
-  }
-  .print-report, .print-report * {
-    visibility: visible;
+  /* أي عنصر غير مخصص صراحة للطباعة يُخفى كإجراء احترازي شامل.
+     ملحوظة مهمة: كنا بنستخدم visibility:hidden + position:absolute
+     لإظهار .print-report فوق باقي الصفحة. المشكلة إن visibility:hidden
+     بيسيب العنصر المخفي شاغل مساحته الطبيعية فى تدفق الصفحة، فبعض
+     متصفحات الموبايل كانت بتحسب ارتفاع/عدد صفحات الطباعة بناءً على
+     محتوى الشاشة المخفي (اللي غالبًا أقصر من التقرير الفعلي) بدل تقرير
+     الطباعة الحقيقي، فيطبع جزء من التقرير بس ويسيب الباقي فاضي/أبيض.
+     الحل: display:none (بيشيل العنصر فعليًا من حساب الارتفاع)، مع
+     :has() عشان نسيب أي عنصر "أب" لتقرير الطباعة (main، حاوية الصفحة..)
+     ظاهر بشكله الطبيعى، فيتحسب الارتفاع صح على أى جهاز. */
+  body *:not(.print-report):not(.print-report *):not(:has(.print-report)) {
+    display: none !important;
   }
   .print-report {
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    width: 100%;
+    display: block !important;
   }
 
   /* جداول "تفاصيل السجلات" فى تقارير صفحة الإحصائيات الشاملة كانت بتتقص من
