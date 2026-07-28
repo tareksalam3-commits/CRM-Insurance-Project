@@ -11,7 +11,7 @@ import { PERSONAL_PRODUCTION_LABEL } from '../business/monthlyClosingCalculator'
 // 2) ترويسة كل صفحة (اسم المراقب + الشهر) تتكرر فعليًا فوق كل صفحة، لأنها
 //    بقت جزء من <thead> جدول مستقل لكل صفحة، مش اعتماد على تكرار تلقائي
 //    لجدول واحد طويل ممكن ما يشتغلش صح مع كل المتصفحات.
-const DETAIL_ROWS_PER_PAGE = 19;
+const DETAIL_ROWS_PER_PAGE = 16;
 
 // بعض الصفوف بتاخد مساحة أطول من صف عادي فعليًا وقت الطباعة (لو اسم
 // العميل طويل وبيتلف على أكتر من سطر جوه عمود "العميل" مثلاً)، فبرضو ممكن
@@ -121,6 +121,18 @@ function chunkPageIntoAgentBlocks(entries: PrintDetailEntry[]): PrintDetailEntry
   }
   if (buffer.length > 0) chunks.push(buffer);
   return chunks;
+}
+
+// بيرجع بيانات المراقب/رئيس المجموعة/الوكيل بتاعة أي مجموعة (block) —
+// بناخدها من صف الإجمالي لو موجود، أو من أول صف عادي لو المجموعة اتقسّمت
+// على أكتر من صفحة (حالة نادرة: وكيل عملياته لوحدها أكبر من صفحة). ده مجرد
+// قراءة بيانات موجودة أصلاً فى الصفوف، من غير أي حساب جديد.
+function blockContext(block: PrintDetailEntry[]): { supervisorName: string; groupLeaderName: string; agentName: string } {
+  const withFields = block.find((e) => e.kind === 'subtotal') ?? block.find((e) => e.kind === 'row');
+  if (!withFields) return { supervisorName: '', groupLeaderName: '', agentName: '' };
+  return withFields.kind === 'subtotal'
+    ? withFields
+    : withFields.row;
 }
 
 // ─── Print Report (structured, print-only) ────────────────
@@ -301,6 +313,29 @@ export function PrintReport({
           border: 1px solid #bbf7d0; font-size: 11.5px;
         }
 
+        /* تسلسل هرمي واضح جوه صفحات التفاصيل: مراقب ← رئيس مجموعة ← وكيل،
+           كل مستوى بلون/إزاحة مختلفة عشان يتفهم من أول نظرة مين تابع لمين. */
+        .print-report .pr-detail-sup-header td {
+          background: #15803d !important; color: #fff; font-weight: 800;
+          text-align: right; padding: 6px 10px; font-size: 12px;
+        }
+        .print-report .pr-detail-gl-header td {
+          background: #dcfce7 !important; color: #14532d; font-weight: 700;
+          text-align: right; padding: 5px 10px 5px 10px; padding-right: 22px; font-size: 11px;
+        }
+        .print-report .pr-detail-agent-header td {
+          background: #f3f4f6 !important; color: #374151; font-weight: 700;
+          text-align: right; padding-right: 34px; font-size: 10.5px;
+        }
+        /* شارة ملوّنة تفرّق بصريًا بين عمليات "الجديد" و"التحصيل" بدل ما
+           تبقى مجرد كلمة نص عادية زي باقي الأعمدة. */
+        .print-report .pr-type-badge {
+          display: inline-block; padding: 1.5px 10px; border-radius: 10px;
+          font-weight: 700; font-size: 10px;
+        }
+        .print-report .pr-type-new { background: #dcfce7; color: #15803d; }
+        .print-report .pr-type-collection { background: #dbeafe; color: #1d4ed8; }
+
         /* تذييل ثابت أسفل كل صفحة مطبوعة على حدة. بدل الاعتماد على
            عنصر position: fixed واحد بيتكرر تلقائيًا (اللي بيديله رقم صفحة
            غلط لأن الـ counter بيتزوّد مرة واحدة بس مهما عدد الصفحات)،
@@ -452,7 +487,7 @@ export function PrintReport({
               <table className="pr-detail-table">
                 <thead>
                   <tr className="pr-detail-title-row">
-                    <th colSpan={8}>
+                    <th colSpan={5}>
                       <div className="pr-company-flat">
                         {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
                         <span>{branding.company_name}</span>
@@ -461,14 +496,11 @@ export function PrintReport({
                     </th>
                   </tr>
                   <tr className="pr-detail-meta-row">
-                    <th colSpan={3}>{supervisorRoleLabel}: {supervisorName}</th>
-                    <th colSpan={3}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
-                    <th colSpan={2}>تفاصيل عمليات السداد</th>
+                    <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
+                    <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
+                    <th colSpan={1}>تفاصيل عمليات السداد</th>
                   </tr>
                   <tr>
-                    <th>المراقب</th>
-                    <th>رئيس المجموعة</th>
-                    <th>الوكيل</th>
                     <th>العميل</th>
                     <th>آخر 6 أرقام الوثيقة</th>
                     <th>رقم القسط</th>
@@ -477,7 +509,7 @@ export function PrintReport({
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colSpan={8}>لا توجد عمليات سداد مسجّلة لهذا الشهر</td></tr>
+                  <tr><td colSpan={5}>لا توجد عمليات سداد مسجّلة لهذا الشهر</td></tr>
                 </tbody>
               </table>
               <div className="pr-footer">
@@ -490,12 +522,18 @@ export function PrintReport({
         return detailPages.map((rows, pageIdx) => {
           const pageNumber = pageIdx + totalAggPages + 1; // بعد كل صفحات التجميعات (ممكن تبقى أكتر من صفحة لو فيه أكتر من مراقب عام)
           const isLastPage = pageIdx === detailPages.length - 1;
+          // بنصفّر السياق (آخر مراقب/رئيس مجموعة ظاهر) فى أول كل صفحة، عشان
+          // أول مجموعة فى أي صفحة جديدة تظهر ترويستها كاملة دايمًا — القارئ
+          // لازم يعرف "أنا تحت مين" من أول نظرة على الصفحة، حتى لو الاستمرارية
+          // من نفس المراقب/رئيس المجموعة اللي انتهت بيه الصفحة اللي قبلها.
+          let lastSupervisor = '';
+          let lastGroupLeader = '';
           return (
             <div className="pr-page-break" key={pageIdx}>
               <table className="pr-detail-table">
                 <thead>
                   <tr className="pr-detail-title-row">
-                    <th colSpan={8}>
+                    <th colSpan={5}>
                       <div className="pr-company-flat">
                         {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
                         <span>{branding.company_name}</span>
@@ -504,14 +542,11 @@ export function PrintReport({
                     </th>
                   </tr>
                   <tr className="pr-detail-meta-row">
-                    <th colSpan={3}>{supervisorRoleLabel}: {supervisorName}</th>
-                    <th colSpan={3}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
-                    <th colSpan={2}>تفاصيل عمليات السداد</th>
+                    <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
+                    <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
+                    <th colSpan={1}>تفاصيل عمليات السداد</th>
                   </tr>
                   <tr>
-                    <th>المراقب</th>
-                    <th>رئيس المجموعة</th>
-                    <th>الوكيل</th>
                     <th>العميل</th>
                     <th>آخر 6 أرقام الوثيقة</th>
                     <th>رقم القسط</th>
@@ -519,38 +554,63 @@ export function PrintReport({
                     <th>نوع العملية</th>
                   </tr>
                 </thead>
-                {chunkPageIntoAgentBlocks(rows).map((block, blockIdx) => (
-                  <tbody className="pr-agent-block" key={blockIdx}>
-                    {block.map((entry, i) => {
-                      if (entry.kind === 'subtotal') {
+                {chunkPageIntoAgentBlocks(rows).map((block, blockIdx) => {
+                  const ctx = blockContext(block);
+                  const showSupervisorHeader = ctx.supervisorName !== lastSupervisor;
+                  // "إنتاج شخصي" مش رئيس مجموعة حقيقي — مفيش داعي لسطر مستوى
+                  // إضافي ليه، بيتحط مباشرة تحت المراقب/رئيس المجموعة صاحبه.
+                  const showGroupLeaderHeader =
+                    ctx.groupLeaderName !== PERSONAL_PRODUCTION_LABEL &&
+                    (showSupervisorHeader || ctx.groupLeaderName !== lastGroupLeader);
+                  lastSupervisor = ctx.supervisorName;
+                  lastGroupLeader = ctx.groupLeaderName;
+                  return (
+                    <tbody className="pr-agent-block" key={blockIdx}>
+                      {showSupervisorHeader && (
+                        <tr className="pr-detail-sup-header">
+                          <td colSpan={5}>{supervisorRoleLabel}: {ctx.supervisorName}</td>
+                        </tr>
+                      )}
+                      {showGroupLeaderHeader && (
+                        <tr className="pr-detail-gl-header">
+                          <td colSpan={5}>رئيس المجموعة: {ctx.groupLeaderName}</td>
+                        </tr>
+                      )}
+                      <tr className="pr-detail-agent-header">
+                        <td colSpan={5}>{subtotalLabel(ctx)}</td>
+                      </tr>
+                      {block.map((entry, i) => {
+                        if (entry.kind === 'subtotal') {
+                          return (
+                            <tr key={i} className="pr-agent-subtotal-row">
+                              <td colSpan={4}>إجمالي {subtotalLabel(entry)}</td>
+                              <td>{fmt(entry.amount)}</td>
+                            </tr>
+                          );
+                        }
+                        const r = entry.row;
                         return (
-                          <tr key={i} className="pr-agent-subtotal-row">
-                            <td colSpan={6}>إجمالي {subtotalLabel(entry)}</td>
-                            <td colSpan={2}>{fmt(entry.amount)}</td>
+                          <tr key={i}>
+                            <td style={{ textAlign: 'right' }}>{r.customerName}</td>
+                            <td dir="ltr">{last6(r.policyNumber)}</td>
+                            <td>{r.installmentNumber}</td>
+                            <td>{fmt(r.amount)}</td>
+                            <td>
+                              <span className={`pr-type-badge ${r.type === 'new' ? 'pr-type-new' : 'pr-type-collection'}`}>
+                                {r.type === 'new' ? 'جديد' : 'تحصيل'}
+                              </span>
+                            </td>
                           </tr>
                         );
-                      }
-                      const r = entry.row;
-                      return (
-                        <tr key={i}>
-                          <td>{r.supervisorName}</td>
-                          <td>{r.groupLeaderName}</td>
-                          <td>{r.agentName}</td>
-                          <td style={{ textAlign: 'right' }}>{r.customerName}</td>
-                          <td dir="ltr">{last6(r.policyNumber)}</td>
-                          <td>{r.installmentNumber}</td>
-                          <td>{fmt(r.amount)}</td>
-                          <td>{r.type === 'new' ? 'جديد' : 'تحصيل'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                ))}
+                      })}
+                    </tbody>
+                  );
+                })}
                 {isLastPage && (
                   <tfoot>
                     <tr className="pr-totals-row">
-                      <td colSpan={6}>الإجمالي الكلي لعمليات السداد</td>
-                      <td colSpan={2}>{fmt(grandTotal)}</td>
+                      <td colSpan={4}>الإجمالي الكلي لعمليات السداد</td>
+                      <td>{fmt(grandTotal)}</td>
                     </tr>
                   </tfoot>
                 )}
