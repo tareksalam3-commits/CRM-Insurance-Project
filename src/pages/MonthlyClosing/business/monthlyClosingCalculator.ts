@@ -10,6 +10,12 @@ import type {
  * فى التقرير المطبوع لتمييز هذه الصفوف وعرض اسم صاحبها الفعلي بجانبها */
 export const PERSONAL_PRODUCTION_LABEL = 'إنتاج شخصي';
 
+/** التسمية المستخدمة فى عمود "رئيس المجموعة" لصفوف تفاصيل عمليات السداد
+ * لما الوكيل يكون تابع للمراقب مباشرة من غير رئيس مجموعة بينهم — مُصدَّرة
+ * عشان التقرير المطبوع يقدر يميّزها ويعرض نص أوضح بدلها (بدل ما تتعرض
+ * وكأنها اسم رئيس مجموعة حقيقي اسمه "وكلاء مباشرون"). */
+export const DIRECT_AGENTS_LABEL = 'وكلاء مباشرون';
+
 // لو حد (وكيل / رئيس مجموعة / مراقب... إلخ) ظاهر فى صف تجميعة تحت مدير
 // مش المدير المباشر "المتوقع" له فى الهرم الطبيعي (يعني فى مستوى إداري
 // اتقفز)، بيتحط فى نفس جدول ناس أعلى منه فى الدرجة الوظيفية من غير ما يبان
@@ -472,7 +478,7 @@ export function buildMonthlyClosingSummary(
         return { supervisorName: agentName, supervisorRole: agentRole!, groupLeaderName: PERSONAL_PRODUCTION_LABEL, agentName: PERSONAL_PRODUCTION_LABEL };
       }
 
-      let groupLeaderName = 'وكلاء مباشرون';
+      let groupLeaderName = DIRECT_AGENTS_LABEL;
       let cur = agent ? managerOf(agentId) : null;
       while (cur && cur !== user.id) {
         const m = usersMap.get(cur);
@@ -521,7 +527,7 @@ export function buildMonthlyClosingSummary(
       cur = managerOf(cur);
     }
     if (!supervisorName) { supervisorName = user.name; supervisorRole = userRole; }
-    if (!groupLeaderName) groupLeaderName = 'وكلاء مباشرون';
+    if (!groupLeaderName) groupLeaderName = DIRECT_AGENTS_LABEL;
     return { supervisorName, supervisorRole, groupLeaderName, agentName };
   };
 
