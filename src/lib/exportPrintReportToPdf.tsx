@@ -54,6 +54,25 @@ function waitForImage(img: HTMLImageElement): Promise<void> {
   });
 }
 
+// فحص سريع (عيّنة نقط بس، مش كل بكسل) للتأكد إن الصورة الملتقطة مش
+// فاضية بالكامل. بيتفعّل نادرًا (بس لو حصلت المشكلة فعلاً على جهاز معيّن)
+// فمش بيكلّف وقت إضافي فى الحالة العادية.
+function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const { width, height } = canvas;
+  if (width === 0 || height === 0) return true;
+  const samplePoints = 12;
+  for (let i = 0; i < samplePoints; i += 1) {
+    const x = Math.floor((width / samplePoints) * i + width / (samplePoints * 2));
+    const y = Math.floor(height / 2);
+    const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
+    const isWhiteOrTransparent = a === 0 || (r > 250 && g > 250 && b > 250);
+    if (!isWhiteOrTransparent) return false;
+  }
+  return true;
+}
+
 export interface ExportPrintReportProgress {
   page: number;
   totalPages: number;
@@ -130,40 +149,58 @@ export async function exportPrintReportToPdf(
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWmm = doc.internal.pageSize.getWidth();
     const pageHmm = doc.internal.pageSize.getHeight();
+    // هامش حوالين المحتوى — من غيره الصورة كانت بتترسم مطبّقة على الصفحة
+    // بالكامل (0,0 لحد آخر الصفحة)، يعني بتوصل لحرف الورقة تمامًا زي ورقة
+    // مقصوصة، من غير أي فراغ حواليها زي أي مستند مطبوع عادي.
+    const marginMm = 10;
+    const contentWmm = pageWmm - marginMm * 2;
+    const contentHmm = pageHmm - marginMm * 2;
 
     for (let i = 0; i < pageNodes.length; i += 1) {
       onProgress?.({ page: i + 1, totalPages: pageNodes.length });
       const node = pageNodes[i];
-      // بنستخدم طريقة التصوير التقليدية (foreignObjectRendering: false)
-      // مباشرة من غير أي محاولة أولى — دي الطريقة المضمونة على أكبر عدد
-      // من الأجهزة، وتجربة محاولة أولى فاشلة على كل صفحة كانت بتضاعف وقت
-      // التوليد من غير أي فايدة على الأجهزة اللي بتفشل فيها أصلاً.
+      // مهم لصحة النص العربي: foreignObjectRendering بيخلّي المتصفح نفسه
+      // (محرك الرسم الأصلي بتاعه) هو اللي يرسم النص جوه SVG، فالحروف
+      // العربية المتصلة بتترسم صح زي أي نص عادي على الشاشة. الطريقة
+      // التانية (false) بترسم كل حرف لوحده يدويًا من غير أي "تشكيل" للحروف
+      // المتصلة، فكانت بتطلّع النص العربي متقطّع/داخل فى بعضه. السبب اللي
+      // كان خلّانا نجرّب من غيرها قبل كده (صفحات بيضاء) كان أصلاً بسبب
+      // موضع الحاوية (left:-10000px) اللي اتصلح فوق، مش المشكلة الحقيقية
+      // فى الطريقة دي نفسها.
       const canvas = await html2canvas(node, {
         scale: 1.5,
         backgroundColor: '#ffffff',
         useCORS: true,
-        foreignObjectRendering: false,
+        foreignObjectRendering: true,
       });
-      const imgData = canvas.toDataURL('image/png');
-      const imgHmm = (canvas.height * pageWmm) / canvas.width;
+      const finalCanvas = isCanvasBlank(canvas)
+        ? await html2canvas(node, {
+            scale: 1.5,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            foreignObjectRendering: false,
+          })
+        : canvas;
+      // JPEG بجودة عالية بدل PNG — نفس الصفحة تقريبًا بلا فرق ملحوظ للعين،
+      // لكن بحجم ملف أصغر بكتير (PNG عديم الفقد كان بيطلّع الملف تقيل جدًا
+      // خصوصًا مع تقرير بعدد صفحات كبير).
+      const imgData = finalCanvas.toDataURL('image/jpeg', 0.92);
+
+      // نضبط أبعاد الصورة جوه مربع المحتوى (بعد خصم الهامش) بحفاظ على
+      // نسبة الأبعاد الأصلية (contain) بدل ما نمططها لتملأ عرض الصفحة
+      // بالكامل زي ما كان بيحصل قبل كده.
+      const aspect = finalCanvas.height / finalCanvas.width;
+      let drawWmm = contentWmm;
+      let drawHmm = drawWmm * aspect;
+      if (drawHmm > contentHmm) {
+        drawHmm = contentHmm;
+        drawWmm = drawHmm / aspect;
+      }
+      const offsetXmm = marginMm + (contentWmm - drawWmm) / 2;
+      const offsetYmm = marginMm;
 
       if (i > 0) doc.addPage();
-      // لو المحتوى (نادرًا) أطول من صفحة A4 واحدة، نمدده على أكتر من
-      // صفحة PDF بدل ما نقصّه، بنفس منطق exportElementToPdf.ts.
-      if (imgHmm <= pageHmm) {
-        doc.addImage(imgData, 'PNG', 0, 0, pageWmm, imgHmm);
-      } else {
-        let heightLeft = imgHmm;
-        let position = 0;
-        doc.addImage(imgData, 'PNG', 0, position, pageWmm, imgHmm);
-        heightLeft -= pageHmm;
-        while (heightLeft > 0) {
-          position -= pageHmm;
-          doc.addPage();
-          doc.addImage(imgData, 'PNG', 0, position, pageWmm, imgHmm);
-          heightLeft -= pageHmm;
-        }
-      }
+      doc.addImage(imgData, 'JPEG', offsetXmm, offsetYmm, drawWmm, drawHmm);
     }
 
     doc.save(fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`);
