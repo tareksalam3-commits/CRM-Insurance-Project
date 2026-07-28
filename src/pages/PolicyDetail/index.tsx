@@ -1,3 +1,5 @@
+import { friendlyError } from '../../lib/errorMessages';
+import { useNotify } from '../../lib/notify';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -42,6 +44,7 @@ export function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const notify = useNotify();
 
   // ===================================
   // حالات المكون
@@ -142,7 +145,7 @@ export function PolicyDetail() {
       await loadInstallments();
     } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert(error?.message || 'حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى');
+      notify.error(friendlyError(error, 'حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى'));
     } finally {
       setProcessingPayment(false);
     }
@@ -167,7 +170,7 @@ export function PolicyDetail() {
       const { error } = await cancelInstallmentPayment(selectedInstallment, user.id, cancelReason);
 
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
 
@@ -177,7 +180,7 @@ export function PolicyDetail() {
       await loadInstallments();
     } catch (error) {
       console.error('Error cancelling payment:', error);
-      alert('حدث خطأ أثناء إلغاء السداد');
+      notify.error('حدث خطأ أثناء إلغاء السداد');
     } finally {
       setProcessingPayment(false);
     }
@@ -194,7 +197,7 @@ export function PolicyDetail() {
       await loadPolicy();
     } catch (error) {
       console.error('Error changing policy status:', error);
-      alert('حدث خطأ أثناء تغيير الحالة');
+      notify.error('حدث خطأ أثناء تغيير الحالة');
     } finally {
       setChangingStatus(false);
     }
@@ -209,13 +212,13 @@ export function PolicyDetail() {
     try {
       const { error } = await deletePolicySafe(policy.id, policy);
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
       navigate('/policies');
     } catch (error) {
       console.error('Error deleting policy:', error);
-      alert('حدث خطأ أثناء حذف الوثيقة');
+      notify.error('حدث خطأ أثناء حذف الوثيقة');
     } finally {
       setDeleting(false);
     }

@@ -182,7 +182,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const options = await optionsRes.json();
       if (!optionsRes.ok) {
-        return { error: new Error(`[OPTIONS] ${options.error || 'تعذر بدء تسجيل البصمة'}`) };
+        // التفاصيل التقنية تتسجل هنا فقط للمطور، والمستخدم يشوف رسالة عربية واضحة
+        console.error('[registerPasskey/OPTIONS]', options);
+        return { error: new Error('تعذر بدء تسجيل البصمة') };
       }
 
       // 2) نطلب من المتصفح إنشاء بيانات اعتماد WebAuthn (بصمة/Face ID)
@@ -191,11 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         attestationResponse = await startRegistration({ optionsJSON: options });
       } catch (startErr: any) {
         console.error('startRegistration failed. options was:', options, startErr);
-        return {
-          error: new Error(
-            `[START] ${startErr?.name || ''}: ${startErr?.message || startErr}`
-          )
-        };
+        return { error: new Error('تعذر إنشاء بيانات البصمة على هذا الجهاز') };
       }
 
       // 3) نبعت النتيجة للـ Edge Function عشان تتحقق منها وتحفظها
@@ -212,7 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok || !verifyData.verified) {
-        return { error: new Error(`[VERIFY] ${verifyData.error || 'تعذر تسجيل البصمة، حاول مرة أخرى'}`) };
+        console.error('[registerPasskey/VERIFY]', verifyData);
+        return { error: new Error('تعذر تسجيل البصمة، حاول مرة أخرى') };
       }
 
       return { error: null };
@@ -220,7 +219,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (err?.name === 'NotAllowedError') {
         return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
       }
-      return { error: new Error(`[OTHER] ${err?.name || ''}: ${err?.message || err}`) };
+      console.error('[registerPasskey/OTHER]', err);
+      return { error: new Error('حدث خطأ غير متوقع أثناء تسجيل البصمة') };
     }
   };
 
@@ -234,7 +234,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const options = await optionsRes.json();
       if (!optionsRes.ok) {
-        return { error: new Error(`[OPTIONS] ${options.error || 'تعذر بدء الدخول بالبصمة'}`) };
+        console.error('[signInWithPasskey/OPTIONS]', options);
+        return { error: new Error('تعذر بدء الدخول بالبصمة') };
       }
 
       // 2) نطلب من المتصفح تأكيد الهوية عبر البصمة/Face ID
@@ -245,7 +246,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (startErr?.name === 'NotAllowedError') {
           return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
         }
-        return { error: new Error(`[START] ${startErr?.name || ''}: ${startErr?.message || startErr}`) };
+        console.error('[signInWithPasskey/START]', startErr);
+        return { error: new Error('تعذر تأكيد الهوية عبر البصمة') };
       }
 
       // 3) نبعت النتيجة للـ Edge Function عشان تتحقق وتنشئ جلسة دخول حقيقية
@@ -256,7 +258,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok || !verifyData.verified) {
-        return { error: new Error(`[VERIFY] ${verifyData.error || 'لم يتم التعرف على البصمة، حاول مرة أخرى'}`) };
+        console.error('[signInWithPasskey/VERIFY]', verifyData);
+        return { error: new Error('لم يتم التعرف على البصمة، حاول مرة أخرى') };
       }
 
       // 4) نكمل تسجيل الدخول فعليًا في العميل باستخدام الـ token اللي رجع من السيرفر
@@ -266,7 +269,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (otpError) {
-        return { error: new Error(`[OTP] ${otpError.message}`) };
+        console.error('[signInWithPasskey/OTP]', otpError);
+        return { error: new Error('تعذر إتمام تسجيل الدخول بالبصمة') };
       }
 
       return { error: null };
@@ -274,7 +278,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (err?.name === 'NotAllowedError') {
         return { error: new Error('تم إلغاء العملية أو رفض الإذن') };
       }
-      return { error: new Error(`[OTHER] ${err?.name || ''}: ${err?.message || err}`) };
+      console.error('[signInWithPasskey/OTHER]', err);
+      return { error: new Error('حدث خطأ غير متوقع أثناء الدخول بالبصمة') };
     }
   };
 

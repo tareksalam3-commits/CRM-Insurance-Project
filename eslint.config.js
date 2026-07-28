@@ -23,8 +23,12 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
+      // كانتا 'off' قبل كده — يعني الأداة كانت بتتجاهل استخدام "any" والمتغيرات
+      // الغير مستخدمة تماماً. خليناهم 'warn' (تحذير) مش 'error' عشان البناء
+      // (build) الحالي ميتكسرش فجأة، لكن هتظهر في الطرفية كل مرة تشغّلوا
+      // lint، فتقدروا تتابعوا وتقللوا العدد تدريجياً بدل ما يفضل يزيد بصمت.
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
       'react-hooks/exhaustive-deps': 'warn',
     },
   }

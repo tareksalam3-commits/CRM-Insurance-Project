@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState } from 'react';
 import { X, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { manualUpdateSubscription, type AdminSubscriptionRow } from '../services/adminService';
@@ -42,7 +43,7 @@ export function ManualSubscriptionModal({
       });
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء الحفظ');
+      setError(friendlyError(err, 'حدث خطأ أثناء الحفظ'));
     } finally {
       setSaving(false);
     }

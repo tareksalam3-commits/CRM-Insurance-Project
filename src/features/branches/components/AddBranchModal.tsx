@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import { createBranch } from '../services/branchesService';
@@ -18,7 +19,7 @@ export function AddBranchModal({ onClose, onDone }: { onClose: () => void; onDon
       await createBranch(name);
       onDone();
     } catch (err: any) {
-      setError(err?.code === '23505' ? 'يوجد فرع بنفس الاسم بالفعل' : err?.message || 'حدث خطأ أثناء إضافة الفرع');
+      setError(err?.code === '23505' ? 'يوجد فرع بنفس الاسم بالفعل' : friendlyError(err, 'حدث خطأ أثناء إضافة الفرع'));
     } finally {
       setSaving(false);
     }

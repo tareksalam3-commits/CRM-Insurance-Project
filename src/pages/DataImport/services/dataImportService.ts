@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { supabase, POLICY_TYPE_LABELS, PAYMENT_METHOD_LABELS, MARITAL_STATUS_LABELS, type User } from '../../../lib/supabase';
@@ -573,7 +574,7 @@ export async function importRows(
           customerName: payload.p_customer_name,
           policyNumber: payload.p_policy_number,
           status: 'error',
-          errorMessage: err?.message || 'حدث خطأ غير متوقع أثناء استيراد هذا الصف'
+          errorMessage: friendlyError(err, 'حدث خطأ غير متوقع أثناء استيراد هذا الصف')
         };
         results.push(result);
         onRowDone(result, ++done, total);

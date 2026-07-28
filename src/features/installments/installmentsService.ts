@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/errorMessages';
 import { supabase, type Installment } from '../../lib/supabase';
 import { format, startOfMonth } from 'date-fns';
 import { withOfflineQueue } from '../../lib/offlineQueue';
@@ -81,7 +82,7 @@ export async function payInstallmentOnline(
 
   if (error) {
     // رسالة "الشهر مقفل" جايه من الداتابيز مباشرة (trigger) وواضحة للمستخدم زي ما هي
-    throw new Error(error.message || 'حدث خطأ أثناء تسجيل السداد');
+    throw new Error(friendlyError(error, 'حدث خطأ أثناء تسجيل السداد'));
   }
 
   const result = data as { error?: string; conflict?: boolean } | null;

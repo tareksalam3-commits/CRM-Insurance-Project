@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/errorMessages';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase, Settings as SettingsType } from '../lib/supabase';
@@ -124,7 +125,7 @@ export function Settings() {
       setBackupResult({ type: 'success', text: `تم تنزيل الملف "${fileName}" بنجاح (${totalRows} صف).` });
     } catch (error: any) {
       console.error('Error creating backup:', error);
-      setBackupResult({ type: 'error', text: error?.message || 'حدث خطأ أثناء إنشاء النسخة الاحتياطية' });
+      setBackupResult({ type: 'error', text: friendlyError(error, 'حدث خطأ أثناء إنشاء النسخة الاحتياطية') });
     } finally {
       setBackingUp(false);
       setBackupProgress(null);

@@ -6,6 +6,7 @@ import { useSettings } from '../../hooks/useSettings';
 import { OrgChartTree, type ChartDensity } from './OrgChartTree';
 import { countChartEntities, type OrgChartNode } from './orgChartBuilder';
 import { exportNodeToPdf, printNode } from './pdfExport';
+import { useNotify } from '../../lib/notify';
 
 interface FormationPreviewModalProps {
   heads: OrgChartNode[];
@@ -24,6 +25,7 @@ function nextFrame() {
 
 export function FormationPreviewModal({ heads, branchName, asOfDate, onClose }: FormationPreviewModalProps) {
   const { branding } = useSettings();
+  const notify = useNotify();
   const chartRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -103,7 +105,7 @@ export function FormationPreviewModal({ heads, branchName, asOfDate, onClose }: 
       await exportNodeToPdf(exportRef.current, fileName);
     } catch (err) {
       console.error('Error exporting formation PDF:', err);
-      window.alert('حدث خطأ أثناء إنشاء ملف PDF');
+      notify.error('حدث خطأ أثناء إنشاء ملف PDF');
     } finally {
       setBusy(null);
     }
@@ -113,7 +115,10 @@ export function FormationPreviewModal({ heads, branchName, asOfDate, onClose }: 
     if (!exportRef.current || busy) return;
     setBusy('print');
     try {
-      printNode(exportRef.current, `تشكيل الجهاز الإنتاجي${branchName ? ` - ${branchName}` : ''}`);
+      const opened = printNode(exportRef.current, `تشكيل الجهاز الإنتاجي${branchName ? ` - ${branchName}` : ''}`);
+      if (!opened) {
+        notify.error('يرجى السماح بالنوافذ المنبثقة لهذا الموقع لتتمكن من الطباعة.');
+      }
     } finally {
       setBusy(null);
     }

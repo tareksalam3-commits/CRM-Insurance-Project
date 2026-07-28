@@ -65,11 +65,10 @@ const LANDSCAPE_H_PX = 733;  // (210 - 16) مم × 3.7795
 const PORTRAIT_W_PX = 733;
 const PORTRAIT_H_PX = 1062;
 
-export function printNode(node: HTMLElement, documentTitle: string): void {
+export function printNode(node: HTMLElement, documentTitle: string): boolean {
   const printWindow = window.open('', '_blank', 'width=1400,height=900');
   if (!printWindow) {
-    window.alert('يرجى السماح بالنوافذ المنبثقة لهذا الموقع لتتمكن من الطباعة.');
-    return;
+    return false;
   }
 
   const nodeWidth = node.scrollWidth || node.offsetWidth || 1400;
@@ -137,4 +136,6 @@ ${styleTags}
       printWindow.print();
     }, 350);
   };
+
+  return true;
 }

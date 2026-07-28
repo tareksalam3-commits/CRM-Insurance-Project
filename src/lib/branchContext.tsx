@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchMyBranches, type MyBranchMembership } from './myBranches';
 import { filterVisibleMemberships } from './branchVisibility';
@@ -102,7 +102,7 @@ export function BranchProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
-  const setCurrentBranchId = (branchId: string) => {
+  const setCurrentBranchId = useCallback((branchId: string) => {
     setCurrentBranchIdState(branchId);
     if (user) {
       try {
@@ -112,7 +112,7 @@ export function BranchProvider({ children }: { children: ReactNode }) {
         // فى نفس الجلسة الحالية على الأقل عن طريق الـ state
       }
     }
-  };
+  }, [user]);
 
   const value = useMemo<BranchContextValue>(
     () => ({
@@ -122,8 +122,7 @@ export function BranchProvider({ children }: { children: ReactNode }) {
       currentBranchId,
       setCurrentBranchId,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [branches, loading, currentBranchId],
+    [branches, loading, currentBranchId, setCurrentBranchId],
   );
 
   return <BranchContext.Provider value={value}>{children}</BranchContext.Provider>;

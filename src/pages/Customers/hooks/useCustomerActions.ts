@@ -1,3 +1,5 @@
+import { friendlyError } from '../../../lib/errorMessages';
+import { useNotify } from '../../../lib/notify';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -34,6 +36,7 @@ export function useCustomerActions({
   user, searchParams, setSearchParams, loadCustomers, loadStats,
 }: UseCustomerActionsParams) {
   const navigate = useNavigate();
+  const notify = useNotify();
 
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<CustomerWithRelations | null>(null);
@@ -159,9 +162,9 @@ export function useCustomerActions({
     } catch (error: any) {
       console.error('Error saving customer:', error);
       if (error.code === '23505') {
-        alert('الرقم القومي مسجل مسبقاً');
+        notify.error('الرقم القومي مسجل مسبقاً');
       } else {
-        alert('حدث خطأ أثناء الحفظ');
+        notify.error('حدث خطأ أثناء الحفظ');
       }
     } finally {
       setSaving(false);
@@ -175,7 +178,7 @@ export function useCustomerActions({
       const { error } = await deleteCustomer(deleteConfirm.id);
 
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
 
@@ -184,7 +187,7 @@ export function useCustomerActions({
       loadStats();
     } catch (error) {
       console.error('Error deleting customer:', error);
-      alert('حدث خطأ أثناء الحذف');
+      notify.error('حدث خطأ أثناء الحذف');
     } finally {
       setDeleting(false);
     }
@@ -196,7 +199,7 @@ export function useCustomerActions({
     setMoreMenuCustomer(null);
     const policies = customer.policies || [];
     if (policies.length === 0) {
-      alert('لا توجد وثائق مرتبطة بهذا العميل بعد');
+      notify.error('لا توجد وثائق مرتبطة بهذا العميل بعد');
       return;
     }
     if (policies.length === 1) {
@@ -286,7 +289,7 @@ export function useCustomerActions({
       await reloadOpenPolicyInstallments();
     } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert(error?.message || 'حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى');
+      notify.error(friendlyError(error, 'حدث خطأ أثناء تسجيل السداد، حاول مرة أخرى'));
     } finally {
       setProcessingPayment(false);
     }
@@ -304,7 +307,7 @@ export function useCustomerActions({
     try {
       const { error } = await cancelInstallmentPayment(selectedInstallment, user.id, cancelReason);
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
       setShowCancelModal(false);
@@ -313,7 +316,7 @@ export function useCustomerActions({
       await reloadOpenPolicyInstallments();
     } catch (error) {
       console.error('Error cancelling payment:', error);
-      alert('حدث خطأ أثناء إلغاء السداد');
+      notify.error('حدث خطأ أثناء إلغاء السداد');
     } finally {
       setProcessingPayment(false);
     }

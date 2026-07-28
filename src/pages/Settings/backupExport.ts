@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/errorMessages';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { supabase } from '../../lib/supabase';
@@ -43,7 +44,7 @@ export async function runDatabaseBackup(
     }
 
     const { data, error } = await supabase.from(table).select('*');
-    if (error) throw new Error(`تعذر تصدير جدول "${sheetName}": ${error.message}`);
+    if (error) throw new Error(`تعذر تصدير جدول "${sheetName}": ${friendlyError(error)}`);
 
     const rows = data || [];
     totalRows += rows.length;

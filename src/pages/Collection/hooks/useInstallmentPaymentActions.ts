@@ -1,3 +1,5 @@
+import { friendlyError } from '../../../lib/errorMessages';
+import { useNotify } from '../../../lib/notify';
 import { useCallback, useState } from 'react';
 import { format } from 'date-fns';
 import type { User } from '../../../lib/supabase';
@@ -21,6 +23,7 @@ export function useInstallmentPaymentActions({
   selectedPolicyId,
   loadPolicyInstallments,
 }: UseInstallmentPaymentActionsArgs) {
+  const notify = useNotify();
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState<InstallmentWithRelations | null>(null);
   const [paymentDateStr, setPaymentDateStr] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -54,7 +57,7 @@ export function useInstallmentPaymentActions({
       }
     } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert(error?.message || 'حدث خطأ أثناء تسجيل السداد');
+      notify.error(friendlyError(error, 'حدث خطأ أثناء تسجيل السداد'));
     } finally {
       setProcessingPayment(false);
     }
@@ -76,7 +79,7 @@ export function useInstallmentPaymentActions({
       const { error } = await cancelPayment(selectedInstallment, user.id, cancelReason);
 
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
 
@@ -90,7 +93,7 @@ export function useInstallmentPaymentActions({
       }
     } catch (error) {
       console.error('Error cancelling payment:', error);
-      alert('حدث خطأ أثناء إلغاء السداد');
+      notify.error('حدث خطأ أثناء إلغاء السداد');
     } finally {
       setProcessingPayment(false);
     }

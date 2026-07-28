@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/errorMessages';
 import { useRef, useState } from 'react';
 import {
   Download,
@@ -80,7 +81,7 @@ export function DataImport() {
         setStage('parsed');
       }
     } catch (err: any) {
-      setHeaderError(err?.message || 'تعذر قراءة الملف. تأكد أنه ملف Excel صحيح (.xlsx)');
+      setHeaderError(friendlyError(err, 'تعذر قراءة الملف. تأكد أنه ملف Excel صحيح (.xlsx)'));
     } finally {
       setParsing(false);
     }

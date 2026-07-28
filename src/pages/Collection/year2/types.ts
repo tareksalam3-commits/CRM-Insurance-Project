@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { Policy } from '../../../lib/supabase';
 
 // ملاحظة مهمة: هذا الجدول/الشاشة منفصلة تماماً عن installments/payments
@@ -27,6 +28,16 @@ export type Year2EligiblePolicy = Policy & {
   owner: { name: string };
   year2_total_paid: number;
 };
+
+// فورم "تسجيل تحصيل" — أول فورم فى شاشة السنة الثانية يُنقل من التحقق
+// اليدوي لـ zod (بنفس أسلوب فورمات صفحة المستخدمين)
+export const year2PaymentSchema = z.object({
+  amount: z.coerce.number({ invalid_type_error: 'برجاء إدخال مبلغ صحيح' }).positive('برجاء إدخال مبلغ صحيح'),
+  paymentDate: z.string().min(1, 'التاريخ مطلوب'),
+  notes: z.string().optional(),
+});
+
+export type Year2PaymentFormData = z.infer<typeof year2PaymentSchema>;
 
 export type PrintPeriodType = 'month' | 'quarter' | 'year';
 

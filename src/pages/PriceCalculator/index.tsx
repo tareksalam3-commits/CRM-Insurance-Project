@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/errorMessages';
 import { useRef, useState, type KeyboardEvent } from 'react';
 import {
   Calculator, RotateCcw, PlusCircle, Copy, Printer, Check, AlertCircle,
@@ -48,7 +49,7 @@ export function PriceCalculator() {
       });
       setResult(calculated);
     } catch (err) {
-      setErrors({ variantKey: err instanceof Error ? err.message : 'حدث خطأ فى الحساب' });
+      setErrors({ variantKey: friendlyError(err, 'حدث خطأ فى الحساب') });
       setResult(null);
     }
   }

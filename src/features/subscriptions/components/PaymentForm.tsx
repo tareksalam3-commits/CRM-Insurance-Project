@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState, useMemo, useRef } from 'react';
 import { ROLE_LABELS, type User, type UserRole } from '../../../lib/supabase';
 import {
@@ -150,7 +151,7 @@ export function PaymentForm({
       onSubmitted();
     } catch (err: any) {
       console.error('Error submitting subscription payment:', err);
-      setMessage({ type: 'error', text: err?.message || 'حدث خطأ أثناء إرسال الطلب' });
+      setMessage({ type: 'error', text: friendlyError(err, 'حدث خطأ أثناء إرسال الطلب') });
     } finally {
       setSubmitting(false);
     }

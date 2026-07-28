@@ -84,7 +84,6 @@ export function AgentAppointmentsView({ agentId, role }: AgentAppointmentsViewPr
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, dayStart, dayEnd, dateStr, role]);
 
   useEffect(() => { void load(); }, [load]);

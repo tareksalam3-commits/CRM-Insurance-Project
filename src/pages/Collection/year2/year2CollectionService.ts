@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { supabase } from '../../../lib/supabase';
 import {
   format, startOfMonth, endOfMonth, subYears, subMonths, addYears,
@@ -223,7 +224,7 @@ export async function addYear2Payment(
     .select('id')
     .single();
 
-  if (error) throw new Error(error.message || 'حدث خطأ أثناء تسجيل تحصيل السنة الثانية');
+  if (error) throw new Error(friendlyError(error, 'حدث خطأ أثناء تسجيل تحصيل السنة الثانية'));
 
   await supabase.rpc('log_activity', {
     p_action: 'year2_payment_create',

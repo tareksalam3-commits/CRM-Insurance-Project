@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState } from 'react';
 import { X, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { updateSubscriptionSettings } from '../services/adminService';
@@ -56,7 +57,7 @@ export function SubscriptionSettingsModal({
       });
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء حفظ الإعدادات');
+      setError(friendlyError(err, 'حدث خطأ أثناء حفظ الإعدادات'));
     } finally {
       setSaving(false);
     }

@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState, useMemo } from 'react';
 import { X, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import clsx from 'clsx';
@@ -63,7 +64,7 @@ export function SubscriptionPricesModal({
       }
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء حفظ الأسعار');
+      setError(friendlyError(err, 'حدث خطأ أثناء حفظ الأسعار'));
     } finally {
       setSaving(false);
     }

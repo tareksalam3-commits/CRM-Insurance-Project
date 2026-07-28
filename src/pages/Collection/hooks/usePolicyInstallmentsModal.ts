@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import type { Policy, Installment } from '../../../lib/supabase';
 import { fetchPolicyInstallments } from '../services/collectionService';
+import { useNotify } from '../../../lib/notify';
 
 export function usePolicyInstallmentsModal() {
+  const notify = useNotify();
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy]   = useState<Policy | null>(null);
   const [policyInstallments, setPolicyInstallments] = useState<Installment[]>([]);
@@ -14,7 +16,7 @@ export function usePolicyInstallmentsModal() {
       setPolicyInstallments(await fetchPolicyInstallments(policyId));
     } catch (error) {
       console.error('Error loading policy installments:', error);
-      alert('حدث خطأ أثناء تحميل الأقساط');
+      notify.error('حدث خطأ أثناء تحميل الأقساط');
     } finally {
       setLoadingPolicyInstallments(false);
     }

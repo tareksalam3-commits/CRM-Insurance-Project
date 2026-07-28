@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState, useEffect } from 'react';
 import { X, Loader2, CheckCircle2, XCircle, Trash2, User as UserIcon, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
@@ -9,6 +10,7 @@ import {
   type AdminPaymentRow, type UserLookupRow
 } from '../services/adminService';
 import type { SubscriptionDuration } from '../types';
+import { useNotify } from '../../../lib/notify';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0 }).format(n);
@@ -38,6 +40,7 @@ export function PaymentReviewModal({
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const notify = useNotify();
 
   useEffect(() => {
     getReceiptSignedUrl(payment.receipt_url).then((url) => {
@@ -60,7 +63,7 @@ export function PaymentReviewModal({
       await approvePayment(payment.id);
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء الاعتماد');
+      setError(friendlyError(err, 'حدث خطأ أثناء الاعتماد'));
     } finally {
       setBusy(false);
     }
@@ -77,21 +80,22 @@ export function PaymentReviewModal({
       await rejectPayment(payment.id, rejectReason.trim());
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء الرفض');
+      setError(friendlyError(err, 'حدث خطأ أثناء الرفض'));
     } finally {
       setBusy(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm('هل أنت متأكد من حذف هذا الطلب نهائياً؟')) return;
+    const confirmed = await notify.confirm('هل أنت متأكد من حذف هذا الطلب نهائياً؟');
+    if (!confirmed) return;
     setBusy(true);
     setError(null);
     try {
       await deletePaymentRequest(payment.id);
       onDone();
     } catch (err: any) {
-      setError(err?.message || 'حدث خطأ أثناء الحذف');
+      setError(friendlyError(err, 'حدث خطأ أثناء الحذف'));
     } finally {
       setBusy(false);
     }

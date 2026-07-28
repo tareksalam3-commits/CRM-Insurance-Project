@@ -12,6 +12,7 @@ import clsx from 'clsx';
 import { fetchLockState, type SubscriptionLockState } from './features/subscriptions/services/subscriptionService';
 import { SubscriptionLockScreen } from './features/subscriptions/components/SubscriptionLockScreen';
 import { OfflineToast } from './components/OfflineToast';
+import { NotifyProvider } from './lib/notify';
 import { initOfflineSync, stopOfflineSync } from './lib/offlineSync';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RequireRole } from './components/RequireRole';
@@ -169,21 +170,23 @@ function AppLayout() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <ErrorBoundary boundaryName="root">
-          <AuthProvider>
-            <BranchProvider>
-              <HeadManager />
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/*"     element={<HelpProvider><AppLayout /></HelpProvider>} />
-              </Routes>
-            </BranchProvider>
-          </AuthProvider>
-        </ErrorBoundary>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <NotifyProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <ErrorBoundary boundaryName="root">
+            <AuthProvider>
+              <BranchProvider>
+                <HeadManager />
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/*"     element={<HelpProvider><AppLayout /></HelpProvider>} />
+                </Routes>
+              </BranchProvider>
+            </AuthProvider>
+          </ErrorBoundary>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </NotifyProvider>
   );
 }
 

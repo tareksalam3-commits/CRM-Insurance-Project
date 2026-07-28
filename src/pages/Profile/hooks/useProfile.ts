@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { isPasskeySupported } from '../../../lib/supabase';
@@ -174,20 +175,10 @@ export function useProfile() {
       // Reset file input
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error: any) {
+      // التفاصيل التقنية الكاملة (بما فيها أخطاء RLS) تتسجل هنا للمطور فقط،
+      // ولا تُعرض أبداً للمستخدم النهائي — راجع src/lib/errorMessages.ts
       console.error('Error uploading avatar:', error);
-      let msg = 'حدث خطأ أثناء رفع الصورة، حاول مرة أخرى';
-      if (error?.message?.includes('Bucket not found')) {
-        msg = 'خطأ في الإعداد: تأكد من إنشاء bucket باسم profiles في Supabase Storage';
-      } else if (error?.message?.toLowerCase().includes('mime type')) {
-        msg = 'صيغة الصورة غير مدعومة، جرّب صورة بصيغة JPG أو PNG';
-      } else if (error?.message?.toLowerCase().includes('exceeded the maximum')) {
-        msg = 'حجم الصورة أكبر من المسموح به';
-      } else if (error?.message?.toLowerCase().includes('row-level security')) {
-        msg = `مرفوض من صلاحيات التخزين (RLS): ${error.message}`;
-      } else if (error?.message) {
-        // نعرض رسالة الخطأ الفعلية بدل رسالة عامة، عشان يسهل تشخيص أي مشكلة جديدة
-        msg = `حدث خطأ أثناء رفع الصورة: ${error.message}`;
-      }
+      const msg = friendlyError(error, 'حدث خطأ أثناء رفع الصورة، حاول مرة أخرى');
       setAvatarMessage({ type: 'error', text: msg });
     } finally {
       setUploadingAvatar(false);

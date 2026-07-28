@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/errorMessages';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -80,7 +81,7 @@ export function Login() {
 
       if (error) {
         setGoogleLoading(false);
-        setError(`حدث خطأ أثناء تسجيل الدخول بجوجل: ${error.message}`);
+        setError(`حدث خطأ أثناء تسجيل الدخول بجوجل: ${friendlyError(error)}`);
       }
       // عند النجاح الـ session بتتسجل تلقائياً والتطبيق هيحوّل المستخدم لوحده
     };
@@ -194,7 +195,7 @@ export function Login() {
 
     if (error) {
       setPasskeyLoading(false);
-      setError(`لم يتم التعرف على البصمة: ${error.message || 'خطأ غير معروف'}`);
+      setError(`لم يتم التعرف على البصمة: ${friendlyError(error)}`);
     } else {
       navigate('/');
     }

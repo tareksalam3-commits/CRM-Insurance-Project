@@ -11,6 +11,7 @@ import {
 } from '../services/policiesService';
 import { computeDefaultPolicyStartDate } from '../business/policyDateDefaults';
 import { buildPolicyPrintHtml } from '../services/policyHelpers';
+import { useNotify } from '../../../lib/notify';
 
 type SetSearchParams = ReturnType<typeof useSearchParams>[1];
 
@@ -28,6 +29,7 @@ export function usePolicyActions({
   user, searchParams, setSearchParams, loadPolicies, loadStats,
 }: UsePolicyActionsParams) {
   const navigate = useNavigate();
+  const notify = useNotify();
 
   const [showModal, setShowModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
@@ -213,11 +215,12 @@ export function usePolicyActions({
           const paidCount = await countPaidInstallments(editingPolicy.id);
 
           if (paidCount > 0) {
-            const confirmed = window.confirm(
-              `تنبيه: يوجد ${paidCount} قسط مدفوع مسبقاً في هذه الوثيقة بالقيمة/الموعد القديم.\n\n` +
-              `تعديل قيمة القسط الصافي أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة).\n\n` +
-              `هل تريد المتابعة؟`
-            );
+            const confirmed = await notify.confirm({
+              title: 'يوجد أقساط مدفوعة بالفعل',
+              message: `يوجد ${paidCount} قسط مدفوع مسبقاً في هذه الوثيقة بالقيمة/الموعد القديم.`,
+              warning: 'تعديل قيمة القسط الصافي أو طريقة السداد أو تاريخ البداية لن يغيّر الأقساط المدفوعة بالفعل (لحماية السجل المالي) — التعديل سيُطبَّق فقط على الأقساط القادمة (غير المسددة). هل تريد المتابعة؟',
+              confirmLabel: 'متابعة',
+            });
             if (!confirmed) {
               setSaving(false);
               return;
@@ -239,11 +242,11 @@ export function usePolicyActions({
       console.error('Error saving policy:', error);
       const msg: string = error?.message || '';
       if (error.code === '23505' && msg.includes('policy_number')) {
-        alert('رقم الوثيقة مسجل مسبقاً');
+        notify.error('رقم الوثيقة مسجل مسبقاً');
       } else if (error.code === '23505') {
-        alert('حدث تعارض في البيانات أثناء الحفظ، برجاء المحاولة مرة أخرى');
+        notify.error('حدث تعارض في البيانات أثناء الحفظ، برجاء المحاولة مرة أخرى');
       } else {
-        alert('حدث خطأ أثناء الحفظ');
+        notify.error('حدث خطأ أثناء الحفظ');
       }
     } finally {
       setSaving(false);
@@ -257,7 +260,7 @@ export function usePolicyActions({
       const { error } = await deletePolicySafe(deleteConfirm.id, deleteConfirm);
 
       if (error) {
-        alert(error);
+        notify.error(error);
         return;
       }
 
@@ -266,7 +269,7 @@ export function usePolicyActions({
       loadStats();
     } catch (error) {
       console.error('Error deleting policy:', error);
-      alert('حدث خطأ أثناء حذف الوثيقة');
+      notify.error('حدث خطأ أثناء حذف الوثيقة');
     } finally {
       setDeleting(false);
     }
@@ -280,7 +283,7 @@ export function usePolicyActions({
       loadStats();
     } catch (error) {
       console.error('Error changing policy status:', error);
-      alert('حدث خطأ أثناء تغيير الحالة');
+      notify.error('حدث خطأ أثناء تغيير الحالة');
     }
   };
 

@@ -1,3 +1,4 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useMemo, useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import { ROLE_LABELS, type UserRole } from '../../../lib/supabase';
@@ -63,7 +64,7 @@ export function AddExtraRoleModal({
       });
       onDone();
     } catch (err: any) {
-      setError(err?.code === '23505' ? 'هذا المستخدم لديه بالفعل وضع فى هذا الفرع' : err?.message || 'حدث خطأ أثناء الإضافة');
+      setError(err?.code === '23505' ? 'هذا المستخدم لديه بالفعل وضع فى هذا الفرع' : friendlyError(err, 'حدث خطأ أثناء الإضافة'));
     } finally {
       setSaving(false);
     }

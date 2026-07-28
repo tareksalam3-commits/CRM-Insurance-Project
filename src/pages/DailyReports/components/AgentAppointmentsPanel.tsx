@@ -41,7 +41,6 @@ export function AgentAppointmentsPanel({ agentId, dateStr, enteredBy, isOutdoor 
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, dayStart, dayEnd]);
 
   useEffect(() => { void load(); }, [load]);

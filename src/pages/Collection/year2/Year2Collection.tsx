@@ -1,22 +1,31 @@
+import { friendlyError } from '../../../lib/errorMessages';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { useReconnectRefetch } from '../../../hooks/useReconnectRefetch';
 import {
-  Search, X, CheckCircle, XCircle,
-  History, Printer, Info,
+  Search, CheckCircle, History, Printer, Info,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Pagination } from '../../../components/ui/Pagination';
 
 import clsx from 'clsx';
-import type { Year2EligiblePolicy, Year2Payment, Year2ReportRow, PrintPeriodType, Year2QuickFilter } from './types';
-import { YEAR2_QUICK_FILTERS } from './types';
+import type {
+  Year2EligiblePolicy, Year2Payment, Year2ReportRow, PrintPeriodType, Year2QuickFilter, Year2PaymentFormData,
+} from './types';
+import { YEAR2_QUICK_FILTERS, year2PaymentSchema } from './types';
 import {
   fetchYear2EligiblePolicies, fetchYear2Payments, addYear2Payment, cancelYear2Payment,
   fetchYear2Report, getPrintRange,
 } from './year2CollectionService';
 import { PrintYear2Report } from './PrintYear2Report';
 import { printWithTitle } from '../../../lib/printWithTitle';
+import { useNotify } from '../../../lib/notify';
+import { AddPaymentModal } from './components/dialogs/AddPaymentModal';
+import { HistoryModal } from './components/dialogs/HistoryModal';
+import { CancelPaymentModal } from './components/dialogs/CancelPaymentModal';
+import { PrintSetupModal } from './components/dialogs/PrintSetupModal';
 
 interface Year2CollectionProps {
   // الفرع الحالي المختار (BranchProvider العام، مُمرَّر من صفحة التحصيل
@@ -28,6 +37,7 @@ interface Year2CollectionProps {
 
 export function Year2Collection({ branchId = null }: Year2CollectionProps) {
   const { user } = useAuth();
+  const notify = useNotify();
   const [policies, setPolicies] = useState<Year2EligiblePolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -43,10 +53,11 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [paymentDateStr, setPaymentDateStr] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const {
+    register: registerPayment, handleSubmit: handlePaymentSubmit, reset: resetPaymentForm,
+    formState: { errors: paymentErrors },
+  } = useForm<Year2PaymentFormData>({ resolver: zodResolver(year2PaymentSchema) });
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Year2Payment | null>(null);
@@ -104,7 +115,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
       setHistory(await fetchYear2Payments(policy.id));
     } catch (error) {
       console.error(error);
-      alert('حدث خطأ أثناء تحميل السجل');
+      notify.error('حدث خطأ أثناء تحميل السجل');
     } finally {
       setLoadingHistory(false);
     }
@@ -112,28 +123,21 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
 
   const openAdd = (policy: Year2EligiblePolicy) => {
     setSelectedPolicy(policy);
-    setAmount('');
-    setNotes('');
-    setPaymentDateStr(format(new Date(), 'yyyy-MM-dd'));
+    resetPaymentForm({ amount: undefined, paymentDate: format(new Date(), 'yyyy-MM-dd'), notes: '' });
     setShowAddModal(true);
   };
 
-  const handleAddPayment = async () => {
+  const handleAddPayment = async (data: Year2PaymentFormData) => {
     if (!selectedPolicy || !user) return;
-    const numericAmount = Number(amount);
-    if (!numericAmount || numericAmount <= 0) {
-      alert('برجاء إدخال مبلغ صحيح');
-      return;
-    }
     setSaving(true);
     try {
-      await addYear2Payment(selectedPolicy.id, numericAmount, new Date(paymentDateStr), user.id, notes);
+      await addYear2Payment(selectedPolicy.id, data.amount, new Date(data.paymentDate), user.id, data.notes || '');
       setShowAddModal(false);
       loadPolicies();
       if (showHistoryModal) openHistory(selectedPolicy);
     } catch (error: any) {
       console.error(error);
-      alert(error?.message || 'حدث خطأ أثناء تسجيل التحصيل');
+      notify.error(friendlyError(error, 'حدث خطأ أثناء تسجيل التحصيل'));
     } finally {
       setSaving(false);
     }
@@ -155,7 +159,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
       if (selectedPolicy) openHistory(selectedPolicy);
     } catch (error) {
       console.error(error);
-      alert('حدث خطأ أثناء إلغاء التحصيل');
+      notify.error('حدث خطأ أثناء إلغاء التحصيل');
     } finally {
       setSaving(false);
     }
@@ -172,7 +176,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
       setTimeout(() => printWithTitle(`تحصيل-السنة-الثانية-${label}`), 100);
     } catch (error) {
       console.error(error);
-      alert('حدث خطأ أثناء إعداد التقرير');
+      notify.error('حدث خطأ أثناء إعداد التقرير');
     } finally {
       setPrintLoading(false);
     }
@@ -299,219 +303,53 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
 
       {/* ===== مودال تسجيل تحصيل ===== */}
       {showAddModal && selectedPolicy && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal-content max-w-md animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
-              <h3 className="text-lg font-semibold text-secondary-900">تسجيل تحصيل سنة ثانية</h3>
-              <button onClick={() => setShowAddModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
-                <X className="w-5 h-5 text-secondary-600" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="bg-primary-50 rounded-lg p-4 mb-6 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-secondary-600">رقم الوثيقة</span>
-                  <span className="font-semibold">{selectedPolicy.policy_number}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-secondary-600">العميل</span>
-                  <span className="font-semibold">{selectedPolicy.customer?.name}</span>
-                </div>
-              </div>
-
-              <div className="form-group mb-4">
-                <label className="input-label">المبلغ المحصل</label>
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="input-field"
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
-
-              <div className="form-group mb-4">
-                <label className="input-label">تاريخ التحصيل</label>
-                <input
-                  type="date"
-                  value={paymentDateStr}
-                  max={format(new Date(), 'yyyy-MM-dd')}
-                  onChange={(e) => setPaymentDateStr(e.target.value)}
-                  className="input-field"
-                />
-              </div>
-
-              <div className="form-group mb-4">
-                <label className="input-label">ملاحظات (اختياري)</label>
-                <input
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="input-field"
-                  placeholder="ملاحظات"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setShowAddModal(false)} className="btn btn-secondary">إلغاء</button>
-                <button onClick={handleAddPayment} disabled={saving} className="btn btn-success">
-                  {saving
-                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /><span>جاري التسجيل...</span></>
-                    : <><CheckCircle className="w-4 h-4" /><span>تأكيد التحصيل</span></>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AddPaymentModal
+          policy={selectedPolicy}
+          saving={saving}
+          register={registerPayment}
+          handleSubmit={handlePaymentSubmit}
+          errors={paymentErrors}
+          onSubmit={handleAddPayment}
+          onClose={() => setShowAddModal(false)}
+        />
       )}
 
       {/* ===== مودال سجل التحصيل ===== */}
       {showHistoryModal && selectedPolicy && (
-        <div className="modal-overlay" onClick={() => setShowHistoryModal(false)}>
-          <div className="modal-content max-w-2xl animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
-              <h3 className="text-lg font-semibold text-secondary-900">
-                سجل تحصيل السنة الثانية: {selectedPolicy.policy_number}
-              </h3>
-              <button onClick={() => setShowHistoryModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
-                <X className="w-5 h-5 text-secondary-600" />
-              </button>
-            </div>
-            <div className="p-6">
-              {loadingHistory ? (
-                <div className="flex items-center justify-center h-48">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-                </div>
-              ) : history.length === 0 ? (
-                <p className="text-center text-secondary-500 py-12">لا توجد تحصيلات مسجلة بعد</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-secondary-200">
-                        <th className="text-right py-2 px-3">تاريخ التحصيل</th>
-                        <th className="text-right py-2 px-3">المبلغ</th>
-                        <th className="text-right py-2 px-3">بواسطة</th>
-                        <th className="text-right py-2 px-3">الحالة</th>
-                        <th className="text-center py-2 px-3">إجراء</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {history.map((h) => (
-                        <tr key={h.id} className="border-b border-secondary-100 hover:bg-secondary-50">
-                          <td className="py-3 px-3">{format(new Date(h.payment_date), 'dd/MM/yyyy')}</td>
-                          <td className="py-3 px-3 font-semibold">{formatCurrency(h.amount)}</td>
-                          <td className="py-3 px-3">{h.paid_by?.name || '-'}</td>
-                          <td className="py-3 px-3">
-                            <span className={`badge ${h.is_cancelled ? 'badge-error' : 'badge-success'}`}>
-                              {h.is_cancelled ? 'ملغى' : 'مسدد'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            {!h.is_cancelled && (
-                              <button onClick={() => openCancel(h)} className="btn btn-secondary btn-sm" title="إلغاء">
-                                <XCircle className="w-4 h-4" />
-                                <span>إلغاء</span>
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 p-6 border-t border-secondary-200">
-              <button onClick={() => setShowHistoryModal(false)} className="btn btn-secondary">إغلاق</button>
-            </div>
-          </div>
-        </div>
+        <HistoryModal
+          policy={selectedPolicy}
+          history={history}
+          loadingHistory={loadingHistory}
+          formatCurrency={formatCurrency}
+          onCancelPayment={openCancel}
+          onClose={() => setShowHistoryModal(false)}
+        />
       )}
 
       {/* ===== مودال إلغاء تحصيل ===== */}
       {showCancelModal && selectedPayment && (
-        <div className="modal-overlay" onClick={() => setShowCancelModal(false)}>
-          <div className="modal-content max-w-md animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
-              <h3 className="text-lg font-semibold text-secondary-900">إلغاء التحصيل</h3>
-              <button onClick={() => setShowCancelModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
-                <X className="w-5 h-5 text-secondary-600" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="bg-error-50 rounded-lg p-4 mb-4 space-y-2">
-                <p className="text-sm text-error-700 font-medium">هل أنت متأكد من إلغاء هذا التحصيل؟</p>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary-600">المبلغ</span>
-                  <span className="font-medium">{formatCurrency(selectedPayment.amount)}</span>
-                </div>
-              </div>
-              <div className="form-group mb-4">
-                <label className="input-label">سبب الإلغاء</label>
-                <input
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  className="input-field"
-                  placeholder="أدخل سبب الإلغاء (اختياري)"
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setShowCancelModal(false)} className="btn btn-secondary">تراجع</button>
-                <button onClick={handleCancelPayment} disabled={saving} className="btn btn-error">
-                  {saving
-                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /><span>جاري الإلغاء...</span></>
-                    : <><XCircle className="w-4 h-4" /><span>تأكيد الإلغاء</span></>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CancelPaymentModal
+          payment={selectedPayment}
+          saving={saving}
+          cancelReason={cancelReason}
+          setCancelReason={setCancelReason}
+          formatCurrency={formatCurrency}
+          onConfirm={handleCancelPayment}
+          onClose={() => setShowCancelModal(false)}
+        />
       )}
 
       {/* ===== مودال إعداد الطباعة ===== */}
       {showPrintModal && (
-        <div className="modal-overlay print:hidden" onClick={() => setShowPrintModal(false)}>
-          <div className="modal-content max-w-md animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
-              <h3 className="text-lg font-semibold text-secondary-900">طباعة تقرير تحصيل السنة الثانية</h3>
-              <button onClick={() => setShowPrintModal(false)} className="p-2 rounded-lg hover:bg-secondary-100">
-                <X className="w-5 h-5 text-secondary-600" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="form-group">
-                <label className="input-label">نوع الفترة</label>
-                <select
-                  value={printPeriodType}
-                  onChange={(e) => setPrintPeriodType(e.target.value as PrintPeriodType)}
-                  className="input-field"
-                >
-                  <option value="month">شهر</option>
-                  <option value="quarter">ربع سنة</option>
-                  <option value="year">سنة</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="input-label">تاريخ داخل الفترة المطلوبة</label>
-                <input
-                  type="date"
-                  value={printDateStr}
-                  onChange={(e) => setPrintDateStr(e.target.value)}
-                  className="input-field"
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setShowPrintModal(false)} className="btn btn-secondary">إلغاء</button>
-                <button onClick={handleGeneratePrint} disabled={printLoading} className="btn btn-primary">
-                  {printLoading
-                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /><span>جاري الإعداد...</span></>
-                    : <><Printer className="w-4 h-4" /><span>طباعة</span></>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PrintSetupModal
+          printPeriodType={printPeriodType}
+          setPrintPeriodType={setPrintPeriodType}
+          printDateStr={printDateStr}
+          setPrintDateStr={setPrintDateStr}
+          printLoading={printLoading}
+          onGenerate={handleGeneratePrint}
+          onClose={() => setShowPrintModal(false)}
+        />
       )}
 
       <PrintYear2Report

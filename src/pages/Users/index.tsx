@@ -1,3 +1,5 @@
+import { friendlyError } from '../../lib/errorMessages';
+import { useNotify } from '../../lib/notify';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useReconnectRefetch } from '../../hooks/useReconnectRefetch';
@@ -33,6 +35,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 // ────────────────────────────────────────────────────────────
 export function Users() {
   const { user } = useAuth();
+  const notify = useNotify();
 
   // ── state ──────────────────────────────────────────────
   const [users, setUsers]               = useState<User[]>([]);
@@ -178,7 +181,7 @@ export function Users() {
   const onSubmit = async (data: UserFormData) => {
     if (!user || !canManage) return;
     if (!editingUser && managerHasMultipleBranches && !data.branch_id) {
-      alert('المدير المختار له أكثر من فرع، يجب اختيار الفرع أولاً');
+      notify.error('المدير المختار له أكثر من فرع، يجب اختيار الفرع أولاً');
       return;
     }
     setSaving(true);
@@ -187,9 +190,9 @@ export function Users() {
       const { created } = await saveUser(data, editingUser);
 
       if (!created) {
-        alert('✅ تم تحديث بيانات المستخدم بنجاح');
+        notify.success('تم تحديث بيانات المستخدم بنجاح');
       } else {
-        alert(`✅ تم إنشاء المستخدم بنجاح!\nالبريد: ${data.email}\nكلمة المرور المؤقتة: ${TEMP_PASSWORD}`);
+        notify.success(`تم إنشاء المستخدم بنجاح!\nالبريد: ${data.email}\nكلمة المرور المؤقتة: ${TEMP_PASSWORD}`);
         await loadAllUsers();
       }
 
@@ -197,7 +200,7 @@ export function Users() {
       loadUsers();
     } catch (err: any) {
       console.error('Error saving user:', err);
-      alert(`حدث خطأ: ${err.message || 'خطأ غير معروف'}`);
+      notify.error(`حدث خطأ: ${friendlyError(err)}`);
     } finally {
       setSaving(false);
     }
@@ -210,11 +213,11 @@ export function Users() {
 
     try {
       await changeUserPassword(editingUser, data);
-      alert(`✅ تم تغيير كلمة مرور "${editingUser.name}" بنجاح`);
+      notify.success(`تم تغيير كلمة مرور "${editingUser.name}" بنجاح`);
       closePwdModal();
     } catch (err: any) {
       console.error('Error changing password:', err);
-      alert(`حدث خطأ: ${err.message || 'خطأ غير معروف'}`);
+      notify.error(`حدث خطأ: ${friendlyError(err)}`);
     } finally {
       setSavingPwd(false);
     }
@@ -229,7 +232,7 @@ export function Users() {
       loadUsers();
     } catch (err) {
       console.error('Error toggling status:', err);
-      alert('حدث خطأ أثناء تغيير الحالة');
+      notify.error('حدث خطأ أثناء تغيير الحالة');
     } finally {
       setTogglingId(null);
     }
@@ -245,7 +248,7 @@ export function Users() {
       await Promise.all([loadUsers(), loadAllUsers()]);
     } catch (err: any) {
       console.error('Error deleting user:', err);
-      alert(`حدث خطأ أثناء حذف المستخدم: ${err.message || 'خطأ غير معروف'}`);
+      notify.error(`حدث خطأ أثناء حذف المستخدم: ${friendlyError(err, 'تعذر حذف المستخدم')}`);
     } finally {
       setDeleting(false);
     }
