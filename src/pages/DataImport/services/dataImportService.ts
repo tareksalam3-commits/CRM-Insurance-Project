@@ -1,7 +1,13 @@
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
-import { supabase, POLICY_TYPE_LABELS, PAYMENT_METHOD_LABELS, MARITAL_STATUS_LABELS } from '../../../lib/supabase';
+import { supabase, POLICY_TYPE_LABELS, PAYMENT_METHOD_LABELS, MARITAL_STATUS_LABELS, type User } from '../../../lib/supabase';
+import { fetchAgentsForCurrentUser } from '../../Customers/services/customersService';
 import { IMPORT_COLUMNS, type ImportColumnKey, type ParsedRow, type ImportRowPayload, type RowResult, type ImportSummary } from '../types';
+
+export interface ImportAgent {
+  id: string;
+  name: string;
+}
 
 // ===================================================================
 // 1) تحميل نموذج Excel
@@ -59,12 +65,227 @@ export function downloadTemplateFile() {
 }
 
 // ===================================================================
+// 1ب) جلب قائمة الوكلاء (فريق المستورِد) لمطابقة "اسم الوكيل" في الملف
+//     محلياً قبل الإرسال، بدل ما نكتشف الخطأ بعد محاولة كل صف على حدة
+//     في السيرفر. بنعيد استخدام نفس الدالة المستخدمة في صفحة العملاء
+//     (fetchAgentsForCurrentUser) عشان نفس نطاق الفريق بالظبط.
+// ===================================================================
+export async function fetchImportAgents(user: User): Promise<ImportAgent[]> {
+  try {
+    const all = await fetchAgentsForCurrentUser(user, null);
+    return (all || [])
+      .filter((u: any) => u.role === 'agent' || u.role === 'premium_agent')
+      .map((u: any) => ({ id: u.id, name: u.name as string }));
+  } catch {
+    // لو فشل الجلب لأي سبب، منمنعش المستخدم من الاستيراد — هنرجع قائمة
+    // فاضية وهيتم تجاوز التحقق المحلي من اسم الوكيل، وتبقى المطابقة
+    // النهائية زي زمان بالكامل من طرف السيرفر (RPC) فقط
+    return [];
+  }
+}
+
+const ARABIC_DIACRITICS_RE = /[\u064B-\u0652\u0670\u0640]/g; // تشكيل + تطويل
+
+// توحيد أشكال الحروف العربية المختلفة اللي بتمثل نفس الحرف صوتياً، عشان
+// نقدر نتجاهل فروق الكتابة (أ/إ/آ/ا، ة/ه، ى/ي) لما نقارن اسم الوكيل
+// المكتوب في الإكسل باسمه المسجل فعلياً في النظام
+function normalizeArabicForMatch(value: any): string {
+  return normalizeDigitsText(value)
+    .replace(ARABIC_DIACRITICS_RE, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  let prevRow = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const currRow = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      currRow.push(Math.min(
+        prevRow[j] + 1,      // حذف
+        currRow[j - 1] + 1,  // إضافة
+        prevRow[j - 1] + cost // استبدال
+      ));
+    }
+    prevRow = currRow;
+  }
+  return prevRow[b.length];
+}
+
+function similarityRatio(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
+export interface AgentMatchResult {
+  agent: ImportAgent | null; // موجود فقط لو تطابق كامل (بعد التطبيع)
+  suggestions: ImportAgent[]; // أقرب 3 أسماء لو مفيش تطابق كامل
+}
+
+const FUZZY_SUGGESTION_THRESHOLD = 0.55;
+
+// مطابقة اسم الوكيل المكتوب في الإكسل بقائمة وكلاء فريق المستورِد:
+// 1) تطابق كامل بعد تطبيع الحروف العربية → يُعتمد تلقائياً (بديل الاسم
+//    المكتوب باسمه الرسمي المسجّل في النظام حرفياً، لضمان نجاح المطابقة
+//    الصارمة في السيرفر حتى لو كان فيه فرق تشكيل/همزة بسيط).
+// 2) بدون تطابق كامل → نرجّع أقرب أسماء (تشابه ≥ 55%) كاقتراحات ضمن رسالة
+//    الخطأ، من غير ما نختار بدل المستخدم أبداً (تفادياً لتعيين وثيقة لوكيل
+//    غلط)، عشان يقدر يصلّح الإكسل بسرعة بدل التخمين.
+function matchAgentName(inputName: string, agents: ImportAgent[]): AgentMatchResult {
+  const normalizedInput = normalizeArabicForMatch(inputName);
+
+  const exact = agents.find((a) => normalizeArabicForMatch(a.name) === normalizedInput);
+  if (exact) return { agent: exact, suggestions: [] };
+
+  const scored = agents
+    .map((a) => ({ agent: a, score: similarityRatio(normalizedInput, normalizeArabicForMatch(a.name)) }))
+    .filter((s) => s.score >= FUZZY_SUGGESTION_THRESHOLD)
+    .sort((x, y) => y.score - x.score)
+    .slice(0, 3)
+    .map((s) => s.agent);
+
+  return { agent: null, suggestions: scored };
+}
+
+// ===================================================================
 // 2) قراءة وتحقق ملف Excel المرفوع
 // ===================================================================
 
 const POLICY_TYPE_REVERSE = buildReverseMap(POLICY_TYPE_LABELS);
 const PAYMENT_METHOD_REVERSE = buildReverseMap(PAYMENT_METHOD_LABELS);
 const MARITAL_STATUS_REVERSE = buildReverseMap(MARITAL_STATUS_LABELS);
+
+interface DateNativeOverrides {
+  birth_date?: any;
+  start_date?: any;
+}
+
+// منطق التحقق/البناء الخاص بصف واحد — دالة واحدة مشتركة تُستخدم مرتين:
+// 1) أثناء تحليل الملف لأول مرة (parseWorkbookFile)
+// 2) بعد ما المستخدم يعدّل أي خلية يدوياً في شاشة المعاينة (revalidateRow)،
+// عشان نتأكد إن نفس قواعد التحقق مطبّقة بالظبط في الحالتين من غير تكرار كود
+function buildParsedRow(
+  rowNumber: number,
+  raw: Record<string, any>,
+  agents: ImportAgent[],
+  nativeDates: DateNativeOverrides = {}
+): ParsedRow {
+  const get = (key: ImportColumnKey) => raw[key];
+  const errors: string[] = [];
+
+  const customerName = normalizeText(get('customer_name'));
+  if (!customerName) errors.push('اسم العميل مطلوب');
+
+  const agentNameInput = normalizeText(get('agent_name'));
+  let agentName = agentNameInput;
+  if (!agentNameInput) {
+    errors.push('اسم الوكيل مطلوب');
+  } else if (agents.length > 0) {
+    // عندنا قائمة فريق المستورِد فعلاً → نطابق محلياً بدل ما ننتظر رفض
+    // السيرفر لكل صف. لو الاسم مطابق (حتى مع فروق تشكيل/همزة بسيطة)،
+    // بنستبدله باسمه الرسمي المسجّل في النظام لضمان نجاح المطابقة الصارمة
+    // في import_policy_row
+    const { agent, suggestions } = matchAgentName(agentNameInput, agents);
+    if (agent) {
+      agentName = agent.name;
+    } else if (suggestions.length > 0) {
+      errors.push(`اسم الوكيل "${agentNameInput}" غير موجود ضمن فريقك. هل تقصد: ${suggestions.map((s) => s.name).join('، ')}؟`);
+    } else {
+      errors.push(`اسم الوكيل "${agentNameInput}" غير موجود ضمن فريقك أو غير نشط`);
+    }
+  }
+  // لو مفيش قائمة وكلاء متاحة (فشل الجلب)، نتجاوز التحقق المحلي بالكامل
+  // ونسيب المطابقة النهائية للسيرفر زي السلوك القديم تماماً
+
+  const policyNumber = normalizeDigitsText(get('policy_number'));
+  if (!policyNumber) errors.push('رقم الوثيقة مطلوب');
+
+  const policyTypeInput = normalizeText(get('policy_type'));
+  const policyType = policyTypeInput ? POLICY_TYPE_REVERSE.get(normalizeText(policyTypeInput)) : undefined;
+  if (!policyTypeInput) errors.push('نوع الوثيقة مطلوب');
+  else if (!policyType) errors.push(`نوع الوثيقة غير معروف: "${policyTypeInput}"`);
+
+  const paymentMethodInput = normalizeText(get('payment_method'));
+  const paymentMethod = paymentMethodInput ? PAYMENT_METHOD_REVERSE.get(normalizeText(paymentMethodInput)) : undefined;
+  if (!paymentMethodInput) errors.push('طريقة السداد مطلوبة');
+  else if (!paymentMethod) errors.push(`طريقة السداد غير معروفة: "${paymentMethodInput}"`);
+
+  const sumAssuredCell = get('sum_assured');
+  const sumAssured = parseFlexibleNumber(sumAssuredCell);
+  if (sumAssuredCell === '' || sumAssuredCell === null || sumAssuredCell === undefined) errors.push('مبلغ التأمين مطلوب');
+  else if (sumAssured === null || sumAssured <= 0) errors.push('مبلغ التأمين غير صحيح');
+
+  const premiumCell = get('premium_amount');
+  const premiumAmount = parseFlexibleNumber(premiumCell);
+  if (premiumCell === '' || premiumCell === null || premiumCell === undefined) {
+    errors.push('قيمة القسط الصافي مطلوبة');
+  } else if (premiumAmount === null || premiumAmount <= 0) {
+    errors.push('قيمة القسط الصافي غير صحيحة');
+  }
+
+  const startDate = parseFlexibleDate(nativeDates.start_date !== undefined ? nativeDates.start_date : get('start_date'));
+  if (!normalizeText(get('start_date'))) errors.push('تاريخ بداية التأمين مطلوب');
+  else if (!startDate) errors.push('تاريخ بداية التأمين غير صحيح');
+
+  // اختياري: الحالة الاجتماعية
+  const maritalStatusInput = normalizeText(get('marital_status'));
+  let maritalStatus: string | undefined;
+  if (maritalStatusInput) {
+    maritalStatus = MARITAL_STATUS_REVERSE.get(normalizeText(maritalStatusInput));
+    if (!maritalStatus) errors.push(`الحالة الاجتماعية غير معروفة: "${maritalStatusInput}"`);
+  }
+
+  // اختياري: تاريخ الميلاد
+  const birthDateInput = normalizeText(get('birth_date'));
+  let birthDate: Date | null = null;
+  if (birthDateInput) {
+    birthDate = parseFlexibleDate(nativeDates.birth_date !== undefined ? nativeDates.birth_date : get('birth_date'));
+    if (!birthDate) errors.push('تاريخ الميلاد غير صحيح');
+  }
+
+  const clientError = errors.length > 0 ? errors.join(' — ') : null;
+
+  let payload: ImportRowPayload | null = null;
+  if (!clientError && policyType && paymentMethod && startDate && sumAssured !== null && premiumAmount !== null) {
+    payload = {
+      p_customer_name: customerName,
+      p_national_id: normalizeDigitsText(get('national_id')) || null,
+      p_phone: normalizeDigitsText(get('phone')) || null,
+      p_address: normalizeText(get('address')) || null,
+      p_birth_date: birthDate ? dateToDbString(birthDate) : null,
+      p_occupation: normalizeText(get('occupation')) || null,
+      p_marital_status: maritalStatus || null,
+      p_agent_name: agentName,
+      p_policy_number: policyNumber,
+      p_policy_type: policyType,
+      p_sum_assured: sumAssured,
+      p_premium_amount: premiumAmount,
+      p_payment_method: paymentMethod,
+      p_start_date: dateToDbString(startDate),
+      p_notes: normalizeText(get('notes')) || null,
+    };
+  }
+
+  return { rowNumber, raw, payload, clientError };
+}
+
+// تُستدعى من واجهة المعاينة بعد ما المستخدم يعدّل أي خلية يدوياً في صف،
+// عشان نعيد التحقق منه فوراً من غير الحاجة لإعادة رفع الملف كله من الأول
+export function revalidateRow(row: ParsedRow, agents: ImportAgent[] = []): ParsedRow {
+  return buildParsedRow(row.rowNumber, row.raw, agents);
+}
 
 function buildReverseMap(labels: Record<string, string>): Map<string, string> {
   const map = new Map<string, string>();
@@ -185,7 +406,7 @@ export interface ParseResult {
   headerError: string | null;
 }
 
-export async function parseWorkbookFile(file: File): Promise<ParseResult> {
+export async function parseWorkbookFile(file: File, agents: ImportAgent[] = []): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
 
@@ -255,91 +476,58 @@ export async function parseWorkbookFile(file: File): Promise<ParseResult> {
       raw[col.key] = get(col.key);
     });
 
-    const errors: string[] = [];
-
-    const customerName = normalizeText(get('customer_name'));
-    if (!customerName) errors.push('اسم العميل مطلوب');
-
-    const agentName = normalizeText(get('agent_name'));
-    if (!agentName) errors.push('اسم الوكيل مطلوب');
-
-    const policyNumber = normalizeDigitsText(get('policy_number'));
-    if (!policyNumber) errors.push('رقم الوثيقة مطلوب');
-
-    const policyTypeInput = normalizeText(get('policy_type'));
-    const policyType = policyTypeInput ? POLICY_TYPE_REVERSE.get(normalizeText(policyTypeInput)) : undefined;
-    if (!policyTypeInput) errors.push('نوع الوثيقة مطلوب');
-    else if (!policyType) errors.push(`نوع الوثيقة غير معروف: "${policyTypeInput}"`);
-
-    const paymentMethodInput = normalizeText(get('payment_method'));
-    const paymentMethod = paymentMethodInput ? PAYMENT_METHOD_REVERSE.get(normalizeText(paymentMethodInput)) : undefined;
-    if (!paymentMethodInput) errors.push('طريقة السداد مطلوبة');
-    else if (!paymentMethod) errors.push(`طريقة السداد غير معروفة: "${paymentMethodInput}"`);
-
-    const sumAssured = parseFlexibleNumber(get('sum_assured'));
-    if (get('sum_assured') === '' || get('sum_assured') === null) errors.push('مبلغ التأمين مطلوب');
-    else if (sumAssured === null || sumAssured <= 0) errors.push('مبلغ التأمين غير صحيح');
-
     const premiumAmount = extractPremiumAmount(rowFormatted, premiumColumnIndices, premiumNetIndex);
     raw['premium_amount'] = premiumAmount;
-    if (premiumAmount === null) {
-      errors.push('قيمة القسط الصافي مطلوبة (لم يتم العثور على قيمة صحيحة في أي عمود يمثل القسط)');
-    }
 
     const startDateRaw = getRaw('start_date');
-    const startDate = parseFlexibleDate(startDateRaw === '' ? get('start_date') : startDateRaw);
-    if (!normalizeText(get('start_date'))) errors.push('تاريخ بداية التأمين مطلوب');
-    else if (!startDate) errors.push('تاريخ بداية التأمين غير صحيح');
-
-    // اختياري: الحالة الاجتماعية
-    const maritalStatusInput = normalizeText(get('marital_status'));
-    let maritalStatus: string | undefined;
-    if (maritalStatusInput) {
-      maritalStatus = MARITAL_STATUS_REVERSE.get(normalizeText(maritalStatusInput));
-      if (!maritalStatus) errors.push(`الحالة الاجتماعية غير معروفة: "${maritalStatusInput}"`);
-    }
-
-    // اختياري: تاريخ الميلاد
     const birthDateRaw = getRaw('birth_date');
-    const birthDateInput = normalizeText(get('birth_date'));
-    let birthDate: Date | null = null;
-    if (birthDateInput) {
-      birthDate = parseFlexibleDate(birthDateRaw === '' ? get('birth_date') : birthDateRaw);
-      if (!birthDate) errors.push('تاريخ الميلاد غير صحيح');
-    }
 
-    const clientError = errors.length > 0 ? errors.join(' — ') : null;
+    const row = buildParsedRow(rowNumber, raw, agents, {
+      start_date: startDateRaw === '' ? undefined : startDateRaw,
+      birth_date: birthDateRaw === '' ? undefined : birthDateRaw,
+    });
 
-    let payload: ImportRowPayload | null = null;
-    if (!clientError && policyType && paymentMethod && startDate && sumAssured !== null && premiumAmount !== null) {
-      payload = {
-        p_customer_name: customerName,
-        p_national_id: normalizeDigitsText(get('national_id')) || null,
-        p_phone: normalizeDigitsText(get('phone')) || null,
-        p_address: normalizeText(get('address')) || null,
-        p_birth_date: birthDate ? dateToDbString(birthDate) : null,
-        p_occupation: normalizeText(get('occupation')) || null,
-        p_marital_status: maritalStatus || null,
-        p_agent_name: agentName,
-        p_policy_number: policyNumber,
-        p_policy_type: policyType,
-        p_sum_assured: sumAssured,
-        p_premium_amount: premiumAmount,
-        p_payment_method: paymentMethod,
-        p_start_date: dateToDbString(startDate),
-        p_notes: normalizeText(get('notes')) || null,
-      };
-    }
-
-    rows.push({ rowNumber, raw, payload, clientError });
+    rows.push(row);
   }
 
   return { rows, headerError: null };
 }
 
 // ===================================================================
-// 3) تنفيذ الاستيراد صفاً بصف — كل صف Transaction مستقلة عبر RPC واحدة
+// 4) تصدير تقرير الأخطاء بعد الاستيراد كملف Excel — يسهّل تصحيح الصفوف
+//    الفاشلة بره الشاشة (مشاركته مع حد تاني، أو مقارنته بالملف الأصلي)
 // ===================================================================
+export function exportErrorReport(summary: ImportSummary) {
+  const failedRows = summary.results.filter((r) => r.status === 'error');
+  if (failedRows.length === 0) return;
+
+  const headers = ['رقم الصف', 'اسم العميل', 'رقم الوثيقة', 'سبب الفشل'];
+  const dataRows = failedRows.map((r) => [
+    r.rowNumber,
+    r.customerName || '',
+    r.policyNumber || '',
+    r.errorMessage || ''
+  ]);
+
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+  sheet['!cols'] = [{ wch: 10 }, { wch: 25 }, { wch: 20 }, { wch: 60 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, 'أخطاء الاستيراد');
+  XLSX.writeFile(wb, 'تقرير-أخطاء-الاستيراد.xlsx');
+}
+
+// ===================================================================
+// 5) تنفيذ الاستيراد — Pool من عدة Workers متوازية (بدل صف واحد في المرة)
+//    كل صف = Transaction مستقلة تماماً في الخادم (import_policy_row بتعمل
+//    INSERT جديد للعميل + الوثيقة في كل استدعاء، وأي تعارض زي رقم وثيقة أو
+//    رقم قومي مكرر بيتضبط بقيد UNIQUE في قاعدة البيانات نفسها بغض النظر عن
+//    ترتيب/توقيت الاستدعاءات)، فتشغيلها بالتوازي آمن تماماً ومفيهوش خطر
+//    تضارب بيانات، وبيقلل زمن الاستيراد الكلي بشكل كبير خصوصاً في الملفات
+//    الكبيرة (الزمن أساساً هو زمن ذهاب/رجوع الشبكة لكل RPC، مش معالجة فعلية)
+// ===================================================================
+const IMPORT_CONCURRENCY = 5;
+
 export async function importRows(
   rows: ParsedRow[],
   onRowDone: (result: RowResult, doneCount: number, totalCount: number) => void
@@ -362,32 +550,39 @@ export async function importRows(
   const total = rows.length;
   skippedAsErrors.forEach((r) => onRowDone(r, ++done, total));
 
-  for (const row of rowsToProcess) {
-    const payload = row.payload!;
-    try {
-      const { error } = await supabase.rpc('import_policy_row', payload);
-      if (error) throw error;
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < rowsToProcess.length) {
+      const row = rowsToProcess[nextIndex++];
+      const payload = row.payload!;
+      try {
+        const { error } = await supabase.rpc('import_policy_row', payload);
+        if (error) throw error;
 
-      const result: RowResult = {
-        rowNumber: row.rowNumber,
-        customerName: payload.p_customer_name,
-        policyNumber: payload.p_policy_number,
-        status: 'success'
-      };
-      results.push(result);
-      onRowDone(result, ++done, total);
-    } catch (err: any) {
-      const result: RowResult = {
-        rowNumber: row.rowNumber,
-        customerName: payload.p_customer_name,
-        policyNumber: payload.p_policy_number,
-        status: 'error',
-        errorMessage: err?.message || 'حدث خطأ غير متوقع أثناء استيراد هذا الصف'
-      };
-      results.push(result);
-      onRowDone(result, ++done, total);
+        const result: RowResult = {
+          rowNumber: row.rowNumber,
+          customerName: payload.p_customer_name,
+          policyNumber: payload.p_policy_number,
+          status: 'success'
+        };
+        results.push(result);
+        onRowDone(result, ++done, total);
+      } catch (err: any) {
+        const result: RowResult = {
+          rowNumber: row.rowNumber,
+          customerName: payload.p_customer_name,
+          policyNumber: payload.p_policy_number,
+          status: 'error',
+          errorMessage: err?.message || 'حدث خطأ غير متوقع أثناء استيراد هذا الصف'
+        };
+        results.push(result);
+        onRowDone(result, ++done, total);
+      }
     }
   }
+
+  const workerCount = Math.min(IMPORT_CONCURRENCY, rowsToProcess.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   results.sort((a, b) => a.rowNumber - b.rowNumber);
 

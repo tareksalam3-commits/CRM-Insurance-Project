@@ -8,33 +8,53 @@ import {
   XCircle,
   Loader2,
   PlayCircle,
-  AlertTriangle
+  AlertTriangle,
+  Pencil,
+  Ban,
+  Undo2,
+  FileDown,
+  RotateCcw
 } from 'lucide-react';
 import clsx from 'clsx';
 
+import { useAuth } from '../../hooks/useAuth';
 import type { ParsedRow, ImportSummary } from './types';
-import { downloadTemplateFile, parseWorkbookFile, importRows } from './services/dataImportService';
+import { downloadTemplateFile, parseWorkbookFile, importRows, fetchImportAgents, exportErrorReport, type ImportAgent } from './services/dataImportService';
+import { RowEditModal } from './components/RowEditModal';
 
 type Stage = 'idle' | 'parsed' | 'importing' | 'done';
 
 export function DataImport() {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [headerError, setHeaderError] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [agents, setAgents] = useState<ImportAgent[]>([]);
+  const [excludedRows, setExcludedRows] = useState<Set<number>>(new Set());
+  const [editingRow, setEditingRow] = useState<ParsedRow | null>(null);
+  const [showErrorsOnly, setShowErrorsOnly] = useState(false);
+  const [retryMode, setRetryMode] = useState(false);
   const [stage, setStage] = useState<Stage>('idle');
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [parsing, setParsing] = useState(false);
 
-  const validRowsCount = parsedRows.filter((r) => r.payload !== null).length;
-  const invalidRowsCount = parsedRows.length - validRowsCount;
+  const activeRows = parsedRows.filter((r) => !excludedRows.has(r.rowNumber));
+  const validRowsCount = activeRows.filter((r) => r.payload !== null).length;
+  const invalidRowsCount = activeRows.length - validRowsCount;
+  const excludedCount = excludedRows.size;
 
   const resetAll = () => {
     setFileName(null);
     setHeaderError(null);
     setParsedRows([]);
+    setAgents([]);
+    setExcludedRows(new Set());
+    setEditingRow(null);
+    setShowErrorsOnly(false);
+    setRetryMode(false);
     setStage('idle');
     setProgress({ done: 0, total: 0 });
     setSummary(null);
@@ -46,7 +66,12 @@ export function DataImport() {
     setFileName(file.name);
     setParsing(true);
     try {
-      const { rows, headerError: hErr } = await parseWorkbookFile(file);
+      // نجيب قائمة وكلاء فريق المستورِد قبل التحليل عشان نطابق عمود "اسم
+      // الوكيل" محلياً (تطبيع + تشابه) بدل ما نكتشف الاسم الغلط بعد فشل
+      // كل صف في السيرفر واحداً واحداً
+      const fetchedAgents = user ? await fetchImportAgents(user) : [];
+      setAgents(fetchedAgents);
+      const { rows, headerError: hErr } = await parseWorkbookFile(file, fetchedAgents);
       if (hErr) {
         setHeaderError(hErr);
         setStage('idle');
@@ -74,14 +99,45 @@ export function DataImport() {
   };
 
   const startImport = async () => {
+    const rowsToImport = parsedRows.filter((r) => !excludedRows.has(r.rowNumber));
     setStage('importing');
-    setProgress({ done: 0, total: parsedRows.length });
-    const result = await importRows(parsedRows, (_r, done, total) => {
+    setProgress({ done: 0, total: rowsToImport.length });
+    const result = await importRows(rowsToImport, (_r, done, total) => {
       setProgress({ done, total });
     });
     setSummary(result);
     setStage('done');
   };
+
+  const retryFailedRows = () => {
+    if (!summary) return;
+    const failedRowNumbers = new Set(
+      summary.results.filter((r) => r.status === 'error').map((r) => r.rowNumber)
+    );
+    const failedRows = parsedRows.filter((r) => failedRowNumbers.has(r.rowNumber));
+    setParsedRows(failedRows);
+    setExcludedRows(new Set());
+    setShowErrorsOnly(false);
+    setRetryMode(true);
+    setSummary(null);
+    setStage('parsed');
+  };
+
+  const handleRowSaved = (updatedRow: ParsedRow) => {
+    setParsedRows((prev) => prev.map((r) => (r.rowNumber === updatedRow.rowNumber ? updatedRow : r)));
+    setEditingRow(null);
+  };
+
+  const toggleExcludeRow = (rowNumber: number) => {
+    setExcludedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowNumber)) next.delete(rowNumber);
+      else next.add(rowNumber);
+      return next;
+    });
+  };
+
+  const visibleRows = showErrorsOnly ? parsedRows.filter((r) => r.payload === null) : parsedRows;
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -166,22 +222,115 @@ export function DataImport() {
         )}
 
         {stage === 'parsed' && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-secondary-50 rounded-lg p-4">
-            <div className="text-sm text-secondary-700 space-y-1">
-              <p>تم العثور على <span className="font-semibold">{parsedRows.length}</span> صف بيانات.</p>
-              <p className="text-success-700">{validRowsCount} صف جاهز للاستيراد</p>
-              {invalidRowsCount > 0 && (
-                <p className="text-error-600">{invalidRowsCount} صف به أخطاء وسيُرفض فور بدء الاستيراد</p>
-              )}
+          <div className="space-y-4">
+            {retryMode && (
+              <div className="flex items-center gap-2 bg-primary-50 border border-primary-200 text-primary-700 rounded-lg p-3 text-sm">
+                <RotateCcw className="w-4 h-4 flex-shrink-0" />
+                <span>هذه إعادة محاولة للصفوف التي فشلت في المرة السابقة فقط. الصفوف التي نجحت سابقاً تم استيرادها بالفعل ولن تتكرر.</span>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-secondary-50 rounded-lg p-4">
+              <div className="text-sm text-secondary-700 space-y-1">
+                <p>تم العثور على <span className="font-semibold">{parsedRows.length}</span> صف بيانات.</p>
+                <p className="text-success-700">{validRowsCount} صف جاهز للاستيراد</p>
+                {invalidRowsCount > 0 && (
+                  <p className="text-error-600">{invalidRowsCount} صف به أخطاء وسيُرفض فور بدء الاستيراد</p>
+                )}
+                {excludedCount > 0 && (
+                  <p className="text-secondary-500">{excludedCount} صف مستبعد من الاستيراد يدوياً</p>
+                )}
+              </div>
+              <button
+                onClick={startImport}
+                disabled={validRowsCount === 0}
+                className="btn btn-primary flex-shrink-0"
+              >
+                <PlayCircle className="w-4 h-4" />
+                بدء الاستيراد
+              </button>
             </div>
-            <button
-              onClick={startImport}
-              disabled={validRowsCount === 0}
-              className="btn btn-primary flex-shrink-0"
-            >
-              <PlayCircle className="w-4 h-4" />
-              بدء الاستيراد
-            </button>
+
+            {/* الخطوة ٢ب: معاينة وتعديل الصفوف قبل الإرسال — تصحيح خطأ بسيط
+                (اسم وكيل، تاريخ، رقم) هنا بدل الرجوع للإكسل وإعادة الرفع */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-secondary-800 text-sm">معاينة الصفوف</h4>
+                <label className="flex items-center gap-2 text-sm text-secondary-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showErrorsOnly}
+                    onChange={(e) => setShowErrorsOnly(e.target.checked)}
+                    className="rounded border-secondary-300"
+                  />
+                  عرض الصفوف التي بها أخطاء فقط
+                </label>
+              </div>
+
+              <div className="overflow-x-auto border border-secondary-200 rounded-lg max-h-[420px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b border-secondary-200 text-secondary-500">
+                      <th className="text-right py-2 px-2">صف</th>
+                      <th className="text-right py-2 px-2">العميل</th>
+                      <th className="text-right py-2 px-2">الوكيل</th>
+                      <th className="text-right py-2 px-2">رقم الوثيقة</th>
+                      <th className="text-right py-2 px-2">الحالة</th>
+                      <th className="text-right py-2 px-2">إجراء</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row) => {
+                      const isExcluded = excludedRows.has(row.rowNumber);
+                      return (
+                        <tr
+                          key={row.rowNumber}
+                          className={clsx(
+                            'border-b border-secondary-100',
+                            isExcluded && 'opacity-50'
+                          )}
+                        >
+                          <td className="py-2 px-2 text-secondary-500">{row.rowNumber}</td>
+                          <td className="py-2 px-2">{row.raw['customer_name'] || '-'}</td>
+                          <td className="py-2 px-2">{row.raw['agent_name'] || '-'}</td>
+                          <td className="py-2 px-2">{row.raw['policy_number'] || '-'}</td>
+                          <td className="py-2 px-2">
+                            {isExcluded ? (
+                              <span className="text-secondary-400">مستبعد</span>
+                            ) : row.payload !== null ? (
+                              <span className="inline-flex items-center gap-1 text-success-700">
+                                <CheckCircle2 className="w-4 h-4" /> صحيح
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-error-600" title={row.clientError || ''}>
+                                <XCircle className="w-4 h-4" /> {row.clientError}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setEditingRow(row)}
+                                className="btn btn-ghost btn-sm"
+                                title="تعديل الصف"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => toggleExcludeRow(row.rowNumber)}
+                                className="btn btn-ghost btn-sm"
+                                title={isExcluded ? 'إرجاع الصف للاستيراد' : 'استبعاد الصف من الاستيراد'}
+                              >
+                                {isExcluded ? <Undo2 className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
@@ -204,7 +353,21 @@ export function DataImport() {
       {/* الخطوة 3: تقرير النتيجة */}
       {stage === 'done' && summary && (
         <div className="card space-y-4">
-          <h3 className="font-semibold text-secondary-900">٣. تقرير الاستيراد</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h3 className="font-semibold text-secondary-900">٣. تقرير الاستيراد</h3>
+            {summary.failedCount > 0 && (
+              <div className="flex items-center gap-2">
+                <button onClick={() => exportErrorReport(summary)} className="btn btn-secondary btn-sm">
+                  <FileDown className="w-4 h-4" />
+                  تصدير تقرير الأخطاء
+                </button>
+                <button onClick={retryFailedRows} className="btn btn-primary btn-sm">
+                  <RotateCcw className="w-4 h-4" />
+                  إعادة محاولة الصفوف الفاشلة
+                </button>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="rounded-lg border border-success-200 bg-success-50 p-4 text-center">
@@ -285,6 +448,15 @@ export function DataImport() {
             استيراد ملف آخر
           </button>
         </div>
+      )}
+
+      {editingRow && (
+        <RowEditModal
+          row={editingRow}
+          agents={agents}
+          onCancel={() => setEditingRow(null)}
+          onSave={handleRowSaved}
+        />
       )}
     </div>
   );
