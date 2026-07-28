@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { BranchProvider } from './lib/branchContext';
 import { Sidebar } from './components/Sidebar';
@@ -23,17 +24,7 @@ import { HelpPanel } from './features/help/HelpPanel';
 import { Tour } from './features/help/Tour';
 import { useFirstRunTour } from './features/help/useFirstRunTour';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // تفادي إعادة الجلب غير الضرورية عند التنقل بين الصفحات أو العودة للتطبيق
-      staleTime: 60 * 1000,
-      gcTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
+
 
 const Dashboard    = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const Customers    = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })));

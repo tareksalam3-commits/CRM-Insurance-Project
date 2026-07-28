@@ -26,7 +26,7 @@ import {
 } from './services/monthlyClosingService';
 import type { Branch } from '../../features/branches/types';
 import { buildMonthlyClosingSummary } from './business/monthlyClosingCalculator';
-import { printWithTitle } from '../../lib/printWithTitle';
+import { openPrintReportWindow } from '../../lib/printReportWindow';
 import { useNotify } from '../../lib/notify';
 
 // ─── component ────────────────────────────────────────────
@@ -173,9 +173,21 @@ export function MonthlyClosing() {
   const handleConfirmPrint = () => {
     setShowPrintModal(false);
     const printMonthLabel = format(selectedMonth, 'MMMM yyyy', { locale: ar });
-    // نسيب React يعمل render للتقرير ببيانات اسم الفرع/التاريخ الجديدة
-    // الأول، قبل ما نطلب من المتصفح يطبع.
-    setTimeout(() => printWithTitle(`تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`), 50);
+    openPrintReportWindow(
+      <PrintReport
+        supervisorName={user?.name || ''}
+        supervisorRoleLabel={ROLE_LABELS[user?.role ?? 'supervisor']}
+        monthLabel={monthLabel}
+        closingDate={printClosingDate ? format(new Date(printClosingDate), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
+        branchName={branchName}
+        printSupervisors={printSupervisors}
+        printDetailRows={printDetailRows}
+        grandProduction={grandProduction}
+        grandCollection={grandCollection}
+        grandTotal={grandTotal}
+      />,
+      `تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`
+    );
   };
 
   const isCurrentMonth = isSameMonth(selectedMonth, new Date());
