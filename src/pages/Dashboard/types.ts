@@ -21,6 +21,11 @@ export interface DashboardStats {
   overdueInstallmentsCount: number;
   paidInstallments: number;
   paidInstallmentsCount: number;
+  // معدل التحصيل الشهري: نسبة المسدد فعلاً من إجمالي المستحق هذا الشهر
+  // (المسدد + المستحق المتبقي + المتأخر) — 100% تعني تحصيل كامل لكل
+  // مستحقات الشهر بدون أي متبقي أو متأخر. لا علاقة لها بـ achievementRate
+  // (اللي بتقارن بالهدف الشهري للمستخدم مش بإجمالي المستحق).
+  collectionRate: number;
   target: number;
   achieved: number;
   remaining: number;
