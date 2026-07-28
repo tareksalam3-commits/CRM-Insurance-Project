@@ -39,7 +39,7 @@ function subtotalLabel(entry: { supervisorName: string; groupLeaderName: string;
 // في صفحة التفاصيل نفسها.
 type PrintDetailEntry =
   | { kind: 'row'; row: PrintDetailRow }
-  | { kind: 'subtotal'; supervisorName: string; groupLeaderName: string; agentName: string; amount: number };
+  | { kind: 'subtotal'; supervisorName: string; supervisorRole: PrintDetailRow['supervisorRole']; groupLeaderName: string; agentName: string; amount: number };
 
 // بنبني كل وكيل كـ"مجموعة" واحدة (صفوفه + صف إجماليه) بدل قائمة مسطّحة،
 // عشان صفحة التفاصيل تقدر تتعامل مع كل مجموعة ككتلة واحدة متلاصقة ومتقسّمش
@@ -66,6 +66,7 @@ function buildDetailGroups(rows: PrintDetailRow[]): PrintDetailEntry[][] {
       groupEntries.push({
         kind: 'subtotal',
         supervisorName: cur.supervisorName,
+        supervisorRole: cur.supervisorRole,
         groupLeaderName: cur.groupLeaderName,
         agentName: cur.agentName,
         amount: sum,
@@ -127,9 +128,9 @@ function chunkPageIntoAgentBlocks(entries: PrintDetailEntry[]): PrintDetailEntry
 // بناخدها من صف الإجمالي لو موجود، أو من أول صف عادي لو المجموعة اتقسّمت
 // على أكتر من صفحة (حالة نادرة: وكيل عملياته لوحدها أكبر من صفحة). ده مجرد
 // قراءة بيانات موجودة أصلاً فى الصفوف، من غير أي حساب جديد.
-function blockContext(block: PrintDetailEntry[]): { supervisorName: string; groupLeaderName: string; agentName: string } {
+function blockContext(block: PrintDetailEntry[]): { supervisorName: string; supervisorRole: PrintDetailRow['supervisorRole']; groupLeaderName: string; agentName: string } {
   const withFields = block.find((e) => e.kind === 'subtotal') ?? block.find((e) => e.kind === 'row');
-  if (!withFields) return { supervisorName: '', groupLeaderName: '', agentName: '' };
+  if (!withFields) return { supervisorName: '', supervisorRole: 'supervisor', groupLeaderName: '', agentName: '' };
   return withFields.kind === 'subtotal'
     ? withFields
     : withFields.row;
@@ -568,7 +569,7 @@ export function PrintReport({
                     <tbody className="pr-agent-block" key={blockIdx}>
                       {showSupervisorHeader && (
                         <tr className="pr-detail-sup-header">
-                          <td colSpan={5}>{supervisorRoleLabel}: {ctx.supervisorName}</td>
+                          <td colSpan={5}>{ROLE_LABELS[ctx.supervisorRole]}: {ctx.supervisorName}</td>
                         </tr>
                       )}
                       {showGroupLeaderHeader && (
