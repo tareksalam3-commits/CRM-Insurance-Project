@@ -29,20 +29,64 @@ import { queryClient } from './queryClient';
 // الجانبية (12mm × 2) المستخدمة فى @page جوه PrintReport.tsx، عند ~96dpi.
 const CAPTURE_WIDTH_PX = 700;
 
+// بيتأكد إن الـ canvas مش فاضي (كل بكسلاته أبيض/شفاف) — بنعاين عيّنة من
+// النقط بدل كل بكسل عشان الأداء. لو طلع فاضي، معناه طريقة الالتقاط اللي
+// استخدمناها (foreignObjectRendering) فشلت على المتصفح/الـ WebView ده،
+// فبنعيد المحاولة بالطريقة التقليدية (تصوير DOM حقيقي بدل SVG).
+function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const { width, height } = canvas;
+  if (width === 0 || height === 0) return true;
+  const samplePoints = 12;
+  for (let i = 0; i < samplePoints; i += 1) {
+    const x = Math.floor((width / samplePoints) * i + width / (samplePoints * 2));
+    const y = Math.floor(height / 2);
+    const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
+    const isWhiteOrTransparent = a === 0 || (r > 250 && g > 250 && b > 250);
+    if (!isWhiteOrTransparent) return false;
+  }
+  return true;
+}
+
+async function captureNode(html2canvas: typeof import('html2canvas').default, node: HTMLElement) {
+  let canvas = await html2canvas(node, {
+    scale: 2,
+    backgroundColor: '#ffffff',
+    useCORS: true,
+    foreignObjectRendering: true,
+  });
+  if (isCanvasBlank(canvas)) {
+    canvas = await html2canvas(node, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      foreignObjectRendering: false,
+    });
+  }
+  return canvas;
+}
+
 export async function exportPrintReportToPdf(element: ReactElement, fileName: string): Promise<void> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
     import('html2canvas'),
     import('jspdf'),
   ]);
 
-  // حاوية معزولة، مثبتة برّه حدود الشاشة المرئية (مش display:none، عشان
-  // المتصفح يعمل لها layout فعلي ويقدر html2canvas يصوّرها)، بعرض ثابت
-  // زي عرض صفحة الطباعة المقصودة.
+  // حاوية معزولة، بس واقفة فعليًا عند (0,0) من الصفحة (مش مُبعَّدة بإحداثيات
+  // سالبة كبيرة زي left:-10000px) — بنخفيها عن العين بـ z-index سالب
+  // و pointer-events:none بدل الإبعاد. ملحوظة مهمة: على بعض متصفحات/
+  // WebView الموبايل، عناصر متبعدة بإحداثيات سالبة كبيرة برّه حدود
+  // العرض بتتعامل معاها المتصفح كـ"مش محتاجة رسم فعلي" (تحسين أداء داخلي)
+  // فبييجي html2canvas يصوّرها بيلاقيها متلقّطة فاضية (صفحات بيضاء)، رغم
+  // إن layout بتاعها اتحسب صح. الوقوف عند (0,0) بيضمن إن المتصفح فعلاً
+  // بيرسمها زي أي عنصر عادي جوه الصفحة.
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.top = '0';
-  container.style.left = '-10000px';
+  container.style.left = '0';
   container.style.zIndex = '-1';
+  container.style.pointerEvents = 'none';
   container.style.background = '#ffffff';
   container.style.width = `${CAPTURE_WIDTH_PX}px`;
   document.body.appendChild(container);
@@ -63,6 +107,10 @@ export async function exportPrintReportToPdf(element: ReactElement, fileName: st
       printRoot.classList.remove('hidden');
       printRoot.style.display = 'block';
     }
+    // إجبار المتصفح يحسب الـ layout فعليًا دلوقتي (مش يأجّله)، ثم فريم
+    // إضافي عشان الرسم يتم فعلاً قبل ما نبدأ نصوّر أي حاجة.
+    void container.offsetHeight;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     // ننتظر تحميل الخطوط والصور (شعار الشركة) قبل التصوير.
     if (document.fonts?.ready) {
@@ -97,12 +145,7 @@ export async function exportPrintReportToPdf(element: ReactElement, fileName: st
 
     for (let i = 0; i < pageNodes.length; i += 1) {
       const node = pageNodes[i];
-      const canvas = await html2canvas(node, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        foreignObjectRendering: true,
-      });
+      const canvas = await captureNode(html2canvas, node);
       const imgData = canvas.toDataURL('image/png');
       const imgHmm = (canvas.height * pageWmm) / canvas.width;
 
