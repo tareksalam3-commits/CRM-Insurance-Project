@@ -81,6 +81,15 @@ export function computeDashboardStats({
   const totalTarget = Number(target || 0);
   const totalAchieved = newProductionPaid + periodicCollectionPaid;
 
+  // إجمالي مستحقات هذا الشهر (بغض النظر عن حالتها) = المسدد فعلاً +
+  // المتبقي اللي لسه مستحق (pending) + المتأخر من شهور سابقة (overdue).
+  // معدل التحصيل = المسدد / هذا الإجمالي، وليس له علاقة بالهدف الشخصي.
+  const paidTotal = filteredPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+  const dueTotal = dueInstallments.reduce((sum: number, i: any) => sum + Number(i.amount), 0);
+  const overdueTotal = overdueInstallments.reduce((sum: number, i: any) => sum + Number(i.amount), 0);
+  const totalDueThisMonth = paidTotal + dueTotal + overdueTotal;
+  const collectionRate = totalDueThisMonth > 0 ? Math.round((paidTotal / totalDueThisMonth) * 100) : 0;
+
   return {
     totalCustomers: customersCount,
     totalPolicies: policies.length,
@@ -96,8 +105,9 @@ export function computeDashboardStats({
     dueInstallmentsCount: dueInstallments.length,
     overdueInstallments: overdueInstallments.reduce((sum: number, i: any) => sum + Number(i.amount), 0),
     overdueInstallmentsCount: overdueInstallments.length,
-    paidInstallments: filteredPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0),
+    paidInstallments: paidTotal,
     paidInstallmentsCount: filteredPayments.length,
+    collectionRate,
     target: totalTarget,
     achieved: totalAchieved,
     remaining: Math.max(0, totalTarget - totalAchieved),
