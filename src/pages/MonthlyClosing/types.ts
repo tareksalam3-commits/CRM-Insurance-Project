@@ -87,6 +87,10 @@ export interface SupervisorAgg {
 
 export interface PrintDetailRow {
   supervisorName: string;
+  // الدرجة الوظيفية الحقيقية لصاحب اسم "المراقب" فى الصف ده (مراقب / مراقب
+  // عام / مدير تطوير...) — عشان التقرير المطبوع يوضّح اللقب الصحيح لكل واحد
+  // بدل ما يفترض إن كل الأسماء فى عمود المراقب لهم نفس درجة صاحب التقرير.
+  supervisorRole: UserRole;
   groupLeaderName: string;
   agentName: string;
   customerName: string;
