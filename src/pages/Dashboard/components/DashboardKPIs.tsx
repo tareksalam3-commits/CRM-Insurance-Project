@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle, Percent, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, Percent, TrendingUp, XCircle } from 'lucide-react';
 import type { DashboardStats } from '../types';
 import type { CancellationSummary } from '../../Cancellations/types';
 import { formatCurrency } from '../utils';
@@ -9,12 +9,41 @@ interface DashboardKPIsProps {
   cancellationSummary: CancellationSummary | null;
 }
 
+// ألوان بطاقة "معدل التحصيل" بتتغيّر حسب النسبة نفسها (مش لون ثابت زي باقي
+// الكروت) عشان تدّي إشارة بصرية فورية: أخضر = تحصيل جيد، برتقالي = متوسط،
+// أحمر = ضعيف ويحتاج متابعة. الحدود (80% / 50%) اختيار عملي بسيط قابل
+// للتعديل لاحقاً لو الإدارة حبت تغيّره.
+function collectionRateColor(rate: number): { border: string; text: string } {
+  if (rate >= 80) return { border: 'border-r-success-500', text: 'text-success-600' };
+  if (rate >= 50) return { border: 'border-r-warning-500', text: 'text-warning-600' };
+  return { border: 'border-r-error-500', text: 'text-error-600' };
+}
+
 export function DashboardKPIs({ stats, cancellationSummary }: DashboardKPIsProps) {
   const navigate = useNavigate();
+  const rate = stats?.collectionRate ?? 0;
+  const rateColor = collectionRateColor(rate);
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
+        <button
+          type="button"
+          onClick={() => navigate('/collection?quickFilter=month')}
+          className={`kpi-card text-right w-full cursor-pointer hover:-translate-y-0.5 active:translate-y-0 border-r-4 ${rateColor.border}`}
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-xs md:text-sm text-secondary-500">معدل التحصيل الشهري</p>
+            <TrendingUp className={`w-4 h-4 ${rateColor.text} shrink-0`} />
+          </div>
+          <p className={`text-xl md:text-2xl font-bold mt-1.5 ${rateColor.text}`}>
+            {rate}%
+          </p>
+          <p className="text-[11px] md:text-xs text-secondary-400 mt-1">
+            {formatCurrency(stats?.paidInstallments || 0)} مسدد من مستحقات الشهر
+          </p>
+        </button>
+
         <button
           type="button"
           onClick={() => navigate('/collection?quickFilter=month')}
