@@ -23,51 +23,47 @@ import { queryClient } from './queryClient';
 // فبدل ما نقص صورة طويلة بالبكسل (وده ممكن يقطع صف نص نص بين صفحتين)،
 // بنلتقط كل عنصر صفحة على حدة ونحطه فى صفحة PDF مستقلة — نفس التقسيم
 // المحسوب بالظبط، بس كصور حقيقية بدل طباعة متصفح.
+//
+// ملحوظة (مشكلة "بتقعد فاضلة تحمّل"): أول نسخة كانت بتصوّر كل صفحة
+// بطريقة foreignObjectRendering، ولو طلعت فاضية كانت بتعيد المحاولة
+// بطريقة تانية أبطأ. المشكلة إن على بعض أجهزة الموبايل الطريقة الأولى
+// كانت دايمًا بتطلع فاضية، فكل صفحة كانت فعليًا بتتصوّر مرتين (مرة سريعة
+// فاشلة + مرة بطيئة) — ومع تقرير فيه صفحات كتير (زي تقرير فيه مراقبين
+// ورؤساء مجموعات كتير) ده بيبقى بطيء جدًا حتى لو مش متجمّد فعليًا.
+// الحل: بنستخدم الطريقة التانية (الأبطأ نسبيًا بس المضمونة) من الأول
+// مباشرة من غير أي محاولة أولى ضايعة، وبنضيف مؤشر تقدّم (صفحة كذا من كذا)
+// عشان المستخدم يبقى شايف إن فيه شغل بيحصل فعلاً مش تجمّد.
 // ─────────────────────────────────────────────────────────────────────────
 
 // عرض المحتوى وقت الالتقاط (بكسل) — تقريبًا عرض A4 (210mm) ناقص الهوامش
 // الجانبية (12mm × 2) المستخدمة فى @page جوه PrintReport.tsx، عند ~96dpi.
 const CAPTURE_WIDTH_PX = 700;
 
-// بيتأكد إن الـ canvas مش فاضي (كل بكسلاته أبيض/شفاف) — بنعاين عيّنة من
-// النقط بدل كل بكسل عشان الأداء. لو طلع فاضي، معناه طريقة الالتقاط اللي
-// استخدمناها (foreignObjectRendering) فشلت على المتصفح/الـ WebView ده،
-// فبنعيد المحاولة بالطريقة التقليدية (تصوير DOM حقيقي بدل SVG).
-function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return false;
-  const { width, height } = canvas;
-  if (width === 0 || height === 0) return true;
-  const samplePoints = 12;
-  for (let i = 0; i < samplePoints; i += 1) {
-    const x = Math.floor((width / samplePoints) * i + width / (samplePoints * 2));
-    const y = Math.floor(height / 2);
-    const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
-    const isWhiteOrTransparent = a === 0 || (r > 250 && g > 250 && b > 250);
-    if (!isWhiteOrTransparent) return false;
-  }
-  return true;
-}
+// أقصى وقت ننتظره لتحميل أي صورة مفردة (شعار الشركة مثلاً) أو الخطوط قبل
+// ما نكمل من غيرها. بيمنع إن مورد واحد عالق (مشكلة شبكة مثلاً) يوقّف كل
+// عملية إنشاء الملف إلى الأبد.
+const RESOURCE_LOAD_TIMEOUT_MS = 4000;
 
-async function captureNode(html2canvas: typeof import('html2canvas').default, node: HTMLElement) {
-  let canvas = await html2canvas(node, {
-    scale: 2,
-    backgroundColor: '#ffffff',
-    useCORS: true,
-    foreignObjectRendering: true,
+function waitForImage(img: HTMLImageElement): Promise<void> {
+  if (img.complete) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const done = () => resolve();
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true });
+    setTimeout(done, RESOURCE_LOAD_TIMEOUT_MS);
   });
-  if (isCanvasBlank(canvas)) {
-    canvas = await html2canvas(node, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      foreignObjectRendering: false,
-    });
-  }
-  return canvas;
 }
 
-export async function exportPrintReportToPdf(element: ReactElement, fileName: string): Promise<void> {
+export interface ExportPrintReportProgress {
+  page: number;
+  totalPages: number;
+}
+
+export async function exportPrintReportToPdf(
+  element: ReactElement,
+  fileName: string,
+  onProgress?: (progress: ExportPrintReportProgress) => void
+): Promise<void> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
     import('html2canvas'),
     import('jspdf'),
@@ -75,12 +71,10 @@ export async function exportPrintReportToPdf(element: ReactElement, fileName: st
 
   // حاوية معزولة، بس واقفة فعليًا عند (0,0) من الصفحة (مش مُبعَّدة بإحداثيات
   // سالبة كبيرة زي left:-10000px) — بنخفيها عن العين بـ z-index سالب
-  // و pointer-events:none بدل الإبعاد. ملحوظة مهمة: على بعض متصفحات/
-  // WebView الموبايل، عناصر متبعدة بإحداثيات سالبة كبيرة برّه حدود
-  // العرض بتتعامل معاها المتصفح كـ"مش محتاجة رسم فعلي" (تحسين أداء داخلي)
-  // فبييجي html2canvas يصوّرها بيلاقيها متلقّطة فاضية (صفحات بيضاء)، رغم
-  // إن layout بتاعها اتحسب صح. الوقوف عند (0,0) بيضمن إن المتصفح فعلاً
-  // بيرسمها زي أي عنصر عادي جوه الصفحة.
+  // و pointer-events:none بدل الإبعاد. عناصر متبعدة بإحداثيات سالبة كبيرة
+  // برّه حدود العرض بيتعامل معاها بعض المتصفحات كـ"مش محتاجة رسم فعلي"
+  // (تحسين أداء داخلي) فبتطلع الصورة الملتقطة فاضية رغم إن الـ layout
+  // بتاعها اتحسب صح. الوقوف عند (0,0) بيضمن إن المتصفح فعلاً بيرسمها.
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.top = '0';
@@ -112,21 +106,15 @@ export async function exportPrintReportToPdf(element: ReactElement, fileName: st
     void container.offsetHeight;
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-    // ننتظر تحميل الخطوط والصور (شعار الشركة) قبل التصوير.
+    // ننتظر تحميل الخطوط (بحد أقصى للأمان) والصور (شعار الشركة) قبل التصوير.
     if (document.fonts?.ready) {
-      try { await document.fonts.ready; } catch { /* تجاهل */ }
+      await Promise.race([
+        document.fonts.ready.catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, RESOURCE_LOAD_TIMEOUT_MS)),
+      ]);
     }
     const images = Array.from(container.querySelectorAll('img'));
-    await Promise.all(
-      images.map((img) =>
-        img.complete
-          ? Promise.resolve()
-          : new Promise<void>((resolve) => {
-              img.addEventListener('load', () => resolve());
-              img.addEventListener('error', () => resolve());
-            })
-      )
-    );
+    await Promise.all(images.map(waitForImage));
 
     // كل صفحة مستقلة: قسم التجميعات (الصفحة الأولى) ثم كل صفحة تفاصيل.
     const pageNodes: HTMLElement[] = [];
@@ -144,8 +132,18 @@ export async function exportPrintReportToPdf(element: ReactElement, fileName: st
     const pageHmm = doc.internal.pageSize.getHeight();
 
     for (let i = 0; i < pageNodes.length; i += 1) {
+      onProgress?.({ page: i + 1, totalPages: pageNodes.length });
       const node = pageNodes[i];
-      const canvas = await captureNode(html2canvas, node);
+      // بنستخدم طريقة التصوير التقليدية (foreignObjectRendering: false)
+      // مباشرة من غير أي محاولة أولى — دي الطريقة المضمونة على أكبر عدد
+      // من الأجهزة، وتجربة محاولة أولى فاشلة على كل صفحة كانت بتضاعف وقت
+      // التوليد من غير أي فايدة على الأجهزة اللي بتفشل فيها أصلاً.
+      const canvas = await html2canvas(node, {
+        scale: 1.5,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        foreignObjectRendering: false,
+      });
       const imgData = canvas.toDataURL('image/png');
       const imgHmm = (canvas.height * pageWmm) / canvas.width;
 
