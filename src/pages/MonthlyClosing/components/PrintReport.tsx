@@ -2,7 +2,7 @@ import { ROLE_LABELS } from '../../../lib/supabase';
 import { useSettings } from '../../../hooks/useSettings';
 import type { SupervisorAgg, PrintDetailRow } from '../types';
 import { fmt, last6 } from '../utils';
-import { PERSONAL_PRODUCTION_LABEL } from '../business/monthlyClosingCalculator';
+import { PERSONAL_PRODUCTION_LABEL, DIRECT_AGENTS_LABEL } from '../business/monthlyClosingCalculator';
 
 // عدد صفوف عمليات السداد في كل صفحة مطبوعة. بنقسّم الصفوف يدويًا لمجموعات
 // بدل ما نسيب المتصفح يقسّم جدول واحد طويل على الصفحات، عشان:
@@ -574,7 +574,11 @@ export function PrintReport({
                       )}
                       {showGroupLeaderHeader && (
                         <tr className="pr-detail-gl-header">
-                          <td colSpan={5}>رئيس المجموعة: {ctx.groupLeaderName}</td>
+                          <td colSpan={5}>
+                            {ctx.groupLeaderName === DIRECT_AGENTS_LABEL
+                              ? `وكلاء يتبعون ${ROLE_LABELS[ctx.supervisorRole]} مباشرة (بدون رئيس مجموعة)`
+                              : `رئيس المجموعة: ${ctx.groupLeaderName}`}
+                          </td>
                         </tr>
                       )}
                       <tr className="pr-detail-agent-header">
