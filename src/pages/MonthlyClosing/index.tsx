@@ -26,7 +26,7 @@ import {
 } from './services/monthlyClosingService';
 import type { Branch } from '../../features/branches/types';
 import { buildMonthlyClosingSummary } from './business/monthlyClosingCalculator';
-import { exportPrintReportToPdf } from '../../lib/exportPrintReportToPdf';
+import { printWithTitle } from '../../lib/printWithTitle';
 import { useNotify } from '../../lib/notify';
 
 // ─── component ────────────────────────────────────────────
@@ -55,8 +55,6 @@ export function MonthlyClosing() {
   const [branchName, setBranchName]       = useState('');
   const [printBranches, setPrintBranches] = useState<Branch[]>([]);
   const [printClosingDate, setPrintClosingDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  const [printGenerating, setPrintGenerating] = useState(false);
-  const [printProgress, setPrintProgress] = useState<{ page: number; totalPages: number } | null>(null);
 
   // report data
   const [isClosed, setIsClosed]           = useState(false);
@@ -172,38 +170,19 @@ export function MonthlyClosing() {
     setShowPrintModal(true);
   };
 
-  const handleConfirmPrint = async () => {
-    // بدل ما نفتح نافذة طباعة المتصفح ونسيب نظام التشغيل يولّد الـ PDF
-    // (وده اللي كان بيفشل برسالة عامة على الموبايل خصوصًا فى التقرير ده
-    // لطوله)، بنولّد ملف PDF حقيقى إحنا بنفسنا وينزل مباشرة على الجهاز.
+  const handleConfirmPrint = () => {
+    // التقرير المطبوع (PrintReport) موجود فعلاً دايمًا فى الصفحة (مخفي إلا
+    // وقت الطباعة عبر class="hidden print:block")، وبياخد قيم الفرع/تاريخ
+    // التقفيل الحالية مباشرة كـ props. فبنقفل مودال الإعداد بس، ونستدعي
+    // طباعة المتصفح الحقيقية (نفس الأسلوب المستخدم فعلاً وشغال فى صفحات
+    // تانية زي تحصيل السنة الثانية) — ده بيرسم النص العربي صح تمامًا لأنه
+    // محرك الرسم الأصلي بتاع المتصفح، عكس أي تصوير بالـ html2canvas.
     setShowPrintModal(false);
-    setPrintGenerating(true);
-    setPrintProgress(null);
     const printMonthLabel = format(selectedMonth, 'MMMM yyyy', { locale: ar });
-    try {
-      await exportPrintReportToPdf(
-        <PrintReport
-          supervisorName={user?.name || ''}
-          supervisorRoleLabel={ROLE_LABELS[user?.role ?? 'supervisor']}
-          monthLabel={monthLabel}
-          closingDate={printClosingDate ? format(new Date(printClosingDate), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
-          branchName={branchName}
-          printSupervisors={printSupervisors}
-          printDetailRows={printDetailRows}
-          grandProduction={grandProduction}
-          grandCollection={grandCollection}
-          grandTotal={grandTotal}
-        />,
-        `تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`,
-        (progress) => setPrintProgress(progress)
-      );
-    } catch (err) {
-      console.error(err);
-      notify.error('حدث خطأ أثناء إنشاء ملف PDF، من فضلك حاول تاني');
-    } finally {
-      setPrintGenerating(false);
-      setPrintProgress(null);
-    }
+    setTimeout(
+      () => printWithTitle(`تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`),
+      100
+    );
   };
 
   const isCurrentMonth = isSameMonth(selectedMonth, new Date());
@@ -511,20 +490,6 @@ export function MonthlyClosing() {
           onClose={() => setShowPrintModal(false)}
           onConfirm={handleConfirmPrint}
         />
-      )}
-
-      {/* ── مؤشر إنشاء ملف الـ PDF (بيستغرق ثوانٍ لتقارير طويلة) ── */}
-      {printGenerating && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl px-6 py-5 flex flex-col items-center gap-3 shadow-xl">
-            <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium text-secondary-700">
-              {printProgress
-                ? `جارِ إنشاء صفحة ${printProgress.page} من ${printProgress.totalPages}...`
-                : 'جارِ إنشاء ملف PDF...'}
-            </span>
-          </div>
-        </div>
       )}
 
       {/* ── Confirm Modal ── */}
