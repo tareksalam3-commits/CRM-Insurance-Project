@@ -56,6 +56,7 @@ export function MonthlyClosing() {
   const [printBranches, setPrintBranches] = useState<Branch[]>([]);
   const [printClosingDate, setPrintClosingDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [printGenerating, setPrintGenerating] = useState(false);
+  const [printProgress, setPrintProgress] = useState<{ page: number; totalPages: number } | null>(null);
 
   // report data
   const [isClosed, setIsClosed]           = useState(false);
@@ -177,6 +178,7 @@ export function MonthlyClosing() {
     // لطوله)، بنولّد ملف PDF حقيقى إحنا بنفسنا وينزل مباشرة على الجهاز.
     setShowPrintModal(false);
     setPrintGenerating(true);
+    setPrintProgress(null);
     const printMonthLabel = format(selectedMonth, 'MMMM yyyy', { locale: ar });
     try {
       await exportPrintReportToPdf(
@@ -192,13 +194,15 @@ export function MonthlyClosing() {
           grandCollection={grandCollection}
           grandTotal={grandTotal}
         />,
-        `تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`
+        `تقفيل-${printMonthLabel}${branchName ? `-${branchName}` : ''}`,
+        (progress) => setPrintProgress(progress)
       );
     } catch (err) {
       console.error(err);
       notify.error('حدث خطأ أثناء إنشاء ملف PDF، من فضلك حاول تاني');
     } finally {
       setPrintGenerating(false);
+      setPrintProgress(null);
     }
   };
 
@@ -514,7 +518,11 @@ export function MonthlyClosing() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl px-6 py-5 flex flex-col items-center gap-3 shadow-xl">
             <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium text-secondary-700">جارِ إنشاء ملف PDF...</span>
+            <span className="text-sm font-medium text-secondary-700">
+              {printProgress
+                ? `جارِ إنشاء صفحة ${printProgress.page} من ${printProgress.totalPages}...`
+                : 'جارِ إنشاء ملف PDF...'}
+            </span>
           </div>
         </div>
       )}
