@@ -3,7 +3,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useBranchContext } from '../../../lib/branchContext';
 import { type UserRole } from '../../../lib/supabase';
 import type { BranchRoleInfo } from '../../../lib/branchHierarchy';
-import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { format, startOfMonth, endOfMonth, addMonths, isWithinInterval, isSameMonth } from 'date-fns';
 
 import type { DashboardStats, TeamPerformance, TeamMemberDetail } from '../types';
 import {
@@ -21,6 +21,18 @@ export function useDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([]);
   const [loading, setLoading] = useState(true);
+  // وقت آخر تحديث ناجح للبيانات + حالة "جاري التحديث" منفصلة عن loading
+  // الأساسية (اللي بتعرض الـ skeleton الكامل أول مرة فقط) — التحديث اليدوي
+  // بيستخدم refreshing بس عشان مايمسحش البيانات الظاهرة أثناء إعادة الجلب.
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // الشهر المعروض حاليًا في اللوحة (افتراضيًا الشهر الحالي). تغييره بيعيد
+  // تحميل كل بيانات اللوحة لنفس الشهر المُختار بدل الشهر الحقيقي — ملاحظة:
+  // "المستحق/المتأخر" بتعكس الحالة الحيّة الآن فى قاعدة البيانات (status)
+  // مش لقطة مجمّدة وقت الشهر ده، بعكس "الإنتاج/التحصيل" اللي دايماً دقيقة
+  // لأنها مبنية على payment_month الفعلي المسجَّل وقت السداد.
+  const [selectedMonth, setSelectedMonth] = useState<Date>(() => new Date());
+  const isCurrentMonth = isSameMonth(selectedMonth, new Date());
   const [chartData, setChartData] = useState<{ production: number; collection: number }>({ production: 0, collection: 0 });
   // مؤشر "نسبة الإلغاءات" — يُحمَّل بشكل مستقل تماماً ولا يؤثر على أي حساب آخر في الصفحة
   const [cancellationSummary, setCancellationSummary] = useState<CancellationSummary | null>(null);
@@ -44,10 +56,14 @@ export function useDashboard() {
   const [sheetStack, setSheetStack] = useState<TeamMemberDetail[]>([]);
 
   useEffect(() => {
-    if (user) {
-      loadDashboardData();
-      loadCancellationStats();
-    }
+    if (user) loadDashboardData();
+  }, [user, currentBranchId, selectedMonth]);
+
+  // مؤشر الإلغاءات مش مرتبط بالشهر المختار (بيعرض دايمًا آخر 12 شهر حتى
+  // الآن)، فبيتحمّل مرة واحدة بس عند تغيير المستخدم/الفرع، مش عند تغيير
+  // selectedMonth، حتى لا نكرر نفس الاستعلام من غير داعي.
+  useEffect(() => {
+    if (user) loadCancellationStats();
   }, [user, currentBranchId]);
 
   // تحميل مستقل لمؤشر "نسبة الإلغاءات" — منفصل تماماً عن loadDashboardData
@@ -62,10 +78,10 @@ export function useDashboard() {
     }
   };
 
-  const loadDashboardData = async () => {
-    setLoading(true);
+  const loadDashboardData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const now = new Date();
+      const now = selectedMonth;
       const monthStart = startOfMonth(now);
       const monthEnd = endOfMonth(now);
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
@@ -115,10 +131,11 @@ export function useDashboard() {
       }
 
       setChartData(computeChartData(payments, userIds));
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -173,6 +190,28 @@ export function useDashboard() {
 
   const handleSheetClose = () => setSheetStack([]);
 
+  // التنقل بين الشهور: للخلف دايمًا متاح، للأمام محدود بحد أقصى الشهر
+  // الحالي الحقيقي (مفيش داعي لعرض شهر مستقبلي لسه معندهوش بيانات).
+  const goToPreviousMonth = () => setSelectedMonth((prev) => addMonths(prev, -1));
+  const goToNextMonth = () => {
+    if (isCurrentMonth) return;
+    setSelectedMonth((prev) => addMonths(prev, 1));
+  };
+  const goToCurrentMonth = () => setSelectedMonth(new Date());
+
+  // تحديث يدوي (زرار في الهيدر): بيعيد تحميل نفس بيانات لوحة التحكم لنفس
+  // الشهر المُختار حاليًا + مؤشر الإلغاءات، بدون إظهار الـ skeleton الكامل
+  // (silent) — بس مؤشر دوران بسيط على الزرار نفسه لحد ما ينتهي.
+  const refresh = async () => {
+    if (!user || refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([loadDashboardData(true), loadCancellationStats()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useReconnectRefetch(
     () => { if (user) loadDashboardData(); },
     () => { if (user) loadCancellationStats(); },
@@ -182,6 +221,14 @@ export function useDashboard() {
     user,
     stats,
     loading,
+    lastUpdated,
+    refreshing,
+    refresh,
+    selectedMonth,
+    isCurrentMonth,
+    goToPreviousMonth,
+    goToNextMonth,
+    goToCurrentMonth,
     chartData,
     cancellationSummary,
     policyStatusData,
