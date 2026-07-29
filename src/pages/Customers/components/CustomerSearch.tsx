@@ -17,6 +17,9 @@ interface CustomerSearchProps {
   // الفلاتر (مش جزء من لوحة الفلاتر القابلة للطي)
   noPolicyOnly: boolean;
   onToggleNoPolicyOnly: () => void;
+  // عدد عملاء "طلبات الإصدار" — بيتعرض جوه الزرار دايمًا بغض النظر عن حالة
+  // تفعيل الفلتر، عشان المستخدم يعرف العدد من غير ما يضطر يدوس عليه
+  noPolicyCount: number;
   // لوحة الفلاتر القابلة للطي — بتتعرض هنا بالظبط بين صف البحث وسطر عدد
   // النتائج، بنفس ترتيب الـ DOM الأصلي فى index.tsx
   filtersPanel?: ReactNode;
@@ -33,6 +36,7 @@ export function CustomerSearch({
   totalCount,
   noPolicyOnly,
   onToggleNoPolicyOnly,
+  noPolicyCount,
   filtersPanel,
 }: CustomerSearchProps) {
   return (
@@ -54,7 +58,7 @@ export function CustomerSearch({
         )}
       >
         <ClipboardList className="w-4 h-4" />
-        <span>طلبات فى الاصدار</span>
+        <span>طلبات فى الاصدار ({noPolicyCount})</span>
       </button>
 
       {filtersPanel}
