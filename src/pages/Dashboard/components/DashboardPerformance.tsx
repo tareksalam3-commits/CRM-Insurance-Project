@@ -36,6 +36,23 @@ const TIER_TEXT_CLASS: Record<ReturnType<typeof getPerformanceTier>, string> = {
   error: 'text-error-600',
 };
 
+// وصف نصي مختصر لكل شريحة أداء، بيتعرض بجانب الميدالية لأول ٣ ترتيب فقط
+// (زيادة مؤشر أداء واحد بسيط فوق النسبة المئوية، بدون أي بيانات جديدة).
+const TIER_LABEL: Record<ReturnType<typeof getPerformanceTier>, string> = {
+  exceptional: 'أداء استثنائي',
+  success: 'محقق الهدف',
+  warning: 'دون الهدف',
+  error: 'يحتاج متابعة',
+};
+
+// ميداليات أول ٣ ترتيب فقط (ذهبي/فضي/برونزي) — بديل أوضح بصريًا من الرقم
+// المجرد، مع خلفية متدرجة تميّز صاحب المركز الأول تحديدًا عن باقي القائمة.
+const RANK_MEDAL: Record<number, { emoji: string; badge: string; row: string }> = {
+  0: { emoji: '🥇', badge: 'bg-gradient-to-br from-amber-300 to-amber-500 shadow-sm', row: 'bg-gradient-to-l from-amber-50 to-transparent' },
+  1: { emoji: '🥈', badge: 'bg-gradient-to-br from-slate-300 to-slate-400', row: '' },
+  2: { emoji: '🥉', badge: 'bg-gradient-to-br from-orange-300 to-orange-500', row: '' },
+};
+
 export function DashboardPerformance({
   teamPerformanceSections,
   sheetStack,
@@ -64,29 +81,40 @@ export function DashboardPerformance({
                       ? Math.round((member.achieved / member.target) * 100)
                       : 0;
                     const tier = getPerformanceTier(rate);
+                    const medal = RANK_MEDAL[index];
                     return (
                       <button
                         key={member.id}
                         type="button"
                         onClick={() => openTeamMemberSheet(member.id)}
-                        className="w-full flex items-center gap-3 text-right pressable rounded-lg -mx-1 px-1 py-0.5 hover:bg-secondary-50 transition-colors"
+                        className={clsx(
+                          'w-full flex items-center gap-3 text-right pressable rounded-lg -mx-1 px-1 py-1 hover:bg-secondary-50 transition-colors',
+                          medal?.row
+                        )}
                       >
-                        <div className="w-8 text-center">
-                          <span className={clsx(
-                            'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold',
-                            index === 0 ? 'bg-warning-100 text-warning-700' :
-                            index === 1 ? 'bg-secondary-200 text-secondary-700' :
-                            'bg-secondary-100 text-secondary-600'
-                          )}>
-                            {index + 1}
-                          </span>
+                        <div className="w-8 text-center shrink-0">
+                          {medal ? (
+                            <span
+                              className={clsx(
+                                'inline-flex items-center justify-center w-7 h-7 rounded-full text-sm',
+                                medal.badge
+                              )}
+                              title={`المركز ${index + 1}`}
+                            >
+                              {medal.emoji}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-secondary-100 text-secondary-600">
+                              {index + 1}
+                            </span>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-sm font-medium text-secondary-900 truncate">
                               {member.name}
                             </span>
-                            <span className={clsx('text-xs', TIER_TEXT_CLASS[tier])}>{rate}%</span>
+                            <span className={clsx('text-xs shrink-0', TIER_TEXT_CLASS[tier])}>{rate}%</span>
                           </div>
                           <div className="w-full bg-secondary-200 rounded-full h-2">
                             <div
@@ -94,13 +122,15 @@ export function DashboardPerformance({
                               style={{ width: `${Math.min(100, rate)}%` }}
                             />
                           </div>
-                          <div className="flex justify-between mt-1">
+                          <div className="flex justify-between items-center mt-1">
                             <span className="text-[10px] text-secondary-400">
-                              {formatCurrency(member.achieved)}
+                              {formatCurrency(member.achieved)} من {formatCurrency(member.target)}
                             </span>
-                            <span className="text-[10px] text-secondary-400">
-                              من {formatCurrency(member.target)}
-                            </span>
+                            {medal && (
+                              <span className={clsx('text-[10px]', TIER_TEXT_CLASS[tier])}>
+                                {TIER_LABEL[tier]}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
