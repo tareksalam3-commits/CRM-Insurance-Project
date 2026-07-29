@@ -10,9 +10,16 @@ import { DashboardCharts } from './components/DashboardCharts';
 
 export function Dashboard() {
   const {
-    user,
     stats,
     loading,
+    lastUpdated,
+    refreshing,
+    refresh,
+    selectedMonth,
+    isCurrentMonth,
+    goToPreviousMonth,
+    goToNextMonth,
+    goToCurrentMonth,
     chartData,
     cancellationSummary,
     policyStatusData,
@@ -31,7 +38,16 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <DashboardHeader user={user} />
+      <DashboardHeader
+        selectedMonth={selectedMonth}
+        isCurrentMonth={isCurrentMonth}
+        onPreviousMonth={goToPreviousMonth}
+        onNextMonth={goToNextMonth}
+        onCurrentMonth={goToCurrentMonth}
+        lastUpdated={lastUpdated}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      />
 
       {stats && stats.totalPolicies === 0 && stats.totalCustomers === 0 && (
         <DashboardEmptyState />
@@ -51,7 +67,7 @@ export function Dashboard() {
         handleSheetClose={handleSheetClose}
       />
 
-      <DashboardKPIs stats={stats} cancellationSummary={cancellationSummary} />
+      <DashboardKPIs stats={stats} cancellationSummary={cancellationSummary} isCurrentMonth={isCurrentMonth} />
 
       <DashboardCharts
         totalPolicies={stats?.totalPolicies || 0}
