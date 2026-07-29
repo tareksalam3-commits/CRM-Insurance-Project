@@ -328,14 +328,22 @@ export function PrintReport({
           background: #f3f4f6 !important; color: #374151; font-weight: 700;
           text-align: right; padding-right: 34px; font-size: 10.5px;
         }
-        /* شارة ملوّنة تفرّق بصريًا بين عمليات "الجديد" و"التحصيل" بدل ما
-           تبقى مجرد كلمة نص عادية زي باقي الأعمدة. */
-        .print-report .pr-type-badge {
-          display: inline-block; padding: 1.5px 10px; border-radius: 10px;
-          font-weight: 700; font-size: 10px;
+        /* شارة ملوّنة أعلى كل صفحة تفاصيل توضّح فورًا إن الصفحة دي كاملة
+           خاصة بقسم "الإنتاج الجديد" أو قسم "التحصيل" — بدل عمود "نوع
+           العملية" اللي كان بيتكرر فى كل صف؛ دلوقتي الصفحة نفسها مخصّصة
+           لنوع واحد بس فمفيش داعي لعمود إضافي. */
+        .print-report .pr-section-tag {
+          display: inline-block; margin-top: 4px; padding: 3px 16px;
+          border-radius: 12px; font-weight: 800; font-size: 11px; letter-spacing: 0.3px;
         }
-        .print-report .pr-type-new { background: #dcfce7; color: #15803d; }
-        .print-report .pr-type-collection { background: #dbeafe; color: #1d4ed8; }
+        .print-report .pr-section-tag-new { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .print-report .pr-section-tag-collection { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+
+        /* شريط لوني رفيع أعلى جدول كل صفحة تفاصيل، بنفس لون القسم — لمسة
+           بصرية إضافية تفرّق صفحات "الإنتاج الجديد" عن صفحات "التحصيل"
+           حتى من غير قراءة العنوان (مفيدة وقت تصفح نسخة ورقية سريعًا). */
+        .print-report .pr-detail-table.pr-section-new { border-top: 3px solid #16a34a; }
+        .print-report .pr-detail-table.pr-section-collection { border-top: 3px solid #2563eb; }
 
         /* تذييل ثابت أسفل كل صفحة مطبوعة على حدة. بدل الاعتماد على
            عنصر position: fixed واحد بيتكرر تلقائيًا (اللي بيديله رقم صفحة
@@ -480,152 +488,180 @@ export function PrintReport({
           ورقم صفحته الصحيح، بدل جدول واحد طويل بيعتمد على تكرار تلقائي
           ممكن يفشل بعد أول صفحة. */}
       {(() => {
-        const detailGroups = buildDetailGroups(printDetailRows);
-        const detailPages = paginateDetailGroups(detailGroups, DETAIL_ROWS_PER_PAGE);
-        if (detailPages.length === 0) {
-          return (
-            <div className="pr-page-break">
-              <table className="pr-detail-table">
-                <thead>
-                  <tr className="pr-detail-title-row">
-                    <th colSpan={5}>
-                      <div className="pr-company-flat">
-                        {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
-                        <span>{branding.company_name}</span>
-                      </div>
-                      <div className="pr-title">تقرير تقفيل الشهر</div>
-                    </th>
-                  </tr>
-                  <tr className="pr-detail-meta-row">
-                    <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
-                    <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
-                    <th colSpan={1}>تفاصيل عمليات السداد</th>
-                  </tr>
-                  <tr>
-                    <th>العميل</th>
-                    <th>آخر 6 أرقام الوثيقة</th>
-                    <th>رقم القسط</th>
-                    <th>قيمة القسط</th>
-                    <th>نوع العملية</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td colSpan={5}>لا توجد عمليات سداد مسجّلة لهذا الشهر</td></tr>
-                </tbody>
-              </table>
-              <div className="pr-footer">
-                {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {totalAggPages + 1}
-              </div>
-            </div>
-          );
-        }
+        // ══ صفحات التفاصيل بقت قسمين منفصلين تمامًا: "الإنتاج الجديد" لوحده
+        // ثم "التحصيل" لوحده — كل قسم له صفحاته الخاصة، ترقيمه المتسلسل،
+        // شارته الملوّنة فى رأس كل صفحة، وصف إجماليه الخاص فى آخر صفحة منه.
+        // بما إن كل صفحة بقت مخصّصة لنوع واحد بس، اتشال عمود "نوع العملية"
+        // اللي كان بيتكرر فى كل صف (بقى غير لازم ومكانه استُغل لتوسعة باقي
+        // الأعمدة بدل ما يتزاحموا).
+        type SectionKey = 'new' | 'collection';
+        const SECTION_META: Record<SectionKey, { label: string; emptyMessage: string; totalLabel: string; tagClass: string; tableClass: string }> = {
+          new: {
+            label: 'الإنتاج الجديد',
+            emptyMessage: 'لا توجد عمليات إنتاج جديد مسجّلة لهذا الشهر',
+            totalLabel: 'الإجمالي الكلي — الإنتاج الجديد',
+            tagClass: 'pr-section-tag-new',
+            tableClass: 'pr-section-new',
+          },
+          collection: {
+            label: 'التحصيل',
+            emptyMessage: 'لا توجد عمليات تحصيل مسجّلة لهذا الشهر',
+            totalLabel: 'الإجمالي الكلي — التحصيل',
+            tagClass: 'pr-section-tag-collection',
+            tableClass: 'pr-section-collection',
+          },
+        };
 
-        return detailPages.map((rows, pageIdx) => {
-          const pageNumber = pageIdx + totalAggPages + 1; // بعد كل صفحات التجميعات (ممكن تبقى أكتر من صفحة لو فيه أكتر من مراقب عام)
-          const isLastPage = pageIdx === detailPages.length - 1;
-          // بنصفّر السياق (آخر مراقب/رئيس مجموعة ظاهر) فى أول كل صفحة، عشان
-          // أول مجموعة فى أي صفحة جديدة تظهر ترويستها كاملة دايمًا — القارئ
-          // لازم يعرف "أنا تحت مين" من أول نظرة على الصفحة، حتى لو الاستمرارية
-          // من نفس المراقب/رئيس المجموعة اللي انتهت بيه الصفحة اللي قبلها.
-          let lastSupervisor = '';
-          let lastGroupLeader = '';
-          return (
-            <div className="pr-page-break" key={pageIdx}>
-              <table className="pr-detail-table">
-                <thead>
-                  <tr className="pr-detail-title-row">
-                    <th colSpan={5}>
-                      <div className="pr-company-flat">
-                        {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
-                        <span>{branding.company_name}</span>
-                      </div>
-                      <div className="pr-title">تقرير تقفيل الشهر</div>
-                    </th>
-                  </tr>
-                  <tr className="pr-detail-meta-row">
-                    <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
-                    <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
-                    <th colSpan={1}>تفاصيل عمليات السداد</th>
-                  </tr>
-                  <tr>
-                    <th>العميل</th>
-                    <th>آخر 6 أرقام الوثيقة</th>
-                    <th>رقم القسط</th>
-                    <th>قيمة القسط</th>
-                    <th>نوع العملية</th>
-                  </tr>
-                </thead>
-                {chunkPageIntoAgentBlocks(rows).map((block, blockIdx) => {
-                  const ctx = blockContext(block);
-                  const showSupervisorHeader = ctx.supervisorName !== lastSupervisor;
-                  // "إنتاج شخصي" مش رئيس مجموعة حقيقي — مفيش داعي لسطر مستوى
-                  // إضافي ليه، بيتحط مباشرة تحت المراقب/رئيس المجموعة صاحبه.
-                  const showGroupLeaderHeader =
-                    ctx.groupLeaderName !== PERSONAL_PRODUCTION_LABEL &&
-                    (showSupervisorHeader || ctx.groupLeaderName !== lastGroupLeader);
-                  lastSupervisor = ctx.supervisorName;
-                  lastGroupLeader = ctx.groupLeaderName;
-                  return (
-                    <tbody className="pr-agent-block" key={blockIdx}>
-                      {showSupervisorHeader && (
-                        <tr className="pr-detail-sup-header">
-                          <td colSpan={5}>{ROLE_LABELS[ctx.supervisorRole]}: {ctx.supervisorName}</td>
-                        </tr>
-                      )}
-                      {showGroupLeaderHeader && (
-                        <tr className="pr-detail-gl-header">
-                          <td colSpan={5}>
-                            {ctx.groupLeaderName === DIRECT_AGENTS_LABEL
-                              ? `وكلاء يتبعون ${ROLE_LABELS[ctx.supervisorRole]} مباشرة (بدون رئيس مجموعة)`
-                              : `رئيس المجموعة: ${ctx.groupLeaderName}`}
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="pr-detail-agent-header">
-                        <td colSpan={5}>{subtotalLabel(ctx)}</td>
-                      </tr>
-                      {block.map((entry, i) => {
-                        if (entry.kind === 'subtotal') {
-                          return (
-                            <tr key={i} className="pr-agent-subtotal-row">
-                              <td colSpan={4}>إجمالي {subtotalLabel(entry)}</td>
-                              <td>{fmt(entry.amount)}</td>
-                            </tr>
-                          );
-                        }
-                        const r = entry.row;
-                        return (
-                          <tr key={i}>
-                            <td style={{ textAlign: 'right' }}>{r.customerName}</td>
-                            <td dir="ltr">{last6(r.policyNumber)}</td>
-                            <td>{r.installmentNumber}</td>
-                            <td>{fmt(r.amount)}</td>
-                            <td>
-                              <span className={`pr-type-badge ${r.type === 'new' ? 'pr-type-new' : 'pr-type-collection'}`}>
-                                {r.type === 'new' ? 'جديد' : 'تحصيل'}
-                              </span>
+        function renderSection(rows: PrintDetailRow[], sectionKey: SectionKey, sectionTotal: number, startPageNumber: number) {
+          const meta = SECTION_META[sectionKey];
+          const detailGroups = buildDetailGroups(rows);
+          const detailPages = paginateDetailGroups(detailGroups, DETAIL_ROWS_PER_PAGE);
+
+          if (detailPages.length === 0) {
+            return [(
+              <div className="pr-page-break" key={`${sectionKey}-empty`}>
+                <table className={`pr-detail-table ${meta.tableClass}`}>
+                  <thead>
+                    <tr className="pr-detail-title-row">
+                      <th colSpan={4}>
+                        <div className="pr-company-flat">
+                          {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
+                          <span>{branding.company_name}</span>
+                        </div>
+                        <div className="pr-title">تقرير تقفيل الشهر</div>
+                        <div className={`pr-section-tag ${meta.tagClass}`}>قسم: {meta.label}</div>
+                      </th>
+                    </tr>
+                    <tr className="pr-detail-meta-row">
+                      <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
+                      <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
+                    </tr>
+                    <tr>
+                      <th>العميل</th>
+                      <th>آخر 6 أرقام الوثيقة</th>
+                      <th>رقم القسط</th>
+                      <th>قيمة القسط</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colSpan={4}>{meta.emptyMessage}</td></tr>
+                  </tbody>
+                </table>
+                <div className="pr-footer">
+                  {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {startPageNumber}
+                </div>
+              </div>
+            )];
+          }
+
+          return detailPages.map((rowsOnPage, pageIdx) => {
+            const pageNumber = pageIdx + startPageNumber;
+            const isLastPage = pageIdx === detailPages.length - 1;
+            // بنصفّر السياق (آخر مراقب/رئيس مجموعة ظاهر) فى أول كل صفحة، عشان
+            // أول مجموعة فى أي صفحة جديدة تظهر ترويستها كاملة دايمًا — القارئ
+            // لازم يعرف "أنا تحت مين" من أول نظرة على الصفحة، حتى لو الاستمرارية
+            // من نفس المراقب/رئيس المجموعة اللي انتهت بيه الصفحة اللي قبلها.
+            let lastSupervisor = '';
+            let lastGroupLeader = '';
+            return (
+              <div className="pr-page-break" key={`${sectionKey}-${pageIdx}`}>
+                <table className={`pr-detail-table ${meta.tableClass}`}>
+                  <thead>
+                    <tr className="pr-detail-title-row">
+                      <th colSpan={4}>
+                        <div className="pr-company-flat">
+                          {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
+                          <span>{branding.company_name}</span>
+                        </div>
+                        <div className="pr-title">تقرير تقفيل الشهر</div>
+                        <div className={`pr-section-tag ${meta.tagClass}`}>قسم: {meta.label}</div>
+                      </th>
+                    </tr>
+                    <tr className="pr-detail-meta-row">
+                      <th colSpan={2}>{supervisorRoleLabel}: {supervisorName}</th>
+                      <th colSpan={2}>الشهر: {monthLabel}{branchName && ` — الفرع: ${branchName}`}</th>
+                    </tr>
+                    <tr>
+                      <th>العميل</th>
+                      <th>آخر 6 أرقام الوثيقة</th>
+                      <th>رقم القسط</th>
+                      <th>قيمة القسط</th>
+                    </tr>
+                  </thead>
+                  {chunkPageIntoAgentBlocks(rowsOnPage).map((block, blockIdx) => {
+                    const ctx = blockContext(block);
+                    const showSupervisorHeader = ctx.supervisorName !== lastSupervisor;
+                    // "إنتاج شخصي" مش رئيس مجموعة حقيقي — مفيش داعي لسطر مستوى
+                    // إضافي ليه، بيتحط مباشرة تحت المراقب/رئيس المجموعة صاحبه.
+                    const showGroupLeaderHeader =
+                      ctx.groupLeaderName !== PERSONAL_PRODUCTION_LABEL &&
+                      (showSupervisorHeader || ctx.groupLeaderName !== lastGroupLeader);
+                    lastSupervisor = ctx.supervisorName;
+                    lastGroupLeader = ctx.groupLeaderName;
+                    return (
+                      <tbody className="pr-agent-block" key={blockIdx}>
+                        {showSupervisorHeader && (
+                          <tr className="pr-detail-sup-header">
+                            <td colSpan={4}>{ROLE_LABELS[ctx.supervisorRole]}: {ctx.supervisorName}</td>
+                          </tr>
+                        )}
+                        {showGroupLeaderHeader && (
+                          <tr className="pr-detail-gl-header">
+                            <td colSpan={4}>
+                              {ctx.groupLeaderName === DIRECT_AGENTS_LABEL
+                                ? `وكلاء يتبعون ${ROLE_LABELS[ctx.supervisorRole]} مباشرة (بدون رئيس مجموعة)`
+                                : `رئيس المجموعة: ${ctx.groupLeaderName}`}
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  );
-                })}
-                {isLastPage && (
-                  <tfoot>
-                    <tr className="pr-totals-row">
-                      <td colSpan={4}>الإجمالي الكلي لعمليات السداد</td>
-                      <td>{fmt(grandTotal)}</td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-              <div className="pr-footer">
-                {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {pageNumber}
+                        )}
+                        <tr className="pr-detail-agent-header">
+                          <td colSpan={4}>{subtotalLabel(ctx)}</td>
+                        </tr>
+                        {block.map((entry, i) => {
+                          if (entry.kind === 'subtotal') {
+                            return (
+                              <tr key={i} className="pr-agent-subtotal-row">
+                                <td colSpan={3}>إجمالي {subtotalLabel(entry)}</td>
+                                <td>{fmt(entry.amount)}</td>
+                              </tr>
+                            );
+                          }
+                          const r = entry.row;
+                          return (
+                            <tr key={i}>
+                              <td style={{ textAlign: 'right' }}>{r.customerName}</td>
+                              <td dir="ltr">{last6(r.policyNumber)}</td>
+                              <td>{r.installmentNumber}</td>
+                              <td>{fmt(r.amount)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    );
+                  })}
+                  {isLastPage && (
+                    <tfoot>
+                      <tr className="pr-totals-row">
+                        <td colSpan={3}>{meta.totalLabel}</td>
+                        <td>{fmt(sectionTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+                <div className="pr-footer">
+                  {branding.company_name} · تقرير تقفيل الشهر — {monthLabel} · صفحة {pageNumber}
+                </div>
               </div>
-            </div>
-          );
-        });
+            );
+          });
+        }
+
+        const newRows = printDetailRows.filter((r) => r.type === 'new');
+        const collectionRows = printDetailRows.filter((r) => r.type === 'collection');
+        const newPages = renderSection(newRows, 'new', grandProduction, totalAggPages + 1);
+        const collectionPages = renderSection(collectionRows, 'collection', grandCollection, totalAggPages + newPages.length + 1);
+
+        return <>{newPages}{collectionPages}</>;
       })()}
     </div>
   );
