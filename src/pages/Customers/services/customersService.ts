@@ -60,6 +60,10 @@ export interface CustomerStats {
   active: number;
   withDueInstallments: number;
   newThisMonth: number;
+  // عدد عملاء "طلبات فى الإصدار" (بدون أي وثيقة) — محسوب دايماً بمعزل عن
+  // أي فلتر مطبّق على القائمة، عشان يتعرض جوه زرار "طلبات فى الاصدار" حتى
+  // لو الزرار نفسه مش مفعّل دلوقتي
+  noPolicyCount: number;
 }
 
 // عملاء لديهم وثيقة واحدة على الأقل بحالة "نشط" — نفس التعريف المستخدم فى
@@ -88,6 +92,19 @@ async function getCustomerIdsWithAnyPolicy(ownerIds: string[] | null = null): Pr
   return Array.from(new Set((data || []).map((p: any) => p.customer_id)));
 }
 
+// عدد عملاء "طلبات فى الإصدار" — نفس تعريف الفلتر بالظبط (عملاء بدون أي
+// وثيقة) لكن count فقط (head: true) بدل جلب كل الصفوف، عشان يتطابق الرقم
+// مع نتيجة الفلتر الفعلي لما المستخدم يضغط الزرار
+async function getNoPolicyCustomerCount(ownerIds: string[] | null = null): Promise<number> {
+  const idsWithPolicies = await getCustomerIdsWithAnyPolicy(ownerIds);
+  let query = supabase.from('customers').select('id', { count: 'exact', head: true });
+  if (ownerIds) query = query.in('owner_id', ownerIds);
+  if (idsWithPolicies.length > 0) query = query.not('id', 'in', `(${idsWithPolicies.join(',')})`);
+  const { count, error } = await query;
+  if (error) throw error;
+  return count || 0;
+}
+
 // عملاء لديهم قسط واحد على الأقل بحالة "متأخر" (نفس حالة overdue المحسوبة
 // أصلاً فى قاعدة البيانات — لا تغيير فى منطق تحديد التأخير)
 async function getCustomerIdsWithOverdueInstallments(ownerIds: string[] | null = null): Promise<string[]> {
@@ -109,7 +126,7 @@ async function getCustomerIdsWithOverdueInstallments(ownerIds: string[] | null =
 
 // إحصائيات لحظية لأعلى الصفحة — كل رقم محسوب بمعزل عن أي فلاتر مطبقة على
 // القائمة، ومقيّد تلقائياً بنفس صلاحيات RLS المطبقة على جداول customers/policies/installments
-const EMPTY_CUSTOMER_STATS: CustomerStats = { total: 0, active: 0, withDueInstallments: 0, newThisMonth: 0 };
+const EMPTY_CUSTOMER_STATS: CustomerStats = { total: 0, active: 0, withDueInstallments: 0, newThisMonth: 0, noPolicyCount: 0 };
 
 export async function fetchCustomerStats(userId: string, branchId: string | null = null): Promise<CustomerStats> {
   const now = new Date();
@@ -132,11 +149,12 @@ export async function fetchCustomerStats(userId: string, branchId: string | null
         newQuery = newQuery.in('owner_id', ownerIds);
       }
 
-      const [totalRes, newRes, activeIds, overdueIds] = await Promise.all([
+      const [totalRes, newRes, activeIds, overdueIds, noPolicyCount] = await Promise.all([
         totalQuery,
         newQuery,
         getActiveCustomerIds(ownerIds),
         getCustomerIdsWithOverdueInstallments(ownerIds),
+        getNoPolicyCustomerCount(ownerIds),
       ]);
 
       if (totalRes.error) throw totalRes.error;
@@ -147,6 +165,7 @@ export async function fetchCustomerStats(userId: string, branchId: string | null
         active: activeIds.length,
         withDueInstallments: overdueIds.length,
         newThisMonth: newRes.count || 0,
+        noPolicyCount,
       };
     },
     { emptyValue: EMPTY_CUSTOMER_STATS },
