@@ -47,10 +47,10 @@ const TIER_LABEL: Record<ReturnType<typeof getPerformanceTier>, string> = {
 
 // ميداليات أول ٣ ترتيب فقط (ذهبي/فضي/برونزي) — بديل أوضح بصريًا من الرقم
 // المجرد، مع خلفية متدرجة تميّز صاحب المركز الأول تحديدًا عن باقي القائمة.
-const RANK_MEDAL: Record<number, { emoji: string; badge: string; row: string }> = {
-  0: { emoji: '🥇', badge: 'bg-gradient-to-br from-amber-300 to-amber-500 shadow-sm', row: 'bg-gradient-to-l from-amber-50 to-transparent' },
-  1: { emoji: '🥈', badge: 'bg-gradient-to-br from-slate-300 to-slate-400', row: '' },
-  2: { emoji: '🥉', badge: 'bg-gradient-to-br from-orange-300 to-orange-500', row: '' },
+const RANK_MEDAL: Record<number, { emoji: string; label: string; badge: string; row: string }> = {
+  0: { emoji: '🥇', label: 'الأول', badge: 'bg-gradient-to-br from-amber-300 to-amber-500 shadow-sm', row: 'bg-gradient-to-l from-amber-50 to-transparent' },
+  1: { emoji: '🥈', label: 'الثاني', badge: 'bg-gradient-to-br from-slate-300 to-slate-400', row: '' },
+  2: { emoji: '🥉', label: 'الثالث', badge: 'bg-gradient-to-br from-orange-300 to-orange-500', row: '' },
 };
 
 export function DashboardPerformance({
@@ -94,15 +94,19 @@ export function DashboardPerformance({
                       >
                         <div className="w-8 text-center shrink-0">
                           {medal ? (
-                            <span
-                              className={clsx(
-                                'inline-flex items-center justify-center w-7 h-7 rounded-full text-sm',
-                                medal.badge
-                              )}
-                              title={`المركز ${index + 1}`}
-                            >
-                              {medal.emoji}
-                            </span>
+                            <>
+                              <span
+                                className={clsx(
+                                  'inline-flex items-center justify-center w-7 h-7 rounded-full text-sm',
+                                  medal.badge
+                                )}
+                              >
+                                {medal.emoji}
+                              </span>
+                              <span className="block text-[9px] font-semibold text-secondary-500 mt-0.5">
+                                {medal.label}
+                              </span>
+                            </>
                           ) : (
                             <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-secondary-100 text-secondary-600">
                               {index + 1}
