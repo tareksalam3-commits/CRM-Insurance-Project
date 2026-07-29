@@ -239,8 +239,9 @@ export function PrintReport({
         .print-report .pr-role-note { font-size: 10.5px; font-weight: 700; color: #1f2937; margin-top: 1px; }
         .print-report .pr-totals-row td { font-weight: 800; background: #dcfce7 !important; color: #14532d; }
         .print-report .pr-agent-subtotal-row td {
-          font-weight: 700; background: #eef7f0 !important; color: #166534;
+          font-weight: 800; background: #d1fae5 !important; color: #065f46;
           text-align: right; padding-right: 12px;
+          border-top: 1px solid #6ee7b7; border-bottom: 2.5px solid #059669 !important;
         }
         .print-report .pr-agent-subtotal-row td:last-child { text-align: center; }
 
@@ -307,6 +308,19 @@ export function PrintReport({
         .print-report .pr-detail-table tbody.pr-agent-block {
           page-break-inside: avoid; break-inside: avoid;
         }
+        /* فاصل سميك واضح بين كل كتلة وكيل واللي بعدها — بيبان حتى لو
+           الطباعة أبيض وأسود بحت (مش بيعتمد على لون)، عشان العين توقف
+           فورًا عند بداية كل وكيل جديد بدل ما تحس إن الكل "سايح" ورا بعض. */
+        .print-report .pr-detail-table tbody.pr-agent-block:not(:first-of-type) > tr:first-child > td {
+          border-top: 3.5px solid #4b5563 !important;
+          padding-top: 9px !important;
+        }
+        /* خلفية خفيفة متبادلة على مستوى الكتلة (الوكيل) بالكامل، مش على
+           مستوى الصف الفردي — كل وكيل تاني بيبان عليه ظل رمادي خفيف
+           يميّزه بصريًا عن اللي قبله وبعده كـ"بطاقة" واحدة متكاملة. */
+        .print-report .pr-detail-table tbody.pr-agent-block:nth-of-type(even) td {
+          background: #eef1f4;
+        }
         .print-report .pr-detail-title-row th { background: #fff; border: none; padding: 0 0 4px; }
         .print-report .pr-detail-title-row .pr-title { margin-bottom: 0; }
         .print-report .pr-detail-meta-row th {
@@ -314,19 +328,25 @@ export function PrintReport({
           border: 1px solid #bbf7d0; font-size: 11.5px;
         }
 
-        /* تسلسل هرمي واضح جوه صفحات التفاصيل: مراقب ← رئيس مجموعة ← وكيل،
-           كل مستوى بلون/إزاحة مختلفة عشان يتفهم من أول نظرة مين تابع لمين. */
+        /* تسلسل هرمي واضح جوه صفحات التفاصيل: مراقب ← رئيس مجموعة ← وكيل.
+           كل مستوى معتمد على 3 حاجات مع بعض (مش اللون بس، عشان يفضل واضح
+           حتى فى طباعة أبيض وأسود): 1) درجة غمق الخلفية بتقل كل ما نزلنا
+           مستوى، 2) شريط عمودي (border) على يمين الصف بسمك وارتفاع مختلف
+           لكل مستوى، 3) حجم خط وإزاحة (padding-right) مختلفين. */
         .print-report .pr-detail-sup-header td {
           background: #15803d !important; color: #fff; font-weight: 800;
-          text-align: right; padding: 6px 10px; font-size: 12px;
+          text-align: right; padding: 7px 10px; font-size: 12.5px;
+          border-right: 6px solid #14532d !important;
         }
         .print-report .pr-detail-gl-header td {
-          background: #dcfce7 !important; color: #14532d; font-weight: 700;
-          text-align: right; padding: 5px 10px 5px 10px; padding-right: 22px; font-size: 11px;
+          background: #94a3b8 !important; color: #1e293b; font-weight: 800;
+          text-align: right; padding: 6px 10px; padding-right: 24px; font-size: 11.5px;
+          border-right: 5px solid #475569 !important;
         }
         .print-report .pr-detail-agent-header td {
-          background: #f3f4f6 !important; color: #374151; font-weight: 700;
-          text-align: right; padding-right: 34px; font-size: 10.5px;
+          background: #e2e8f0 !important; color: #1f2937; font-weight: 800;
+          text-align: right; padding: 5px 10px; padding-right: 38px; font-size: 11px;
+          border-right: 4px solid #94a3b8 !important;
         }
         /* شارة ملوّنة أعلى كل صفحة تفاصيل توضّح فورًا إن الصفحة دي كاملة
            خاصة بقسم "الإنتاج الجديد" أو قسم "التحصيل" — بدل عمود "نوع
