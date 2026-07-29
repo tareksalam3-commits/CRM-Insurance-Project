@@ -103,6 +103,7 @@ export function Customers() {
           totalCount={totalCount}
           noPolicyOnly={noPolicyOnly}
           onToggleNoPolicyOnly={handleToggleNoPolicyOnly}
+          noPolicyCount={stats?.noPolicyCount || 0}
           filtersPanel={showFilters && (
             <CustomerFilters
               statusDraft={statusDraft}
