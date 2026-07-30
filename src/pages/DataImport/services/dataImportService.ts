@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { supabase, POLICY_TYPE_LABELS, PAYMENT_METHOD_LABELS, MARITAL_STATUS_LABELS, type User } from '../../../lib/supabase';
 import { fetchAgentsForCurrentUser } from '../../Customers/services/customersService';
 import { IMPORT_COLUMNS, type ImportColumnKey, type ParsedRow, type ImportRowPayload, type RowResult, type ImportSummary } from '../types';
+import { matchColumnsWithAI } from './aiColumnMatcher';
 
 export interface ImportAgent {
   id: string;
@@ -177,7 +178,7 @@ interface DateNativeOverrides {
 // 1) أثناء تحليل الملف لأول مرة (parseWorkbookFile)
 // 2) بعد ما المستخدم يعدّل أي خلية يدوياً في شاشة المعاينة (revalidateRow)،
 // عشان نتأكد إن نفس قواعد التحقق مطبّقة بالظبط في الحالتين من غير تكرار كود
-function buildParsedRow(
+export function buildParsedRow(
   rowNumber: number,
   raw: Record<string, any>,
   agents: ImportAgent[],
@@ -369,14 +370,21 @@ function dateToDbString(d: Date): string {
 // ===================================================================
 // كشف عمود/أعمدة "القسط" بمرونة — ملفات العملاء الحقيقية غالباً مش
 // موافقة لنموذج الاستيراد الرسمي بالظبط، وممكن يكون فيها أكتر من عمود
-// بيمثل القسط (قسط شهري / ربع سنوي / سنوي / صافي...). القاعدة:
-// - لو فيه عمود اسمه "القسط الصافي" بالظبط، بناخد قيمته دايماً.
-// - غير كده، بناخد أقل قيمة صحيحة (أكبر من صفر) بين كل الأعمدة اللي
-//   اسمها يحتوي كلمة "قسط" (مع استبعاد أعمدة التواريخ زي "تاريخ استحقاق
-//   القسط" اللي بتحتوي كلمة "قسط" برضو لكنها مش قيمة مالية).
+// بيمثل القسط (صافي / إجمالي / قبل الرسوم / بعد الرسوم...). القاعدة:
+// - لو فيه عمود بيدل على "القسط الصافي" (أي صياغة تحتوي كلمتي "قسط" و
+//   "صافي" معاً، زي "القسط الصافي" أو "قيمة القسط الصافي" أو "صافي
+//   القسط")، بناخد قيمته دايماً حتى لو كان فيه أعمدة أقساط تانية
+//   (إجمالي/قبل الرسوم/بعد الرسوم...) بنفس الملف. مفيش اختيار لأي نوع
+//   قسط تاني إلا لو المستخدم غيّره يدويًا أثناء مراجعة بيانات الاستيراد.
+// - غير كده (لو مفيش عمود "صافي" واضح)، بناخد أقل قيمة صحيحة (أكبر من
+//   صفر) بين كل الأعمدة اللي اسمها يحتوي كلمة "قسط" (مع استبعاد أعمدة
+//   التواريخ زي "تاريخ استحقاق القسط" اللي بتحتوي كلمة "قسط" برضو لكنها
+//   مش قيمة مالية).
+// - القيمة النهائية دايماً بيتم اقتطاع كسورها العشرية (بدون أي تقريب)،
+//   فتُحفظ كجزء صحيح فقط (مثال: 5986.75 → 5986).
 const PREMIUM_KEYWORD = 'قسط';
 const PREMIUM_DATE_EXCLUSION_KEYWORD = 'تاريخ';
-const PREMIUM_NET_HEADER = 'القسط الصافي';
+const PREMIUM_NET_KEYWORD = 'صافي';
 
 function findPremiumColumnIndices(headerRow: string[]): number[] {
   return headerRow.reduce<number[]>((acc, h, idx) => {
@@ -387,29 +395,47 @@ function findPremiumColumnIndices(headerRow: string[]): number[] {
   }, []);
 }
 
+// عمود "القسط الصافي" بأي صياغة تحتوي الكلمتين معاً، مش مطابقة حرفية
+// لعنوان ثابت واحد، عشان نستوعب "القسط الصافي"/"قيمة القسط الصافي"/
+// "صافي القسط" وغيرها من الصياغات المشابهة
+function isNetPremiumHeader(h: string): boolean {
+  return h.includes(PREMIUM_KEYWORD) && h.includes(PREMIUM_NET_KEYWORD) && !h.includes(PREMIUM_DATE_EXCLUSION_KEYWORD);
+}
+
+// اقتطاع الكسور العشرية بدون أي تقريب (الاحتفاظ بالجزء الصحيح فقط)
+function truncateToInteger(value: number | null): number | null {
+  if (value === null) return null;
+  return Math.trunc(value);
+}
+
 function extractPremiumAmount(
   rowFormatted: any[],
   premiumColumnIndices: number[],
   premiumNetIndex: number
 ): number | null {
   if (premiumNetIndex !== -1) {
-    return parseFlexibleNumber(rowFormatted[premiumNetIndex]);
+    return truncateToInteger(parseFlexibleNumber(rowFormatted[premiumNetIndex]));
   }
   const values = premiumColumnIndices
     .map((idx) => parseFlexibleNumber(rowFormatted[idx]))
     .filter((v): v is number => v !== null && v > 0);
   if (values.length === 0) return null;
-  return Math.min(...values);
+  return truncateToInteger(Math.min(...values));
 }
 
 export interface ParseResult {
   rows: ParsedRow[];
   headerError: string | null;
+  usedAIMapping?: boolean;
 }
 
 export async function parseWorkbookFile(file: File, agents: ImportAgent[] = []): Promise<ParseResult> {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  // دعم CSV بالإضافة لـ Excel — نفس مسار القراءة والتحقق تماماً بعد هذه
+  // النقطة، فورقة XLSX الناتجة من CSV تُعامَل بنفس الطريقة تماماً
+  const isCsv = /\.csv$/i.test(file.name);
+  const workbook = isCsv
+    ? XLSX.read(await file.text(), { type: 'string', cellDates: true })
+    : XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
 
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
@@ -426,6 +452,8 @@ export async function parseWorkbookFile(file: File, agents: ImportAgent[] = []):
   const columnIndexByKey = new Map<ImportColumnKey, number>();
   const missingHeaders: string[] = [];
 
+  // ===== الطبقة الأولى (Primary Import Engine) — كما هي بدون أي تعديل =====
+  // مطابقة حرفية صارمة لعناوين الأعمدة بنموذج الاستيراد الرسمي بالضبط.
   // عمود القسط بيتم اكتشافه بمرونة (أسفل)، مش بمطابقة عنوان واحد ثابت،
   // عشان نقدر نستوعب ملفات فيها أكتر من عمود قسط أو تسمية مختلفة
   IMPORT_COLUMNS.forEach((col) => {
@@ -438,17 +466,56 @@ export async function parseWorkbookFile(file: File, agents: ImportAgent[] = []):
     }
   });
 
-  if (missingHeaders.length > 0) {
-    return {
-      rows: [],
-      headerError: `الملف لا يطابق نموذج الاستيراد. الأعمدة الناقصة: ${missingHeaders.join('، ')}`
-    };
+  let premiumColumnIndices = findPremiumColumnIndices(headerRow);
+  const premiumNetIndex = headerRow.findIndex(isNetPremiumHeader);
+
+  const strictMatchOk = missingHeaders.length === 0 && premiumColumnIndices.length > 0;
+  let usedAIMapping = false;
+
+  // ===== الطبقة الثانية (AI Enhancement Layer) — تُستدعى فقط لو فشلت =====
+  // المطابقة الحرفية الصارمة أعلاه. لا تُستبدل الطبقة الأولى ولا تُشغَّل
+  // على الملفات المطابقة للنموذج بالضبط (صفر تأثير على الأداء فى الحالة
+  // الطبيعية). أي فشل أو عدم توفر للذكاء الاصطناعي يرجعنا تلقائياً لنفس
+  // رسائل الخطأ القديمة بالضبط أدناه، دون فقد أي بيانات أو تعطيل المستخدم
+  if (!strictMatchOk) {
+    const sampleRows = aoa.slice(1, 4);
+    const aiMapping = await matchColumnsWithAI(headerRow, sampleRows);
+
+    if (aiMapping) {
+      IMPORT_COLUMNS.forEach((col) => {
+        if (col.key === 'premium_amount' || columnIndexByKey.has(col.key)) return;
+        const mappedHeader = aiMapping[col.key];
+        if (!mappedHeader) return;
+        const idx = headerRow.findIndex((h) => h === mappedHeader);
+        if (idx !== -1) columnIndexByKey.set(col.key, idx);
+      });
+
+      if (premiumColumnIndices.length === 0 && aiMapping.premium_amount) {
+        const idx = headerRow.findIndex((h) => h === aiMapping.premium_amount);
+        if (idx !== -1) premiumColumnIndices = [idx];
+      }
+
+      const stillMissingRequired = IMPORT_COLUMNS
+        .filter((col) => col.key !== 'premium_amount' && col.required && !columnIndexByKey.has(col.key))
+        .map((col) => col.header);
+
+      if (stillMissingRequired.length === 0 && premiumColumnIndices.length > 0) {
+        usedAIMapping = true;
+      }
+    }
   }
 
-  const premiumColumnIndices = findPremiumColumnIndices(headerRow);
-  const premiumNetIndex = headerRow.findIndex((h) => h === PREMIUM_NET_HEADER);
-
-  if (premiumColumnIndices.length === 0) {
+  if (!strictMatchOk && !usedAIMapping) {
+    // نفس رسائل الخطأ الأصلية بالضبط — سواء الذكاء الاصطناعي غير متاح
+    // (معطّل/بدون مزود/فشل الاتصال...) أو استُدعي ولم يكفِ لتغطية كل
+    // الأعمدة الإلزامية. النظام الحالي يعمل بالضبط كما لو لم تُضَف هذه
+    // الطبقة أصلاً
+    if (missingHeaders.length > 0) {
+      return {
+        rows: [],
+        headerError: `الملف لا يطابق نموذج الاستيراد. الأعمدة الناقصة: ${missingHeaders.join('، ')}`
+      };
+    }
     return {
       rows: [],
       headerError: 'الملف لا يحتوي على أي عمود يمثل قيمة القسط الصافي (مثال: "قيمة القسط الصافي" أو "القسط الصافي")'
@@ -491,7 +558,7 @@ export async function parseWorkbookFile(file: File, agents: ImportAgent[] = []):
     rows.push(row);
   }
 
-  return { rows, headerError: null };
+  return { rows, headerError: null, usedAIMapping };
 }
 
 // ===================================================================

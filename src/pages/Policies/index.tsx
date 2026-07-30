@@ -39,7 +39,7 @@ export function Policies() {
   const actions = usePolicyActions({ user, searchParams, setSearchParams, loadPolicies, loadStats });
   const {
     showModal, editingPolicy, saving, handleOpenModal, handleCloseModal, onSubmit,
-    register, handleSubmit, errors,
+    register, handleSubmit, setValue, errors,
     deleteConfirm, setDeleteConfirm, deleting, handleDeletePolicy,
     moreMenuPolicy, setMoreMenuPolicy, handleStatusChange, handlePrintPolicy,
     presetCustomerId, selectedCustomer, showCustomerPicker, setShowCustomerPicker, handleSelectCustomer,
@@ -131,6 +131,7 @@ export function Policies() {
           handleSubmit={handleSubmit}
           onSubmit={onSubmit}
           errors={errors}
+          setValue={setValue}
           saving={saving}
           onClose={handleCloseModal}
         />

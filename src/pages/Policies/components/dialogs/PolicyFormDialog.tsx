@@ -1,9 +1,11 @@
+import { useRef } from 'react';
 import clsx from 'clsx';
 import { X, ChevronDown, Phone } from 'lucide-react';
-import type { UseFormRegister, UseFormHandleSubmit, FieldErrors } from 'react-hook-form';
+import type { UseFormRegister, UseFormHandleSubmit, UseFormSetValue, FieldErrors } from 'react-hook-form';
 import { POLICY_TYPE_LABELS, PAYMENT_METHOD_LABELS, type Policy } from '../../../../lib/supabase';
 import type { PolicyFormData } from '../../types';
 import type { CustomerPickerItem } from '../../services/policiesService';
+import { ExtractPolicyDataButton } from '../../../../features/policyDocumentExtraction/components/ExtractPolicyDataButton';
 
 interface PolicyFormDialogProps {
   editingPolicy: Policy | null;
@@ -18,13 +20,16 @@ interface PolicyFormDialogProps {
   handleSubmit: UseFormHandleSubmit<PolicyFormData>;
   onSubmit: (data: PolicyFormData) => void | Promise<void>;
   errors: FieldErrors<PolicyFormData>;
+  setValue: UseFormSetValue<PolicyFormData>;
   saving: boolean;
   onClose: () => void;
 }
 
 // نفس مودال "إصدار/تعديل وثيقة" الموجود فى index.tsx الأصلي بالضبط — مودال
 // واحد مشترك للإصدار والتعديل (العنوان ونص الزر فقط هما اللي بيتغيروا حسب
-// editingPolicy)، بدون أي تغيير فى التصميم أو الحقول أو الـ Validation.
+// editingPolicy)، بدون أي تغيير فى الحقول أو الـ Validation. الإضافة
+// الوحيدة هى زر "استخراج بيانات الوثيقة بالذكاء الاصطناعي" أعلى النموذج،
+// ويظهر فقط عند إصدار وثيقة جديدة (مش عند التعديل).
 export function PolicyFormDialog({
   editingPolicy,
   presetCustomerId,
@@ -35,9 +40,12 @@ export function PolicyFormDialog({
   handleSubmit,
   onSubmit,
   errors,
+  setValue,
   saving,
   onClose,
 }: PolicyFormDialogProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
@@ -56,7 +64,9 @@ export function PolicyFormDialog({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          {!editingPolicy && <ExtractPolicyDataButton formRef={formRef} setValue={setValue} />}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="input-label">رقم الوثيقة *</label>

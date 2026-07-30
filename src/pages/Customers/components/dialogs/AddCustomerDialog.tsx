@@ -1,9 +1,11 @@
+import { useRef } from 'react';
 import clsx from 'clsx';
 import { X, User as UserIcon, Phone, MapPin } from 'lucide-react';
 import type { UseFormRegister, UseFormHandleSubmit, UseFormSetValue, FieldErrors } from 'react-hook-form';
 import { MARITAL_STATUS_LABELS, PAYMENT_METHOD_LABELS, type User } from '../../../../lib/supabase';
 import type { CustomerFormData, CustomerWithRelations } from '../../types';
 import { AgentCombobox } from '../AgentCombobox';
+import { ExtractDataButton } from '../../../../features/customerDataExtraction/components/ExtractDataButton';
 
 interface CustomerFormDialogProps {
   editingCustomer: CustomerWithRelations | null;
@@ -38,6 +40,8 @@ export function CustomerFormDialog({
   saving,
   onClose,
 }: CustomerFormDialogProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
@@ -56,7 +60,9 @@ export function CustomerFormDialog({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          {!editingCustomer && <ExtractDataButton formRef={formRef} setValue={setValue} />}
+
           <div className="form-group">
             <label className="input-label">الاسم *</label>
             <div className="relative">

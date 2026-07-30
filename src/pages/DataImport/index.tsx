@@ -14,13 +14,15 @@ import {
   Ban,
   Undo2,
   FileDown,
-  RotateCcw
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useAuth } from '../../hooks/useAuth';
 import type { ParsedRow, ImportSummary } from './types';
 import { downloadTemplateFile, parseWorkbookFile, importRows, fetchImportAgents, exportErrorReport, type ImportAgent } from './services/dataImportService';
+import { detectDocumentKind, extractRowsFromDocument } from './services/aiDocumentExtractor';
 import { RowEditModal } from './components/RowEditModal';
 
 type Stage = 'idle' | 'parsed' | 'importing' | 'done';
@@ -31,6 +33,7 @@ export function DataImport() {
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [headerError, setHeaderError] = useState<string | null>(null);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [agents, setAgents] = useState<ImportAgent[]>([]);
   const [excludedRows, setExcludedRows] = useState<Set<number>>(new Set());
@@ -50,6 +53,7 @@ export function DataImport() {
   const resetAll = () => {
     setFileName(null);
     setHeaderError(null);
+    setAiNotice(null);
     setParsedRows([]);
     setAgents([]);
     setExcludedRows(new Set());
@@ -72,16 +76,35 @@ export function DataImport() {
       // كل صف في السيرفر واحداً واحداً
       const fetchedAgents = user ? await fetchImportAgents(user) : [];
       setAgents(fetchedAgents);
-      const { rows, headerError: hErr } = await parseWorkbookFile(file, fetchedAgents);
+
+      const documentKind = detectDocumentKind(file);
+      if (documentKind) {
+        // ملف PDF أو صورة — لا تدعمه الطبقة الأولى أصلاً، فيُعالَج بالكامل
+        // عبر طبقة الاستخراج بالذكاء الاصطناعي (لا يوجد "نظام حالي" بديل
+        // لهذا النوع من الملفات تحديداً)
+        const { rows, error } = await extractRowsFromDocument(file, documentKind, fetchedAgents);
+        if (error) {
+          setHeaderError(error);
+          setStage('idle');
+        } else {
+          setParsedRows(rows);
+          setAiNotice('تم استخراج بيانات هذا الملف بواسطة الذكاء الاصطناعي. راجع الصفوف أدناه بعناية قبل الاستيراد.');
+          setStage('parsed');
+        }
+        return;
+      }
+
+      const { rows, headerError: hErr, usedAIMapping: aiUsed } = await parseWorkbookFile(file, fetchedAgents);
       if (hErr) {
         setHeaderError(hErr);
         setStage('idle');
       } else {
         setParsedRows(rows);
+        setAiNotice(aiUsed ? 'لم يطابق الملف نموذج الاستيراد حرفياً، فتم استخدام الذكاء الاصطناعي لمطابقة الأعمدة تلقائياً. راجع الصفوف أدناه قبل الاستيراد.' : null);
         setStage('parsed');
       }
     } catch (err: any) {
-      setHeaderError(friendlyError(err, 'تعذر قراءة الملف. تأكد أنه ملف Excel صحيح (.xlsx)'));
+      setHeaderError(friendlyError(err, 'تعذر قراءة الملف. تأكد أنه ملف صحيح غير تالف'));
     } finally {
       setParsing(false);
     }
@@ -148,7 +171,7 @@ export function DataImport() {
           استيراد البيانات
         </h2>
         <p className="text-sm text-secondary-500 mt-1">
-          استيراد دفعة من العملاء والوثائق دفعة واحدة من ملف Excel. هذه الصفحة مستقلة ولا تؤثر على أي جزء آخر من النظام.
+          استيراد دفعة من العملاء والوثائق دفعة واحدة من ملف Excel أو CSV، أو من PDF/صورة بمساعدة الذكاء الاصطناعي. هذه الصفحة مستقلة ولا تؤثر على أي جزء آخر من النظام.
         </p>
       </div>
 
@@ -184,12 +207,12 @@ export function DataImport() {
             )}
           >
             <UploadCloud className="w-10 h-10 text-secondary-400 mx-auto mb-3" />
-            <p className="text-secondary-700 font-medium">اسحب ملف Excel هنا أو اضغط للاختيار</p>
-            <p className="text-xs text-secondary-400 mt-1">صيغة .xlsx أو .xls فقط</p>
+            <p className="text-secondary-700 font-medium">اسحب ملف Excel أو CSV أو PDF أو صورة هنا أو اضغط للاختيار</p>
+            <p className="text-xs text-secondary-400 mt-1">صيغة .xlsx، .xls، .csv، .pdf، .jpg، .png، .webp</p>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.webp"
               onChange={onFileInputChange}
               className="hidden"
             />
@@ -224,6 +247,12 @@ export function DataImport() {
 
         {stage === 'parsed' && (
           <div className="space-y-4">
+            {aiNotice && (
+              <div className="flex items-center gap-2 bg-primary-50 border border-primary-200 text-primary-700 rounded-lg p-3 text-sm">
+                <Sparkles className="w-4 h-4 flex-shrink-0" />
+                <span>{aiNotice}</span>
+              </div>
+            )}
             {retryMode && (
               <div className="flex items-center gap-2 bg-primary-50 border border-primary-200 text-primary-700 rounded-lg p-3 text-sm">
                 <RotateCcw className="w-4 h-4 flex-shrink-0" />

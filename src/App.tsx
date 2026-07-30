@@ -18,7 +18,7 @@ import { initOfflineSync, stopOfflineSync } from './lib/offlineSync';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RequireRole } from './components/RequireRole';
 import { isNotAgent, canAccessMessagesPage, canAccessDailyReports } from './config/navigation';
-import { canManageUsers, canViewOrgStructure, canViewSettings, canViewMonthlyClosing, canManageBranches } from './lib/supabase';
+import { canManageUsers, canViewOrgStructure, canViewSettings, canViewMonthlyClosing, canManageBranches, canManageAI } from './lib/supabase';
 import { HelpProvider } from './features/help/HelpContext';
 import { HelpPanel } from './features/help/HelpPanel';
 import { Tour } from './features/help/Tour';
@@ -43,6 +43,7 @@ const Profile      = lazy(() => import('./pages/Profile').then(m => ({ default: 
 const Settings     = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const SubscriptionsAdminPage = lazy(() => import('./features/subscriptions/pages/SubscriptionsAdminPage').then(m => ({ default: m.SubscriptionsAdminPage })));
 const BranchesAdminPage = lazy(() => import('./features/branches/pages/BranchesAdminPage').then(m => ({ default: m.BranchesAdminPage })));
+const AISettingsPage = lazy(() => import('./features/aiSettings/pages/AISettingsPage').then(m => ({ default: m.AISettingsPage })));
 const PriceCalculator = lazy(() => import('./pages/PriceCalculator').then(m => ({ default: m.PriceCalculator })));
 const DailyReports   = lazy(() => import('./pages/DailyReports').then(m => ({ default: m.DailyReports })));
 const Messages       = lazy(() => import('./pages/Messages').then(m => ({ default: m.Messages })));
@@ -141,6 +142,7 @@ function AppLayout() {
                 <Route path="/subscriptions-admin" element={<RequireRole check={canViewSettings}><SubscriptionsAdminPage /></RequireRole>} />
                 <Route path="/branches"        element={<RequireRole check={canManageBranches}><BranchesAdminPage /></RequireRole>} />
                 <Route path="/settings"        element={<RequireRole check={canViewSettings}><Settings /></RequireRole>} />
+                <Route path="/ai-settings"     element={<RequireRole check={canManageAI}><AISettingsPage /></RequireRole>} />
                 <Route path="/price-calculator" element={<PriceCalculator />} />
                 <Route path="/daily-reports"    element={<RequireRole check={canAccessDailyReports}><DailyReports /></RequireRole>} />
                 <Route path="/help"             element={<HelpCenterPage />} />

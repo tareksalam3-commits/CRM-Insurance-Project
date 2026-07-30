@@ -20,8 +20,9 @@ import {
   MessageSquare,
   Building2,
   HelpCircle,
+  Sparkles,
 } from 'lucide-react';
-import { UserRole, canManageUsers, canViewOrgStructure, canViewSettings, canManageBranches, getRoleLevel } from '../lib/supabase';
+import { UserRole, canManageUsers, canViewOrgStructure, canViewSettings, canManageBranches, canManageAI, getRoleLevel } from '../lib/supabase';
 
 // الوكيل والوسيط الحر (المستوى 6) هما آخر مستوى فى الهيكل، وليس لهم أي
 // صفحات إدارية أو نظامية. تُستخدم هذه الدالة لإخفاء قسمي "الإدارة" و"النظام"
@@ -130,6 +131,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/activity-log',       label: 'سجل العمليات',            icon: History },
       { path: '/subscriptions-admin', label: 'الاشتراكات',             icon: Wallet,   isVisible: canViewSettings },
       { path: '/branches',            label: 'إدارة الفروع',           icon: Building2, isVisible: canManageBranches },
+      { path: '/ai-settings',         label: 'إعدادات الذكاء الاصطناعي', icon: Sparkles, isVisible: canManageAI },
       { path: '/settings',            label: 'إعدادات النظام',         icon: Settings, isVisible: canViewSettings },
     ],
   },

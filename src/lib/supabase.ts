@@ -328,6 +328,12 @@ export function canViewSettings(role: UserRole): boolean {
   return role === 'super_admin';
 }
 
+// صفحة إعدادات الذكاء الاصطناعي: super_admin فقط (نفس مستوى إعدادات النظام
+// وإدارة الفروع)، لأنها تتضمن إدارة مفاتيح API حساسة.
+export function canManageAI(role: UserRole): boolean {
+  return role === 'super_admin';
+}
+
 // إدارة الفروع (إضافة/تعطيل فرع، وربط مستخدم بوضع وظيفي إضافي فى فرع تاني):
 // Super Admin بس — نفس منطق تعديل جداول branches / user_branch_roles على
 // مستوى RLS (راجع migration 056_branches_admin_super_admin_only).
