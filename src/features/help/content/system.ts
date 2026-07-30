@@ -126,3 +126,40 @@ export const settingsHelp: HelpContent = {
   sourceFiles: ['src/pages/Settings.tsx'],
 };
 
+export const aiSettingsHelp: HelpContent = {
+  path: '/ai-settings',
+  title: 'إعدادات الذكاء الاصطناعي',
+  purpose: 'إدارة مزودي خدمة الذكاء الاصطناعي ومفاتيح API المستخدمة في مزايا النظام.',
+  whenToUse: 'عند إضافة أو تعديل مزود خدمة AI جديد (OpenRouter / Groq / Cloudflare AI)، أو عند تغيير الأولوية بين المزودين.',
+  rolesNote: 'متاحة فقط للمستخدمين الذين يمتلكون صلاحية canManageAI.',
+  cardsAndStats: [
+    { label: 'مزودو الخدمة', description: 'بطاقات لكل مزود (OpenRouter, Groq, Cloudflare AI) معروضة مرتبة حسب الأولوية.' },
+    { label: 'المزود الحالي', description: 'بطاقة إحصائية تُظهر اسم المزود النشط حالياً.' },
+    { label: 'النموذج الحالي', description: 'بطاقة إحصائية تُظهر النموذج النشط حالياً.' },
+    { label: 'آخر تحديث لقائمة النماذج', description: 'بطاقة تُظهر آخر وقت تم فيه تحديث قائمة النماذج المتاحة.' },
+  ],
+  fields: [
+    { label: 'تفعيل/تعطيل منظومة الذكاء الاصطناعي', description: 'زر تبديل رئيسي لتفعيل أو تعطيل منظومة الذكاء الاصطناعي بالكامل.' },
+    { label: 'مفعّل', description: 'زر تبديل لتفعيل/تعطيل كل مزود خدمة على حدة.' },
+    { label: 'مفتاح API', description: 'حقل إدخال مفتاح API للمزود — إذا كان المفتاح محفوظاً مسبقاً يُظهر آخر 4 أحرف فقط.' },
+    { label: 'Account ID', description: 'حقل إدخال Cloudflare Account ID (يظهر فقط لمزود Cloudflare AI).' },
+    { label: 'الأولوية', description: 'حقل رقمي لتحديد أولوية المزود — الأقل = أعلى أولوية.' },
+  ],
+  buttons: [
+    { label: 'حفظ', description: 'حفظ إعدادات المزود (المفتاح، الأولوية، حالة التفعيل).' },
+    { label: 'اختبار الاتصال', description: 'اختبار الاتصال بالمزود والتحقق من صحة مفتاح API وعدد النماذج المتاحة.' },
+  ],
+  messages: [
+    { label: 'تم حفظ إعدادات المزود بنجاح', description: 'رسالة نجاح بعد حفظ إعدادات المزود.', kind: 'success' },
+    { label: 'تم تفعيل منظومة الذكاء الاصطناعي', description: 'رسالة نجاح عند تفعيل المنظومة.', kind: 'success' },
+    { label: 'تم تعطيل منظومة الذكاء الاصطناعي', description: 'رسالة نجاح عند تعطيل المنظومة.', kind: 'success' },
+    { label: 'فشل حفظ إعدادات المزود', description: 'رسالة خطأ عند فشل حفظ الإعدادات.', kind: 'error' },
+    { label: 'فشل اختبار الاتصال', description: 'رسالة خطأ عند فشل الاتصال بالمزود.', kind: 'error' },
+    { label: 'الاتصال ناجح — تم العثور على X نموذج مجاني متاح', description: 'رسالة نجاح عند نجاح اختبار الاتصال.', kind: 'success' },
+  ],
+  sourceFiles: [
+    'src/features/aiSettings/pages/AISettingsPage.tsx',
+    'src/features/aiSettings/services/aiSettingsService.ts',
+    'src/features/aiSettings/types.ts',
+  ],
+};
