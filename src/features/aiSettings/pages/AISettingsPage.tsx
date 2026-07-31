@@ -281,7 +281,7 @@ export function AISettingsPage() {
           </label>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 text-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-sm">
           <div className="bg-secondary-50 rounded-xl p-3">
             <p className="text-xs text-secondary-400 mb-1">المزود الحالي</p>
             <p className="font-semibold text-secondary-800" dir="ltr">
@@ -292,6 +292,12 @@ export function AISettingsPage() {
             <p className="text-xs text-secondary-400 mb-1">النموذج الحالي</p>
             <p className="font-semibold text-secondary-800 truncate" dir="ltr">
               {bundle.settings.active_model || '—'}
+            </p>
+          </div>
+          <div className="bg-secondary-50 rounded-xl p-3">
+            <p className="text-xs text-secondary-400 mb-1">إجمالي النماذج المتاحة</p>
+            <p className="font-semibold text-secondary-800" dir="ltr">
+              {bundle.models.length}
             </p>
           </div>
           <div className="bg-secondary-50 rounded-xl p-3 col-span-2 sm:col-span-1">
