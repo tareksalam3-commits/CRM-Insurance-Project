@@ -6,11 +6,16 @@ import { supabase } from '../supabase';
 //
 // لا تستخدم أي مزود خدمة مباشرة من أي صفحة أو مكوّن؛ استورد askAI من هنا
 // فقط. هذا يضمن أن اختيار المزود/النموذج والتبديل التلقائي عند الخطأ يتم
-// فى مكان واحد (Edge Function: ai-gateway)، ولا تتكرر هذه المنطق فى كل ميزة.
+// فى مكان واحد (Edge Function: ai-gateway / Provider Manager)، ولا تتكرر
+// هذه المنطق فى كل ميزة.
 //
 // المحتوى (content) يدعم نصاً بسيطاً أو مصفوفة أجزاء (نص + صور) لتحليل
-// المستندات/الصور بصرياً — تُستخدم حالياً فى ميزة "استخراج البيانات" بصفحة
-// إضافة عميل (src/features/customerDataExtraction).
+// المستندات/الصور بصرياً — تُستخدم حالياً فى ميزات استخراج البيانات (إضافة
+// عميل، إصدار وثيقة، استيراد بيانات). عندما تحتوي الرسائل صوراً، الـ Gateway
+// يحاول تلقائياً استخراج النص منها أولاً عبر أفضل مزود OCR مفعّل (OCR.Space)
+// قبل تحليلها بالذكاء الاصطناعي، وينتقل تلقائياً لتحليل الصورة بصرياً (Vision)
+// عند عدم توفر OCR أو فشله — هذا الملف والصفحات المستدعية له لا تحتاج معرفة
+// أي من هذا، وتستمر فى استدعاء askAI بنفس الشكل تماماً.
 // ============================================================================
 
 export type AIContentPart =
@@ -33,6 +38,9 @@ export interface AskAIResult {
   model?: string;
   content?: string;
   error?: string;
+  /** اسم مزود الـ OCR الذى استُخدم لاستخراج النص من الصور قبل تحليلها،
+   * إن وُجد (يظهر فقط للطلبات التى تحتوي صوراً ونجح استخراج OCR لها). */
+  ocrProvider?: string;
 }
 
 export async function askAI(messages: AIChatMessage[], options: AskAIOptions = {}): Promise<AskAIResult> {
@@ -58,7 +66,10 @@ export async function askAI(messages: AIChatMessage[], options: AskAIOptions = {
       }),
     });
     const result = await res.json();
-    return result as AskAIResult;
+    return {
+      ...result,
+      ocrProvider: result?.ocr_provider ?? undefined,
+    } as AskAIResult;
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'خطأ غير متوقع' };
   }

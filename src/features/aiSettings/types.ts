@@ -1,12 +1,17 @@
 // أنواع بيانات منظومة إعدادات الذكاء الاصطناعي.
 // مطابقة لما تُعيده الدالة ai_get_settings() فى قاعدة البيانات.
 
-export type AIProviderKey = 'openrouter' | 'groq' | 'cloudflare';
+export type AIProviderKey = 'openrouter' | 'groq' | 'cloudflare' | 'ocrspace' | 'gemini';
+
+/** نوع المزود: ai لمزودي توليد النصوص/تحليل الصور، ocr لمزودي استخراج
+ * النص من الصور/PDF (تُستخدم فقط لتقسيم عرض صفحة الإعدادات لقسمين). */
+export type AIProviderType = 'ai' | 'ocr';
 
 export type AIProviderStatus = 'untested' | 'active' | 'error' | 'disabled';
 
 export interface AIProviderConfig {
   provider: AIProviderKey;
+  provider_type: AIProviderType;
   display_name: string;
   enabled: boolean;
   priority: number;
@@ -44,7 +49,9 @@ export interface AISettingsBundle {
 export const AI_PROVIDER_LABELS: Record<AIProviderKey, string> = {
   openrouter: 'OpenRouter',
   groq: 'Groq',
-  cloudflare: 'Cloudflare AI'
+  cloudflare: 'Cloudflare AI',
+  ocrspace: 'OCR.Space',
+  gemini: 'Gemini (Google AI Studio)'
 };
 
 export const AI_PROVIDER_STATUS_LABELS: Record<AIProviderStatus, string> = {

@@ -1,12 +1,18 @@
 // Edge Function: ai-test-connection
 // يختبر الاتصال بمزود ذكاء اصطناعي واحد (OpenRouter / Groq / Cloudflare AI)
-// باستخدام المفتاح المحفوظ فعلياً فى قاعدة البيانات (لا يُستقبل أي مفتاح من
-// الفرونت إند مباشرة — القراءة والكتابة على المفتاح تتم فقط من هنا بصلاحية
-// service_role، فلا يخرج المفتاح للمتصفح إطلاقاً).
+// أو بمزود OCR واحد (OCR.Space)، باستخدام المفتاح المحفوظ فعلياً فى قاعدة
+// البيانات (لا يُستقبل أي مفتاح من الفرونت إند مباشرة — القراءة والكتابة على
+// المفتاح تتم فقط من هنا بصلاحية service_role، فلا يخرج المفتاح للمتصفح
+// إطلاقاً).
 //
-// عند نجاح الاختبار: يجلب قائمة النماذج المجانية المتاحة لهذا المزود، ويحدّث
-// كاش ai_provider_models + ai_settings.models_updated_at + يختار أول نموذج
-// مجاني كـ default_model للمزود.
+// عند نجاح الاختبار: يجلب قائمة النماذج المجانية المتاحة لهذا المزود (لمزودي
+// AI فقط — مزودو OCR لا يملكون قائمة نماذج)، ويحدّث كاش ai_provider_models +
+// ai_settings.models_updated_at + يختار أول نموذج مجاني كـ default_model
+// للمزود.
+//
+// لإضافة مزود جديد (AI أو OCR) مستقبلاً: أضف دالة test<Provider> جديدة +
+// سجّلها فى TEST_HANDLERS أدناه فقط، دون أي تعديل فى منطق التحقق من الصلاحية
+// أو تحديث قاعدة البيانات.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
@@ -15,7 +21,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type ProviderKey = "openrouter" | "groq" | "cloudflare";
+type ProviderKey = "openrouter" | "groq" | "cloudflare" | "ocrspace" | "gemini";
+
+const KNOWN_PROVIDERS: ProviderKey[] = ["openrouter", "groq", "cloudflare", "ocrspace", "gemini"];
 
 interface FreeModel {
   model_id: string;
@@ -108,6 +116,88 @@ async function testCloudflare(apiKey: string, accountId: string | null): Promise
   };
 }
 
+async function testGemini(apiKey: string): Promise<{ models: FreeModel[] }> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("مفتاح Gemini (Google AI Studio) غير صحيح أو غير مفعّل");
+  }
+  if (!res.ok) {
+    throw new Error(`تعذر الاتصال بـ Google AI Studio (HTTP ${res.status})`);
+  }
+  const data = await res.json();
+  const list = Array.isArray(data?.models) ? data.models : [];
+  const usable = list.filter(
+    (m: any) =>
+      Array.isArray(m?.supportedGenerationMethods) &&
+      m.supportedGenerationMethods.includes("generateContent") &&
+      !/embedding|aqa/i.test(m?.name || "")
+  );
+  return {
+    models: usable.map((m: any) => ({
+      model_id: String(m.name || "").replace(/^models\//, ""),
+      model_name: m.displayName ?? m.name,
+      context_length: m.inputTokenLimit ?? null,
+    })),
+  };
+}
+
+// صورة اختبار 1×1 بكسل ثابتة (لا تحتوي أي بيانات حقيقية) — تُستخدم فقط
+// للتحقق من صلاحية مفتاح OCR.Space عبر استدعاء فعلي لواجهته، دون الحاجة
+// لأي ملف من المستخدم. OCR.Space لا يوفر نقطة نهاية "تحقق من المفتاح"
+// منفصلة، لذا هذا هو أخف طلب فعلي ممكن لتأكيد صلاحية المفتاح.
+const OCR_TEST_IMAGE =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+async function testOcrSpace(apiKey: string): Promise<{ models: FreeModel[] }> {
+  const params = new URLSearchParams();
+  params.set("apikey", apiKey);
+  params.set("base64Image", OCR_TEST_IMAGE);
+  params.set("language", "eng");
+  params.set("isOverlayRequired", "false");
+  params.set("scale", "true");
+  params.set("OCREngine", "2");
+
+  const res = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("مفتاح OCR.Space غير صحيح أو غير مفعّل");
+  }
+  if (!res.ok) {
+    throw new Error(`تعذر الاتصال بـ OCR.Space (HTTP ${res.status})`);
+  }
+
+  const data = await res.json();
+  const exitCode = Number(data?.OCRExitCode);
+  if (data?.IsErroredOnProcessing && exitCode !== 1) {
+    const rawMessage = Array.isArray(data?.ErrorMessage)
+      ? data.ErrorMessage.join(" ")
+      : (data?.ErrorMessage || "فشل التحقق من مفتاح OCR.Space");
+    if (/invalid api key|unregistered|inactive|suspended/i.test(rawMessage)) {
+      throw new Error("مفتاح OCR.Space غير صحيح أو غير مفعّل");
+    }
+    throw new Error(rawMessage);
+  }
+
+  // OCR.Space لا يملك قائمة "نماذج" — النجاح هنا يعني فقط أن المفتاح صالح.
+  return { models: [] };
+}
+
+// ----------------------------------------------------------------------------
+// سجل دوال الاختبار: لإضافة مزود جديد (AI أو OCR) مستقبلاً، يكفي إضافة سطر
+// واحد هنا فقط — دون أي تعديل فى بقية هذا الملف.
+// ----------------------------------------------------------------------------
+const TEST_HANDLERS: Record<ProviderKey, (apiKey: string, accountId: string | null) => Promise<{ models: FreeModel[] }>> = {
+  openrouter: (apiKey) => testOpenRouter(apiKey),
+  groq: (apiKey) => testGroq(apiKey),
+  cloudflare: (apiKey, accountId) => testCloudflare(apiKey, accountId),
+  ocrspace: (apiKey) => testOcrSpace(apiKey),
+  gemini: (apiKey) => testGemini(apiKey),
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -145,7 +235,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const provider = body?.provider as ProviderKey;
 
-    if (!["openrouter", "groq", "cloudflare"].includes(provider)) {
+    if (!KNOWN_PROVIDERS.includes(provider)) {
       return jsonResponse({ error: "مزود خدمة غير معروف" }, 400);
     }
 
@@ -165,13 +255,8 @@ Deno.serve(async (req: Request) => {
 
     let result: { models: FreeModel[] };
     try {
-      if (provider === "openrouter") {
-        result = await testOpenRouter(providerRow.api_key);
-      } else if (provider === "groq") {
-        result = await testGroq(providerRow.api_key);
-      } else {
-        result = await testCloudflare(providerRow.api_key, providerRow.account_id);
-      }
+      const handler = TEST_HANDLERS[provider];
+      result = await handler(providerRow.api_key, providerRow.account_id);
     } catch (testErr) {
       const message = testErr instanceof Error ? testErr.message : "فشل اختبار الاتصال";
       await adminClient
@@ -210,7 +295,16 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    await adminClient.from("ai_settings").update({ models_updated_at: now });
+    // لازم فلتر WHERE صريح حتى لو الجدول Singleton، لأن قاعدة بيانات المشروع
+    // مضبوطة على رفض أي UPDATE بدون WHERE clause.
+    const { error: settingsUpdateErr } = await adminClient
+      .from("ai_settings")
+      .update({ models_updated_at: now })
+      .not("id", "is", null);
+
+    if (settingsUpdateErr) {
+      console.error("failed to update ai_settings.models_updated_at:", settingsUpdateErr.message);
+    }
 
     return jsonResponse({ success: true, status: "active", models_found: result.models.length });
   } catch (err) {

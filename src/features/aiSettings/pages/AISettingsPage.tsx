@@ -221,8 +221,17 @@ export function AISettingsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const sortedProviders = useMemo(
-    () => [...(bundle?.providers ?? [])].sort((a, b) => a.priority - b.priority),
+  const sortedAiProviders = useMemo(
+    () => (bundle?.providers ?? [])
+      .filter((p) => p.provider_type === 'ai')
+      .sort((a, b) => a.priority - b.priority),
+    [bundle]
+  );
+
+  const sortedOcrProviders = useMemo(
+    () => (bundle?.providers ?? [])
+      .filter((p) => p.provider_type === 'ocr')
+      .sort((a, b) => a.priority - b.priority),
     [bundle]
   );
 
@@ -313,9 +322,9 @@ export function AISettingsPage() {
 
       <div className="space-y-3">
         <p className="text-sm font-semibold text-secondary-700 px-1">
-          مزودو الخدمة (مرتّبون حسب الأولوية — يتم الانتقال للمزود التالي تلقائياً عند حدوث خطأ)
+          مزودو الذكاء الاصطناعي (مرتّبون حسب الأولوية — يتم الانتقال للمزود التالي تلقائياً عند حدوث خطأ)
         </p>
-        {sortedProviders.map((p) => (
+        {sortedAiProviders.map((p) => (
           <ProviderCard
             key={p.provider}
             config={p}
@@ -324,6 +333,22 @@ export function AISettingsPage() {
           />
         ))}
       </div>
+
+      {sortedOcrProviders.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-secondary-700 px-1">
+            مزودو استخراج النص (OCR) — يُستخدَمون لاستخراج النص من الصور/PDF قبل تحليله بالذكاء الاصطناعي، مع الانتقال التلقائي لتحليل الصورة مباشرة عند عدم توفرهم
+          </p>
+          {sortedOcrProviders.map((p) => (
+            <ProviderCard
+              key={p.provider}
+              config={p}
+              onSaved={load}
+              onError={(msg) => notify.error(msg)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
