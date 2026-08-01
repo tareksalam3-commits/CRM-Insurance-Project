@@ -141,12 +141,15 @@ async function testGemini(apiKey: string): Promise<{ models: FreeModel[] }> {
   };
 }
 
-// صورة اختبار 1×1 بكسل ثابتة (لا تحتوي أي بيانات حقيقية) — تُستخدم فقط
-// للتحقق من صلاحية مفتاح OCR.Space عبر استدعاء فعلي لواجهته، دون الحاجة
-// لأي ملف من المستخدم. OCR.Space لا يوفر نقطة نهاية "تحقق من المفتاح"
-// منفصلة، لذا هذا هو أخف طلب فعلي ممكن لتأكيد صلاحية المفتاح.
+// صورة اختبار ثابتة (60×30، خلفية بيضاء وكلمة "TEST" مرسومة فعلياً
+// بالبكسلات — وليست بكسل واحد فارغ كما كانت سابقاً). الصورة الفارغة تماماً
+// كانت تتسبب فى خطأ معالجة حقيقي من OCR.Space (E505 "Error during OCR")
+// بغض النظر عن صلاحية المفتاح، لأن محرك الـ OCR لا يستطيع معالجة صورة بلا
+// أي محتوى مرئي. تُستخدم فقط للتحقق من صلاحية مفتاح OCR.Space عبر استدعاء
+// فعلي لواجهته، دون الحاجة لأي ملف من المستخدم — OCR.Space لا يوفر نقطة
+// نهاية "تحقق من المفتاح" منفصلة.
 const OCR_TEST_IMAGE =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAAeCAIAAAD/+uoYAAABHklEQVR4nO3XIW6FMBjA8TIwxeAAxRFAP7UiQOLoAbgIEscBEOUCTbgBDiSXqGsCmmA6Qd7EAm+EvHZZ0p/6QtrkTwMkGEII8N98/HXAHTpaFR2tio5WRUer8jO66zqEEELIsqx9oJTato2e6roGAEzTlKZpHMdJkjDGDndJrBYnHMc5nHdRFDHGhBCUUozxi5UyWPdulXO+risAIMsy13XfeowXnN3N65Nu29b3/aIo+r4/2yXPpWgI4efTOI77xWVZCCFhGJZlebhLnjsnzTkfhuF79jzvbKUkdz55hmFgjBljAIB5noMgePcz+4tLL+K2bQihfX48HlVVNU2T5zmE0DRNQojEwCOG0H8uauhoVXS0KjpaFR2tio5W5Qu6b8cBll2PywAAAABJRU5ErkJggg==";
 
 async function testOcrSpace(apiKey: string): Promise<{ models: FreeModel[] }> {
   const params = new URLSearchParams();
@@ -155,7 +158,9 @@ async function testOcrSpace(apiKey: string): Promise<{ models: FreeModel[] }> {
   params.set("language", "eng");
   params.set("isOverlayRequired", "false");
   params.set("scale", "true");
-  params.set("OCREngine", "2");
+  // Engine 1 (وليس 2 المستخدم فى الاستخراج الفعلي من مستندات المستخدم):
+  // أخف وأكثر تسامحاً، ويكفي تماماً لغرض التحقق من صلاحية المفتاح فقط.
+  params.set("OCREngine", "1");
 
   const res = await fetch("https://api.ocr.space/parse/image", {
     method: "POST",
