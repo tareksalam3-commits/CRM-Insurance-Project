@@ -232,6 +232,44 @@ interface OcrProviderRow {
 
 type OcrCallFn = (apiKey: string, imageDataUrl: string) => Promise<string>;
 
+// الحد الأقصى لحجم أي ملف/صورة مُرسَل ضمن الرسائل = 1 ميجابايت (نفس الحد
+// المفروض على مفاتيح OCR.Space، خصوصاً المجانية منها). يُطبَّق هنا كقاعدة
+// عامة للتطبيق كله (ليس فقط لمزوّد OCR)، لأن أي صورة تتجاوز الحد ستفشل من
+// عند OCR.Space على أي حال — فالأصح رفضها فوراً وبوضوح للمستخدم بدل تركها
+// "تسقط" تلقائياً على مسار Vision (تحليل الصورة مباشرة بالذكاء الاصطناعي)
+// دون أن ينتبه أحد لسبب الفشل الحقيقي، أو تعطيل حالة مزود OCR بالخطأ.
+const MAX_FILE_SIZE_BYTES = 1024 * 1024;
+
+// حساب الحجم الفعلي بالبايت لبيانات Base64 (وليس طول النص Base64 نفسه، الذى
+// أكبر بحوالي الثلث من حجم البيانات الحقيقية).
+function base64ByteSize(dataUrl: string): number {
+  const commaIdx = dataUrl.indexOf(",");
+  const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const len = b64.length;
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((len * 3) / 4) - padding;
+}
+
+/**
+ * يتحقق من أن كل الصور/الملفات ضمن رسائل الطلب لا تتجاوز الحد الأقصى
+ * المسموح به. يُرجع رسالة الخطأ الأولى إن وُجد ملف متجاوز، أو null لو الكل
+ * ضمن الحد المسموح.
+ */
+function findOversizedFile(messages: ChatMessage[]): string | null {
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const part of m.content) {
+      if (part.type !== "image_url" || !part.image_url?.url) continue;
+      const sizeBytes = base64ByteSize(part.image_url.url);
+      if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+        const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(1);
+        return `الملف كبير جداً (${sizeMb} ميجابايت) — الحد الأقصى المسموح به هو 1 ميجابايت. برجاء ضغط الملف أو رفع صورة أصغر.`;
+      }
+    }
+  }
+  return null;
+}
+
 function guessOcrFiletype(dataUrl: string): string {
   const match = /^data:([^;]+);base64,/.exec(dataUrl);
   const mime = (match?.[1] || "").toLowerCase();
@@ -393,6 +431,11 @@ Deno.serve(async (req: Request) => {
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return jsonResponse({ success: false, error: "messages مطلوبة" }, 400);
+    }
+
+    const oversizedError = findOversizedFile(messages);
+    if (oversizedError) {
+      return jsonResponse({ success: false, error: oversizedError }, 400);
     }
 
     const { data: settings } = await adminClient.from("ai_settings").select("ai_enabled").maybeSingle();
