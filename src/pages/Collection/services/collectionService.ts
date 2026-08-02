@@ -217,8 +217,12 @@ async function fetchInstallmentsOnline({ quickFilter, subType, ownerFilter, page
       // محتاج جدولة دورية مش متوفرة حالياً) — يعرض بس اللي فاته شهر لحد
       // شهرين، ويستبعد أي وثيقة اتلغت فعلاً (احتياطاً، رغم إننا بنلغيها قبل
       // النداء ده مباشرة في نفس تحميل الصفحة)
+      // status ممكن يكون 'pending' (لسه ما اتحدّثش) أو 'overdue' (بعد ما فنكشن
+      // update_overdue_installments في القاعدة تحدّثه تلقائياً) — لازم الفلتر
+      // يقبل الاتنين مع بعض، وإلا الأقساط اللي القاعدة حدّثت status بتاعها
+      // بتختفي من هنا رغم إنها لسه متأخرة وغير مسدد
       query = query
-        .eq('status', 'pending')
+        .in('status', ['pending', 'overdue'])
         .gte('due_date', overdueRangeStartStr)
         .lt('due_date', overdueRangeEndExclusiveStr)
         .neq('policy.status', 'cancelled');
