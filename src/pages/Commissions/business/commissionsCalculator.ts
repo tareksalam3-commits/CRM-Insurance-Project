@@ -1,6 +1,15 @@
 import { format } from 'date-fns';
-import { INSTALLMENTS_PER_METHOD, type RawYear1Payment, type RawYear2Payment } from '../services/commissionsService';
+import type { RawYear1Payment, RawYear2Payment } from '../services/commissionsService';
 import type { CommissionRow, CommissionsSummary } from '../types';
+
+// عدد الأقساط حسب طريقة السداد. هذا ثابت حسابي فقط ولا يعتمد على خدمة
+// البيانات، حتى تظل حاسبة العمولات معزولة وقابلة للاختبار.
+const INSTALLMENTS_PER_METHOD: Record<string, number> = {
+  monthly: 12,
+  quarterly: 4,
+  semi_annual: 2,
+  annual: 1,
+};
 
 // عمولة السنة الأولى = 2.4% من مبلغ التأمين، موزعة على عدد الأقساط
 const YEAR1_RATE = 0.024;
@@ -10,16 +19,18 @@ const YEAR1_RATE = 0.024;
 // نصف سنوي) توزّع بالتساوي على عدد الأقساط زي عمولة السنة الأولى بالظبط
 const RENEWAL_RATE_PER_THOUSAND = 4 / 1000;
 
-// قاعدة استحقاق العمولة:
-// - سداد من يوم 1 إلى يوم 15 -> تستحق يوم 20 من نفس الشهر
-// - سداد من يوم 16 حتى نهاية الشهر -> تستحق يوم 5 من الشهر التالي
-function getCommissionDueDate(paidDate: Date): { dueDay: 5 | 20; dueMonth: string } {
+// قاعدة صرف العمولة:
+// - سداد من يوم 1 إلى يوم 15 -> يُصرف يوم 27 من نفس الشهر.
+// - سداد من يوم 16 حتى نهاية الشهر -> يُصرف يوم 12 من الشهر التالي.
+// بذلك يشمل صرف يوم 12 الفترة من 16 إلى نهاية الشهر السابق، وصرف يوم 27
+// الفترة من 1 إلى 15 من الشهر الحالي.
+function getCommissionDueDate(paidDate: Date): { dueDay: 12 | 27; dueMonth: string } {
   const day = paidDate.getDate();
   if (day <= 15) {
-    return { dueDay: 20, dueMonth: format(paidDate, 'yyyy-MM') };
+    return { dueDay: 27, dueMonth: format(paidDate, 'yyyy-MM') };
   }
   const nextMonth = new Date(paidDate.getFullYear(), paidDate.getMonth() + 1, 1);
-  return { dueDay: 5, dueMonth: format(nextMonth, 'yyyy-MM') };
+  return { dueDay: 12, dueMonth: format(nextMonth, 'yyyy-MM') };
 }
 
 function last6(policyNumber: string): string {
@@ -110,11 +121,11 @@ export function computeCommissionRows(
 }
 
 export function computeSummary(rows: CommissionRow[]): CommissionsSummary {
-  const summary: CommissionsSummary = { totalMonth: 0, dueOn5: 0, dueOn20: 0 };
+  const summary: CommissionsSummary = { totalMonth: 0, dueOn12: 0, dueOn27: 0 };
   for (const row of rows) {
     summary.totalMonth += row.amount;
-    if (row.dueDay === 5) summary.dueOn5 += row.amount;
-    else summary.dueOn20 += row.amount;
+    if (row.dueDay === 12) summary.dueOn12 += row.amount;
+    else summary.dueOn27 += row.amount;
   }
   return summary;
 }

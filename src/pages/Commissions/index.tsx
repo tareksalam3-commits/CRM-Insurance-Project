@@ -73,7 +73,9 @@ export function Commissions() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-secondary-900">العمولات</h2>
-          <p className="text-sm text-secondary-500 mt-0.5">عمولاتك المستحقة بناءً على التحصيل الفعلي</p>
+          <p className="text-sm text-secondary-500 mt-0.5">
+            تُصرف يوم 12 لمسددات 16–نهاية الشهر السابق، ويوم 27 لمسددات 1–15 من الشهر الحالي.
+          </p>
         </div>
 
         <input
@@ -115,9 +117,9 @@ export function Commissions() {
         <div className="kpi-card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-secondary-500">عمولات مستحقة يوم 20</p>
+              <p className="text-sm text-secondary-500">عمولات تُصرف يوم 27</p>
               <p className="text-2xl font-bold text-secondary-900 mt-1">
-                {formatCurrency(summary.dueOn20)}
+                {formatCurrency(summary.dueOn27)}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-warning-100 flex items-center justify-center">
@@ -129,9 +131,9 @@ export function Commissions() {
         <div className="kpi-card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-secondary-500">عمولات مستحقة يوم 5</p>
+              <p className="text-sm text-secondary-500">عمولات تُصرف يوم 12</p>
               <p className="text-2xl font-bold text-secondary-900 mt-1">
-                {formatCurrency(summary.dueOn5)}
+                {formatCurrency(summary.dueOn12)}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-success-100 flex items-center justify-center">

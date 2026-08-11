@@ -2,15 +2,6 @@ import { supabase } from '../../../lib/supabase';
 import { format, startOfMonth, subMonths } from 'date-fns';
 import { dalRead } from '../../../lib/dataAccessLayer';
 
-// عدد أقساط السنة الأولى حسب طريقة السداد — تُستخدم لتوزيع عمولة السنة
-// الأولى (2.4% من مبلغ التأمين) على الأقساط
-export const INSTALLMENTS_PER_METHOD: Record<string, number> = {
-  monthly: 12,
-  quarterly: 4,
-  semi_annual: 2,
-  annual: 1,
-};
-
 export interface RawYear1Payment {
   id: string;
   amount: number;
@@ -46,7 +37,7 @@ export interface RawYear2Payment {
 // جلب بيانات السداد الخام (سنة أولى + تجديد) الخاصة بمستخدم معين فقط
 // (الوثائق التي هو مالكها/أصدرها owner_id)، ضمن نطاق يغطي الشهر المختار
 // والشهر السابق له مباشرة — لأن استحقاق العمولة قد يقع في الشهر التالي
-// لشهر السداد الفعلي (قاعدة يوم 5 / يوم 20).
+// لشهر السداد الفعلي (قاعدة الصرف يوم 12 / يوم 27).
 // هذه القراءة فقط ولا تُعدّل أي جدول، ولا تؤثر على أي منطق آخر بالنظام.
 const EMPTY_COMMISSION_SOURCE: { year1Payments: RawYear1Payment[]; year2Payments: RawYear2Payment[] } = {
   year1Payments: [],

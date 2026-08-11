@@ -10,12 +10,12 @@ export interface CommissionRow {
   policyLast6: string;
   type: CommissionType;
   amount: number;
-  dueDay: 5 | 20;
+  dueDay: 12 | 27;
   dueMonth: string; // 'yyyy-MM'
 }
 
 export interface CommissionsSummary {
   totalMonth: number;
-  dueOn5: number;
-  dueOn20: number;
+  dueOn12: number;
+  dueOn27: number;
 }
