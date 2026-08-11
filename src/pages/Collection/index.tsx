@@ -123,23 +123,9 @@ export function Collection() {
 
       <CollectionHeader />
 
-      {/* واجهة تنقل موحّدة فقط؛ كل قسم يحتفظ بخدمته وحساباته المستقلة. */}
-      <section className="relative overflow-hidden rounded-2xl border border-primary-100 bg-gradient-to-l from-primary-50 via-white to-white p-4 md:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-bold tracking-wide text-primary-700">مسار التحصيل</p>
-            <h3 className="mt-1 text-lg font-bold text-secondary-900">اختر نوع المتابعة</h3>
-            <p className="mt-1 text-sm text-secondary-600">
-              السنة الأولى مستقلة بحساباتها، والسنوات التالية تبقى في مسار تحصيل منفصل.
-            </p>
-          </div>
-          <div className="rounded-xl border border-primary-100 bg-white/90 px-3 py-2 text-xs font-medium text-primary-800 shadow-sm">
-            الفصل المحاسبي بين القسمين محفوظ
-          </div>
-        </div>
-        <div className="mt-4">
-          <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
-        </div>
+      {/* تبديل مضغوط للعرض فقط؛ مسارا الحساب والتحصيل يظلان منفصلين كما هما. */}
+      <section aria-label="اختيار مسار التحصيل" className="rounded-xl border border-secondary-200 bg-white p-1.5 shadow-sm">
+        <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
       </section>
 
       {yearMode === 'year1' && (

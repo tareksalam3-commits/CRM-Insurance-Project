@@ -9,26 +9,26 @@ interface CollectionTabsProps {
 }
 
 /**
- * تبديل بصري فقط بين مساري التحصيل. لا يدمج أي بيانات أو حسابات:
+ * تبديل بصري مضغوط بين مساري التحصيل. لا يدمج أي بيانات أو حسابات:
  * السنة الأولى تستخدم الأقساط الأصلية، والسنوات اللاحقة تستخدم مسارها المنفصل.
  */
 export function CollectionTabs({ yearMode, onChange }: CollectionTabsProps) {
   const tabs: Array<{
     id: YearMode;
-    title: string;
-    description: string;
+    mobileTitle: string;
+    desktopTitle: string;
     icon: typeof DollarSign;
   }> = [
     {
       id: 'year1',
-      title: 'السنة الأولى',
-      description: 'الأقساط والحسابات الأساسية',
+      mobileTitle: 'السنة الأولى',
+      desktopTitle: 'تحصيلات السنة الأولى',
       icon: DollarSign,
     },
     {
       id: 'year2',
-      title: 'السنة الثانية وما بعدها',
-      description: 'تحصيل منفصل للسنوات اللاحقة',
+      mobileTitle: 'السنة ٢+',
+      desktopTitle: 'السنة الثانية وما بعدها',
       icon: Layers,
     },
   ];
@@ -37,9 +37,9 @@ export function CollectionTabs({ yearMode, onChange }: CollectionTabsProps) {
     <div
       role="tablist"
       aria-label="اختيار مسار التحصيل"
-      className="grid w-full grid-cols-1 gap-2 rounded-xl bg-secondary-100 p-2 sm:grid-cols-2"
+      className="grid w-full grid-cols-2 gap-1.5"
     >
-      {tabs.map(({ id, title, description, icon: Icon }) => {
+      {tabs.map(({ id, mobileTitle, desktopTitle, icon: Icon }) => {
         const isActive = yearMode === id;
         return (
           <button
@@ -49,27 +49,15 @@ export function CollectionTabs({ yearMode, onChange }: CollectionTabsProps) {
             aria-selected={isActive}
             onClick={() => onChange(id)}
             className={clsx(
-              'group flex min-h-16 items-center gap-3 rounded-lg border px-3.5 py-3 text-right transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
+              'flex min-h-11 items-center justify-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 sm:min-h-12 sm:px-4 sm:text-sm',
               isActive
-                ? 'border-primary-600 bg-primary-600 text-white shadow-md shadow-primary-200'
-                : 'border-transparent bg-white text-secondary-700 hover:border-primary-200 hover:bg-primary-50/60'
+                ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                : 'border-transparent bg-secondary-50 text-secondary-600 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700'
             )}
           >
-            <span
-              className={clsx(
-                'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors',
-                isActive ? 'bg-white/15 text-white' : 'bg-primary-100 text-primary-700 group-hover:bg-primary-200'
-              )}
-            >
-              <Icon className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold">{title}</span>
-              <span className={clsx('mt-0.5 block text-xs', isActive ? 'text-primary-100' : 'text-secondary-500')}>
-                {description}
-              </span>
-            </span>
-            {isActive && <span className="text-xs font-semibold text-primary-100">مفتوح الآن</span>}
+            <Icon className="h-4 w-4 shrink-0 sm:h-[18px] sm:w-[18px]" />
+            <span className="sm:hidden">{mobileTitle}</span>
+            <span className="hidden sm:inline">{desktopTitle}</span>
           </button>
         );
       })}
