@@ -45,7 +45,7 @@ export function PrintYear2Report({
         {branding.company_logo_url && <img src={branding.company_logo_url} alt={branding.company_name} />}
         <span>{branding.company_name}</span>
       </div>
-      <div className="pr-title">تقرير تحصيلات السنة الثانية</div>
+      <div className="pr-title">تقرير تحصيلات السنة الثانية وما بعدها</div>
       <div className="pr-sub">للمتابعة فقط — لا يدخل ضمن التارجت أو المحقق أو أي إحصائية</div>
       <div className="pr-meta">
         <span><b>الفترة:</b> {periodLabel}</span>

@@ -173,7 +173,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
       const { label } = getPrintRange(printPeriodType, referenceDate);
       setPrintRows(rows);
       setPrintLabel(label);
-      setTimeout(() => printWithTitle(`تحصيل-السنة-الثانية-${label}`), 100);
+      setTimeout(() => printWithTitle(`تحصيل-السنوات-اللاحقة-${label}`), 100);
     } catch (error) {
       console.error(error);
       notify.error('حدث خطأ أثناء إعداد التقرير');
@@ -189,16 +189,16 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
       <div className="bg-primary-50 border border-primary-100 rounded-lg p-4 flex items-start gap-3 print:hidden">
         <Info className="w-5 h-5 text-primary-600 mt-0.5 flex-shrink-0" />
         <p className="text-sm text-primary-800">
-          هذه الشاشة لمتابعة تحصيل السنة الثانية فقط — لا تدخل في التارجت أو المحقق
-          أو أي إحصائية بلوحة التحكم. تظهر هنا فقط الوثائق التي أكملت سنة كاملة
-          من تاريخ بدايتها.
+          هذه الشاشة لمتابعة تحصيل السنة الثانية وما بعدها فقط — لا تدخل في التارجت أو المحقق
+          أو أي إحصائية بلوحة التحكم. تظهر هنا الوثائق التي أكملت سنة كاملة
+          من تاريخ بدايتها، بما فيها وثائق السنة الثالثة والسنوات اللاحقة.
         </p>
       </div>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div>
-          <h2 className="text-xl font-bold text-secondary-900">تحصيلات السنة الثانية</h2>
-          <p className="text-sm text-secondary-500 mt-1">متابعة وتسديد تحصيلات السنة الثانية للوثائق</p>
+          <h2 className="text-xl font-bold text-secondary-900">تحصيلات السنة الثانية وما بعدها</h2>
+          <p className="text-sm text-secondary-500 mt-1">متابعة وتسديد التحصيل المنفصل لوثائق السنوات اللاحقة</p>
         </div>
         <button onClick={() => setShowPrintModal(true)} className="btn btn-secondary">
           <Printer className="w-4 h-4" />
@@ -248,7 +248,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
             <p className="text-secondary-500">
               {searchQuery || quickFilter !== 'month'
                 ? 'لا توجد وثائق مطابقة'
-                : 'لا توجد وثائق دخلت السنة الثانية بعد'}
+                : 'لا توجد وثائق دخلت السنة الثانية أو السنوات اللاحقة بعد'}
             </p>
           </div>
         ) : (
@@ -262,7 +262,7 @@ export function Year2Collection({ branchId = null }: Year2CollectionProps) {
                     <th>العميل</th>
                     <th>تاريخ البداية</th>
                     <th>المسؤول</th>
-                    <th>إجمالي محصل (سنة ٢)</th>
+                    <th>إجمالي المحصل (السنوات اللاحقة)</th>
                     <th>إجراءات</th>
                   </tr>
                 </thead>

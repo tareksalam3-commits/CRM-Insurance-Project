@@ -14,7 +14,6 @@ import { useCollectionQuickStats } from './hooks/useCollectionQuickStats';
 import { usePolicyInstallmentsModal } from './hooks/usePolicyInstallmentsModal';
 import { useInstallmentPaymentActions } from './hooks/useInstallmentPaymentActions';
 
-import { CollectionYearSelector } from './components/CollectionYearSelector';
 import { CollectionHeader } from './components/CollectionHeader';
 import { CollectionStats } from './components/CollectionStats';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -25,18 +24,18 @@ import { MoreMenuDialog } from './components/dialogs/MoreMenuDialog';
 import { DetailsDialog } from './components/dialogs/DetailsDialog';
 import { PolicyInstallmentsDialog } from './components/dialogs/PolicyInstallmentsDialog';
 
-// نوع السنة المطلوب عرضها: لازم المستخدم يختار قبل ما يشوف أي بيانات.
-// السنة الأولى = النظام الحالي بالكامل (تارجت/محقق..إلخ) بدون أي تغيير.
-// السنة الثانية = شاشة منفصلة تماماً لمتابعة التحصيل فقط.
+// السنة الأولى تبقى مستقلة تماماً بحساباتها، والقسم الآخر يستمر في
+// استخدام مسار التحصيل المنفصل للسنوات الثانية وما بعدها.
 type YearMode = 'year1' | 'year2';
 
 export function Collection() {
   const { user } = useAuth();
   const { currentBranchId } = useBranchContext();
 
-  const { initialSubType, initialQuickFilter, hasUrlNavigation } = useCollectionUrlParams();
+  const { initialSubType, initialQuickFilter } = useCollectionUrlParams();
 
-  const [yearMode, setYearMode] = useState<YearMode | null>(hasUrlNavigation ? 'year1' : null);
+  // تبدأ الصفحة مباشرة بالسنة الأولى، مع بقاء القسمين مفصولين منطقياً.
+  const [yearMode, setYearMode] = useState<YearMode>('year1');
 
   const {
     quickFilter,
@@ -119,27 +118,33 @@ export function Collection() {
   const [moreMenuInstallment, setMoreMenuInstallment] = useState<InstallmentWithRelations | null>(null);
   const [detailsView, setDetailsView] = useState<{ installment: InstallmentWithRelations; view: 'customer' | 'policy' } | null>(null);
 
-  // ===================================
-  // شاشة اختيار السنة — تظهر أول ما تُفتح الصفحة، ولا يُعرض أي بيانات
-  // (لا سنة أولى ولا سنة ثانية) قبل ما المستخدم يختار
-  // ===================================
-  if (yearMode === null) {
-    return (
-      <CollectionYearSelector
-        onSelectYear1={() => setYearMode('year1')}
-        onSelectYear2={() => setYearMode('year2')}
-      />
-    );
-  }
-
   return (
     <div className="space-y-5 md:space-y-6 animate-fadeIn pb-2">
 
       <CollectionHeader />
 
-      <CollectionStats quickStats={quickStats} quickStatsLoading={quickStatsLoading} />
+      {/* واجهة تنقل موحّدة فقط؛ كل قسم يحتفظ بخدمته وحساباته المستقلة. */}
+      <section className="relative overflow-hidden rounded-2xl border border-primary-100 bg-gradient-to-l from-primary-50 via-white to-white p-4 md:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-bold tracking-wide text-primary-700">مسار التحصيل</p>
+            <h3 className="mt-1 text-lg font-bold text-secondary-900">اختر نوع المتابعة</h3>
+            <p className="mt-1 text-sm text-secondary-600">
+              السنة الأولى مستقلة بحساباتها، والسنوات التالية تبقى في مسار تحصيل منفصل.
+            </p>
+          </div>
+          <div className="rounded-xl border border-primary-100 bg-white/90 px-3 py-2 text-xs font-medium text-primary-800 shadow-sm">
+            الفصل المحاسبي بين القسمين محفوظ
+          </div>
+        </div>
+        <div className="mt-4">
+          <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
+        </div>
+      </section>
 
-      <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
+      {yearMode === 'year1' && (
+        <CollectionStats quickStats={quickStats} quickStatsLoading={quickStatsLoading} />
+      )}
 
       {yearMode === 'year2' ? (
         <Year2Collection branchId={currentBranchId} />

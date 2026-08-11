@@ -20,7 +20,7 @@ export function HistoryModal({
       <div className="modal-content max-w-2xl animate-fadeIn" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 border-b border-secondary-200">
           <h3 className="text-lg font-semibold text-secondary-900">
-            سجل تحصيل السنة الثانية: {policy.policy_number}
+            سجل تحصيل السنوات اللاحقة: {policy.policy_number}
           </h3>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary-100">
             <X className="w-5 h-5 text-secondary-600" />
