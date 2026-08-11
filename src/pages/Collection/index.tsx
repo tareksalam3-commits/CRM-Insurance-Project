@@ -123,8 +123,8 @@ export function Collection() {
 
       <CollectionHeader />
 
-      {/* تبديل مضغوط للعرض فقط؛ مسارا الحساب والتحصيل يظلان منفصلين كما هما. */}
-      <section aria-label="اختيار مسار التحصيل" className="rounded-xl border border-secondary-200 bg-white p-1.5 shadow-sm">
+      {/* زر التبديل الأصلي في أعلى الصفحة؛ حُذفت بطاقة الشرح فقط. */}
+      <section aria-label="اختيار مسار التحصيل" className="rounded-2xl border border-primary-100 bg-gradient-to-l from-primary-50 via-white to-white p-2 md:p-3">
         <CollectionTabs yearMode={yearMode} onChange={setYearMode} />
       </section>
 
