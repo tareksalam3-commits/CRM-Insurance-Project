@@ -4,7 +4,9 @@ import { supabase } from '../../../lib/supabase';
 import type { SubscriptionStatus, SubscriptionPaymentRequestStatus, SubscriptionSettings } from '../types';
 import { dalRead } from '../../../lib/dataAccessLayer';
 
-export interface AdminSubscriptionRow {
+export type SubscriptionScope = 'direct' | 'inherited' | 'missing';
+
+interface SubscriptionRecord {
   id: string;
   user_id: string;
   status: SubscriptionStatus;
@@ -13,19 +15,107 @@ export interface AdminSubscriptionRow {
   duration_id: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
-  users: { name: string; role: string; is_active: boolean; email: string } | null;
 }
 
+interface SubscriptionAdminUser {
+  id: string;
+  name: string;
+  role: string;
+  is_active: boolean;
+  email: string;
+  manager_id: string | null;
+  deleted_at: string | null;
+}
+
+export interface AdminSubscriptionRow {
+  id: string;
+  user_id: string;
+  status: SubscriptionStatus | null;
+  is_trial_used: boolean;
+  trial_end_date: string | null;
+  duration_id: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  users: SubscriptionAdminUser | null;
+  /** مباشر للمستخدم، أو موروث من مسؤول أعلى، أو غير مهيأ بعد. */
+  subscription_scope: SubscriptionScope;
+  subscription_owner: { id: string; name: string } | null;
+}
+
+/**
+ * يعيد حالة الاشتراك لكل حساب غير محذوف، وليس فقط الحسابات التي لها صف مباشر
+ * في جدول subscriptions. الوكلاء لا يحصلون عمداً على صف مستقل؛ لذلك نعرض لهم
+ * اشتراك أقرب مسؤول أعلى منهم حتى يراهم السوبر أدمن وحالتهم الفعلية.
+ */
 export async function fetchAllSubscriptions(): Promise<AdminSubscriptionRow[]> {
   const result = await dalRead(
-    `subscriptionsAdmin:allSubscriptions`,
+    `subscriptionsAdmin:allUsersSubscriptionStatus:v2`,
     async () => {
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*, users:user_id(name, role, is_active, email)')
-        .order('current_period_end', { ascending: true, nullsFirst: true });
-      if (error) throw error;
-      return (data || []) as unknown as AdminSubscriptionRow[];
+      const [subscriptionsResult, usersResult] = await Promise.all([
+        supabase.from('subscriptions').select('*'),
+        supabase
+          .from('users')
+          .select('id, name, role, is_active, email, manager_id, deleted_at')
+          .order('name'),
+      ]);
+
+      if (subscriptionsResult.error) throw subscriptionsResult.error;
+      if (usersResult.error) throw usersResult.error;
+
+      const subscriptions = (subscriptionsResult.data || []) as unknown as SubscriptionRecord[];
+      const users = (usersResult.data || []) as unknown as SubscriptionAdminUser[];
+      const subscriptionsByUserId = new Map(subscriptions.map((subscription) => [subscription.user_id, subscription]));
+      const usersById = new Map(users.map((user) => [user.id, user]));
+
+      // نخفي الحسابات المحذوفة حذفاً ناعماً من القائمة، لكن تبقى في خريطة
+      // السلسلة الهرمية حتى يطابق حساب الاشتراك الموروث منطق قاعدة البيانات.
+      return users.filter((user) => !user.deleted_at).map((user): AdminSubscriptionRow => {
+        const directSubscription = subscriptionsByUserId.get(user.id);
+        if (directSubscription) {
+          return {
+            ...directSubscription,
+            users: user,
+            subscription_scope: 'direct',
+            subscription_owner: { id: user.id, name: user.name },
+          };
+        }
+
+        // الوكيل يرث الحالة من أقرب مدير أعلى يملك اشتراكاً مباشراً، بنفس منطق
+        // get_my_subscription_lock_state في قاعدة البيانات.
+        let currentManagerId = user.manager_id;
+        let inheritedOwner: SubscriptionAdminUser | null = null;
+        let inheritedSubscription: SubscriptionRecord | undefined;
+        const visitedUserIds = new Set<string>([user.id]);
+
+        while (currentManagerId && !visitedUserIds.has(currentManagerId)) {
+          visitedUserIds.add(currentManagerId);
+          const manager = usersById.get(currentManagerId);
+          if (!manager) break;
+
+          const managerSubscription = subscriptionsByUserId.get(manager.id);
+          if (managerSubscription) {
+            inheritedOwner = manager;
+            inheritedSubscription = managerSubscription;
+            break;
+          }
+
+          currentManagerId = manager.manager_id;
+        }
+
+        return {
+          id: inheritedSubscription?.id || user.id,
+          user_id: user.id,
+          status: inheritedSubscription?.status || null,
+          is_trial_used: inheritedSubscription?.is_trial_used || false,
+          trial_end_date: inheritedSubscription?.trial_end_date || null,
+          duration_id: inheritedSubscription?.duration_id || null,
+          current_period_start: inheritedSubscription?.current_period_start || null,
+          current_period_end: inheritedSubscription?.current_period_end || null,
+          users: user,
+          subscription_scope: inheritedSubscription ? 'inherited' : 'missing',
+          subscription_owner: inheritedOwner ? { id: inheritedOwner.id, name: inheritedOwner.name } : null,
+        };
+      });
     },
     { emptyValue: [] as AdminSubscriptionRow[] },
   );

@@ -28,6 +28,12 @@ const STATUS_META: Record<SubscriptionStatus, { label: string; bg: string; text:
   suspended:       { label: 'موقوف',        bg: 'bg-secondary-100', text: 'text-secondary-600' }
 };
 
+const MISSING_SUBSCRIPTION_META = {
+  label: 'غير مُهيأ',
+  bg: 'bg-warning-50',
+  text: 'text-warning-700',
+};
+
 const REQUEST_STATUS_META: Record<string, { label: string; bg: string; text: string }> = {
   submitted:    { label: 'قيد المراجعة', bg: 'bg-warning-50', text: 'text-warning-700' },
   ocr_verified: { label: 'قيد المراجعة', bg: 'bg-warning-50', text: 'text-warning-700' },
@@ -90,7 +96,9 @@ export function SubscriptionsAdminPage() {
 
   const stats = useMemo(() => {
     const byStatus: Record<string, number> = {};
-    subs.forEach((s) => { byStatus[s.status] = (byStatus[s.status] || 0) + 1; });
+    subs.forEach((s) => {
+      if (s.status) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
+    });
     const pendingRequests = requests.filter((r) => ['submitted', 'ocr_verified', 'ocr_mismatch'].includes(r.status)).length;
     return { total: subs.length, byStatus, pendingRequests };
   }, [subs, requests]);
@@ -200,7 +208,7 @@ export function SubscriptionsAdminPage() {
               )}
             >
               <Users className="w-4 h-4" />
-              اشتراكات المستخدمين
+              حالة اشتراكات المستخدمين
             </button>
           </div>
 
@@ -277,28 +285,48 @@ export function SubscriptionsAdminPage() {
                 <div className="card text-center py-12 text-secondary-400">لا توجد نتائج مطابقة</div>
               ) : (
                 filteredSubs.map((s) => {
-                  const meta = STATUS_META[s.status];
+                  const meta = s.status ? STATUS_META[s.status] : MISSING_SUBSCRIPTION_META;
                   const periodEnd = s.status === 'trial' ? s.trial_end_date : s.current_period_end;
+                  const isInherited = s.subscription_scope === 'inherited';
+                  const isDirect = s.subscription_scope === 'direct';
+
                   return (
-                    <div key={s.id} className="card flex items-center justify-between gap-3">
+                    <div key={s.user_id} className="card flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <p className="font-semibold text-secondary-900 truncate">{s.users?.name || '-'}</p>
                           <span className={clsx('badge', meta.bg, meta.text)}>{meta.label}</span>
+                          {isInherited && <span className="badge bg-primary-50 text-primary-700 text-[10px]">موروث</span>}
                           {!s.users?.is_active && <span className="badge badge-error text-[10px]">معطّل</span>}
                         </div>
                         <p className="text-xs text-secondary-500">
                           {ROLE_LABELS[s.users?.role as UserRole] || s.users?.role}
                           {periodEnd && ` · حتى ${format(new Date(periodEnd), 'dd/MM/yyyy')}`}
                         </p>
+                        {isInherited && s.subscription_owner && (
+                          <p className="text-xs text-primary-700 mt-1">
+                            الحالة موروثة من اشتراك {s.subscription_owner.name}
+                          </p>
+                        )}
+                        {s.subscription_scope === 'missing' && (
+                          <p className="text-xs text-warning-700 mt-1">
+                            لا يوجد اشتراك مباشر أو مسؤول أعلى له اشتراك.
+                          </p>
+                        )}
                       </div>
-                      <button
-                        onClick={() => setManagingSub(s)}
-                        className="btn btn-ghost text-secondary-600 flex-shrink-0"
-                      >
-                        <Settings2 className="w-4 h-4" />
-                        <span className="hidden sm:inline">تحكم</span>
-                      </button>
+                      {isDirect ? (
+                        <button
+                          onClick={() => setManagingSub(s)}
+                          className="btn btn-ghost text-secondary-600 flex-shrink-0"
+                        >
+                          <Settings2 className="w-4 h-4" />
+                          <span className="hidden sm:inline">تحكم</span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-secondary-500 text-left flex-shrink-0">
+                          {isInherited ? 'يُدار من اشتراك المسؤول' : 'يتطلب تهيئة'}
+                        </span>
+                      )}
                     </div>
                   );
                 })
