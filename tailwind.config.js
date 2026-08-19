@@ -91,12 +91,29 @@ export default {
         22: '5.5rem',
       },
       /* ظلال أنعم ومتدرجة (soft elevation) بدل ظلال Tailwind الافتراضية
-         القاسية شوية — إحساس أحدث وأهدأ */
+         القاسية شوية — إحساس أحدث وأهدأ. أضيفت "card-hover" و"inset-line"
+         كجزء من تحديث الهوية البصرية (بدون تغيير أي قيمة قديمة مُستخدمة
+         بالفعل فى الصفحات، فقط إضافات + تنعيم لقيم card/elevated الحالية) */
       boxShadow: {
         soft: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
-        card: '0 1px 3px 0 rgb(15 23 42 / 0.05), 0 4px 12px -2px rgb(15 23 42 / 0.06)',
-        elevated: '0 4px 16px -4px rgb(15 23 42 / 0.10), 0 8px 28px -6px rgb(15 23 42 / 0.10)',
+        card: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 6px 16px -4px rgb(6 78 59 / 0.07)',
+        'card-hover': '0 2px 6px 0 rgb(15 23 42 / 0.06), 0 14px 28px -8px rgb(6 78 59 / 0.14)',
+        elevated: '0 4px 16px -4px rgb(15 23 42 / 0.10), 0 12px 32px -8px rgb(6 78 59 / 0.14)',
         'primary-glow': '0 4px 14px -2px rgb(5 150 105 / 0.32)',
+        /* توهج primary-glow + خط لمعان علوي داخلي مدموجين فى قيمة واحدة
+           (Tailwind ما بيدمجش خاصية box-shadow من كلاسين منفصلين، فلازم
+           تُكتب كقيمة واحدة) — يُستخدم فى btn-primary بدل primary-glow لوحدها */
+        'primary-glow-inset': 'inset 0 1px 0 0 rgb(255 255 255 / 0.35), 0 4px 14px -2px rgb(5 150 105 / 0.32)',
+      },
+      /* تدرّجات الهوية — بدل الألوان المسطحة فى الأزرار/البطاقات الرئيسية،
+         تدرّج لوني هادئ بنفس درجات primary الحالية بالظبط (بدون لون جديد) */
+      backgroundImage: {
+        'primary-gradient': 'linear-gradient(180deg, #10b981 0%, #059669 100%)',
+        'primary-gradient-hover': 'linear-gradient(180deg, #059669 0%, #047857 100%)',
+        'surface-wash': 'linear-gradient(160deg, #ecfdf5 0%, #ffffff 55%)',
+      },
+      letterSpacing: {
+        tightest: '-0.02em',
       },
     },
   },

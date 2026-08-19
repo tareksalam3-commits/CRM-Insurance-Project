@@ -15,17 +15,47 @@ html {
   /* منع التكبير التلقائي على iOS عند تحديد input */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: #f8fafc;
+  /* خلفية بلمسة خفيفة من لون الهوية بدل الرمادي المسطح — نفس درجة
+     secondary-50 القديمة تقريبًا لكن بإحساس أدفأ ومرتبط بالأخضر الأساسي،
+     ثابتة (لا تتحرك مع الصفحة) عشان الإحساس بعمق بسيط خلف الكروت */
+  background-color: #f7faf9;
+  background-image: radial-gradient(at top left, rgb(16 185 129 / 0.05), transparent 45%);
+  background-attachment: fixed;
   min-height: 100vh;
   min-height: 100dvh; /* dynamic viewport height لأجهزة الموبايل */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* منع الـ bounce scroll على iOS */
   overscroll-behavior: none;
+  /* أرقام بعرض ثابت (tabular figures) فى كل التطبيق تلقائيًا — مهم جدًا
+     لتطبيق مالي/تأميني مليان أرقام (مبالغ، نسب) حتى تبقى الأعمدة والقوائم
+     متساوية العرض بصريًا بدون أي تعديل فى أي صفحة */
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background-color: rgb(16 185 129 / 0.22);
+  color: #064e3b;
+}
+
+:focus-visible {
+  outline: 2px solid #059669;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Safe area للأجهزة ذات الشق والـ home indicator */
@@ -76,7 +106,10 @@ body {
     .btn-sm { min-height: 38px; }
   }
 
-  .btn-primary   { @apply bg-primary-600 text-white shadow-primary-glow hover:bg-primary-700 hover:shadow-elevated active:bg-primary-800; }
+  /* تدرّج خفيف بدل اللون المسطح فى الزرار الأساسي — نفس درجات primary
+     بالظبط، بس بعمق بصري أوضح (نفس فكرة الأزرار فى تطبيقات البنوك/التأمين
+     الاحترافية) */
+  .btn-primary   { @apply bg-primary-gradient text-white shadow-primary-glow-inset hover:bg-primary-gradient-hover hover:shadow-elevated active:bg-primary-800; }
   .btn-secondary { @apply bg-secondary-100 text-secondary-700 hover:bg-secondary-200 active:bg-secondary-300; }
   .btn-success   { @apply bg-success-600 text-white hover:bg-success-700 active:bg-success-800; }
   .btn-warning   { @apply bg-warning-500 text-white hover:bg-warning-600 active:bg-warning-700; }
@@ -87,12 +120,34 @@ body {
 
   /* ===== CARD ===== */
   .card {
-    @apply bg-white rounded-xl shadow-card border border-secondary-100 transition-shadow duration-200;
+    @apply bg-white rounded-xl shadow-card border border-secondary-100/80 transition-shadow duration-200 hover:shadow-card-hover;
     padding: 1rem;          /* 16px على الموبايل */
   }
 
   @media (min-width: 768px) {
     .card { padding: 1.5rem; }    /* 24px على الديسكتوب */
+  }
+
+  /* رقم مالي/إحصائي — عرض ثابت للأرقام + تباعد أحرف أضيق يبرز الرقم كعنصر
+     بصري رئيسي (مطلوب استخدامها فى أي مبلغ/نسبة كبيرة بارزة فى بطاقة) */
+  .text-figure {
+    @apply tracking-tightest;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* حالة فارغة موحّدة (أيقونة + رسالة + إجراء اختياري) — لاستخدامها بدل أي
+     "لا توجد بيانات" نصي مجرد فى الصفحات المختلفة */
+  .empty-state {
+    @apply flex flex-col items-center justify-center text-center py-10 px-4 text-secondary-500;
+  }
+  .empty-state-icon {
+    @apply w-12 h-12 rounded-full bg-secondary-100 text-secondary-400 flex items-center justify-center mb-3;
+  }
+  .empty-state-title {
+    @apply text-sm font-medium text-secondary-700 mb-1;
+  }
+  .empty-state-desc {
+    @apply text-xs text-secondary-400;
   }
 
   /* ===== INPUTS ===== */
@@ -125,19 +180,26 @@ body {
   }
 
   .table-container table { @apply w-full text-sm text-right; }
-  .table-container th    { @apply bg-secondary-50/80 px-3 py-2.5 font-semibold text-secondary-700 border-b border-secondary-200 whitespace-nowrap; }
-  .table-container td    { @apply px-3 py-2.5 border-b border-secondary-100 whitespace-nowrap; }
+  .table-container th    { @apply bg-secondary-50/80 px-3 py-2.5 font-semibold text-secondary-500 text-xs tracking-wide border-b border-secondary-200 whitespace-nowrap; }
+  .table-container td    { @apply px-3 py-2.5 border-b border-secondary-100 whitespace-nowrap; font-variant-numeric: tabular-nums; }
   .table-container tr:last-child td { @apply border-b-0; }
   .table-container tr:hover td { @apply bg-primary-50/40; }
+  /* تخطيط "زيبرا" اختياري (كلاس إضافي يُضاف يدويًا على table-container عند
+     الحاجة لتحسين تتبّع الصفوف فى جداول طويلة) — لا يُفعَّل تلقائيًا */
+  .table-zebra tr:nth-child(even) td { @apply bg-secondary-50/50; }
+  .table-zebra tr:hover td { @apply bg-primary-50/40; }
 
   @media (min-width: 768px) {
     .table-container th { @apply px-4 py-3; }
     .table-container td { @apply px-4 py-3; }
   }
 
-  /* ===== KPI CARD ===== */
+  /* ===== KPI CARD =====
+     خلفية بتدرّج خفيف جدًا من primary-50 (بدل الأبيض المسطح) + خط لمعان
+     علوي داخلي — يبرز كارت الأرقام عن باقي الكروت العادية فى الصفحة بدون
+     أي لون جديد خارج الهوية الحالية */
   .kpi-card {
-    @apply bg-white rounded-xl shadow-card border border-secondary-100 p-4 transition-all duration-200 hover:shadow-elevated hover:-translate-y-0.5;
+    @apply bg-surface-wash rounded-xl shadow-card border border-secondary-100/80 p-4 transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-primary-200/60;
   }
 
   @media (min-width: 768px) {
@@ -173,7 +235,7 @@ body {
            hover:bg-secondary-100 hover:text-secondary-900 transition-colors duration-200;
   }
   .sidebar-link.active {
-    @apply bg-primary-600 text-white font-medium shadow-primary-glow;
+    @apply bg-primary-gradient text-white font-medium shadow-primary-glow;
   }
 
   /* ===== DROPDOWN ===== */

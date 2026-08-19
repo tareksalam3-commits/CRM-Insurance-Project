@@ -239,21 +239,25 @@ export function Sidebar() {
       ============================================= */}
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex" onClick={closeMobileMenu}>
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" />
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-fadeIn" />
           <div
-            className="relative w-[78vw] max-w-80 min-w-[260px] h-full bg-white flex flex-col shadow-2xl animate-slideIn ml-auto mr-0"
+            className="relative w-[78vw] max-w-80 min-w-[260px] h-full bg-white flex flex-col shadow-2xl animate-slideIn ml-auto mr-0 rounded-l-3xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-2 px-4 h-16 bg-gradient-to-l from-primary-600 to-primary-700 flex-shrink-0">
-              <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative flex items-center justify-between gap-2 px-4 h-20 bg-primary-gradient flex-shrink-0 overflow-hidden">
+              <div
+                className="absolute inset-0 opacity-40 pointer-events-none"
+                style={{ backgroundImage: 'radial-gradient(circle at 15% -20%, rgb(255 255 255 / 0.25), transparent 55%)' }}
+              />
+              <div className="relative flex items-center gap-2.5 min-w-0">
                 {branding.company_logo_url
-                  ? <img src={branding.company_logo_url} alt={branding.company_name} className="w-9 h-9 rounded-lg object-contain bg-white/15 p-0.5 flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                  : <BrandMark className="w-9 h-9" />}
-                <span className="text-white font-bold text-sm truncate">{branding.company_name}</span>
+                  ? <img src={branding.company_logo_url} alt={branding.company_name} className="w-10 h-10 rounded-xl object-contain bg-white/15 ring-1 ring-white/25 p-1 flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  : <div className="w-10 h-10 rounded-xl bg-white/15 ring-1 ring-white/25 flex items-center justify-center flex-shrink-0"><BrandMark className="w-7 h-7" /></div>}
+                <span className="text-white font-bold text-sm leading-snug truncate">{branding.company_name}</span>
               </div>
               <button
                 onClick={closeMobileMenu}
-                className="touch-target flex items-center justify-center !min-h-9 !min-w-9 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/30 transition-colors flex-shrink-0"
+                className="relative touch-target flex items-center justify-center !min-h-9 !min-w-9 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/30 transition-colors flex-shrink-0"
               >
                 <X className="w-5 h-5 text-white" />
               </button>
@@ -266,7 +270,7 @@ export function Sidebar() {
             <Link
               to="/profile"
               onClick={closeMobileMenu}
-              className="pressable mx-4 mt-3 mb-1 flex items-center gap-3 p-2.5 rounded-xl border border-secondary-100 hover:bg-secondary-50 active:bg-secondary-100 transition-colors touch-target"
+              className="pressable mx-4 mt-3 mb-1 flex items-center gap-3 p-3 rounded-2xl bg-surface-wash border border-primary-100/60 shadow-soft hover:shadow-card active:scale-[0.99] transition-all touch-target"
             >
               <div className="w-11 h-11 rounded-full bg-primary-100 ring-2 ring-white shadow-sm flex items-center justify-center flex-shrink-0">
                 {user.avatar_url
@@ -275,7 +279,7 @@ export function Sidebar() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-secondary-900 text-sm truncate">{user.name}</p>
-                <p className="text-xs text-secondary-500 truncate">{ROLE_LABELS[user.role]}</p>
+                <span className="badge badge-primary mt-0.5">{ROLE_LABELS[user.role]}</span>
               </div>
               <ChevronLeft className="w-4 h-4 text-secondary-300 flex-shrink-0" />
             </Link>
@@ -302,9 +306,12 @@ export function Sidebar() {
             <div className="border-t border-secondary-100 p-3 flex-shrink-0">
               <button
                 onClick={() => { closeMobileMenu(); signOut(); }}
-                className="pressable flex items-center h-11 gap-3 w-full px-3 rounded-xl text-sm font-medium text-error-600 hover:bg-error-50 active:bg-error-100 transition-colors touch-target"
+                className="pressable flex items-center h-12 gap-3 w-full px-2.5 rounded-xl text-sm font-semibold text-error-600 hover:bg-error-50 active:bg-error-100 transition-colors touch-target"
               >
-                <LogOut className="w-[18px] h-[18px] flex-shrink-0" /><span>تسجيل الخروج</span>
+                <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-error-50 flex-shrink-0">
+                  <LogOut className="w-4 h-4" />
+                </span>
+                <span>تسجيل الخروج</span>
               </button>
             </div>
           </div>
@@ -330,50 +337,74 @@ function NavGroupSection({
   const GroupIcon = group.icon;
 
   return (
-    <div className="pb-1">
+    <div className="pb-2">
       <button
         onClick={onToggle}
-        className="flex items-center justify-between w-full h-9 px-2 rounded-lg text-secondary-500 hover:text-secondary-800 hover:bg-secondary-50 transition-colors duration-150"
+        className="flex items-center justify-between w-full h-8 px-2 rounded-lg text-secondary-400 hover:text-primary-700 transition-colors duration-150"
       >
-        <span className="flex items-center gap-2 text-xs font-bold">
-          <GroupIcon className="w-4 h-4" />
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
+          <GroupIcon className="w-3.5 h-3.5" />
           {group.label}
         </span>
-        <ChevronDown className={clsx('w-4 h-4 transition-transform duration-200', expanded ? 'rotate-0' : '-rotate-90')} />
+        <ChevronDown className={clsx('w-3.5 h-3.5 transition-transform duration-200', expanded ? 'rotate-0' : '-rotate-90')} />
       </button>
 
       <div className={clsx('grid transition-all duration-200 ease-in-out', expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}>
         <div className="overflow-hidden">
-          <div className="space-y-1 pt-0.5 pb-1">
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              const active = isPathActive(pathname, item.path);
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={onNavigate}
-                  className={clsx(
-                    'pressable flex items-center h-11 gap-3 px-3 rounded-xl text-sm transition-all duration-200 touch-target',
-                    active
-                      ? 'bg-primary-50 text-primary-700 font-semibold'
-                      : 'text-secondary-700 font-semibold hover:bg-secondary-50 hover:text-secondary-900'
-                  )}
-                >
-                  <Icon className={clsx('w-[18px] h-[18px] flex-shrink-0 transition-colors', active ? 'text-primary-600' : 'text-secondary-400')} />
-                  <span className="flex items-baseline gap-1.5 min-w-0 truncate">
-                    <span className="truncate">{item.label}</span>
-                    {item.subLabel && (
-                      <span className="text-[11px] font-normal text-secondary-400 truncate">{item.subLabel}</span>
-                    )}
-                  </span>
-                </Link>
-              );
-            })}
+          <div className="space-y-0.5 pt-1 pb-1">
+            {group.items.map((item) => (
+              <NavLinkRow key={item.path} item={item} pathname={pathname} onNavigate={onNavigate} />
+            ))}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// صف رابط تنقل واحد — أيقونة داخل حاوية دائرية (chip) بدل أيقونة عارية، مع
+// شريط تمييز جانبي وخلفية متدرجة خفيفة للعنصر النشط. نفس المكوّن يُستخدم فى
+// كل من NavGroupSection وStandaloneNavLink حتى يبقى شكل كل الروابط متطابقًا
+// ============================================================================
+function NavLinkRow({
+  item, pathname, onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const Icon = item.icon;
+  const active = isPathActive(pathname, item.path);
+  return (
+    <Link
+      to={item.path}
+      onClick={onNavigate}
+      className={clsx(
+        'pressable relative flex items-center h-12 gap-3 pr-2.5 pl-3 rounded-xl text-sm transition-all duration-200 touch-target',
+        active
+          ? 'bg-gradient-to-l from-primary-50 to-primary-50/40 text-primary-700 font-semibold'
+          : 'text-secondary-600 font-medium hover:bg-secondary-50 hover:text-secondary-900'
+      )}
+    >
+      {active && (
+        <span className="absolute right-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-full bg-primary-600" />
+      )}
+      <span
+        className={clsx(
+          'flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 transition-colors',
+          active ? 'bg-primary-600 text-white shadow-sm' : 'bg-secondary-100/80 text-secondary-400'
+        )}
+      >
+        <Icon className="w-4 h-4" />
+      </span>
+      <span className="flex items-baseline gap-1.5 min-w-0 truncate">
+        <span className="truncate">{item.label}</span>
+        {item.subLabel && (
+          <span className="text-[11px] font-normal text-secondary-400 truncate">{item.subLabel}</span>
+        )}
+      </span>
+    </Link>
   );
 }
 
@@ -388,28 +419,9 @@ function StandaloneNavLink({
   pathname: string;
   onNavigate?: () => void;
 }) {
-  const Icon = item.icon;
-  const active = isPathActive(pathname, item.path);
   return (
     <div className="pb-1">
-      <Link
-        to={item.path}
-        onClick={onNavigate}
-        className={clsx(
-          'pressable flex items-center h-11 gap-3 px-3 rounded-xl text-sm transition-all duration-200 touch-target',
-          active
-            ? 'bg-primary-50 text-primary-700 font-semibold'
-            : 'text-secondary-700 font-semibold hover:bg-secondary-50 hover:text-secondary-900'
-        )}
-      >
-        <Icon className={clsx('w-[18px] h-[18px] flex-shrink-0 transition-colors', active ? 'text-primary-600' : 'text-secondary-400')} />
-        <span className="flex items-baseline gap-1.5 min-w-0 truncate">
-          <span className="truncate">{item.label}</span>
-          {item.subLabel && (
-            <span className="text-[11px] font-normal text-secondary-400 truncate">{item.subLabel}</span>
-          )}
-        </span>
-      </Link>
+      <NavLinkRow item={item} pathname={pathname} onNavigate={onNavigate} />
     </div>
   );
 }
